@@ -1,7 +1,6 @@
 use chrono::prelude::*;
-use eframe::egui::{self, Color32, Margin, Response, Rgba, RichText};
+use eframe::egui::{self, Color32, Margin, Response, RichText};
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
@@ -44,8 +43,16 @@ impl KanbanDocument {
                 break;
             }
             seen.push(current);
-            let task = &self.tasks[&current];
-            (&task.child_tasks).into_iter().for_each(|child_id| {
+            // Either parent or child may be a hypothetical, not yet committed to the document
+            // task, and thus needs to be intercepted here to ensure up-to-dateness
+            let task = if current == parent.id {
+                &parent
+            } else if current == child.id {
+                &child
+            } else {
+                &self.tasks[&current]
+            };
+            task.child_tasks.iter().for_each(|child_id| {
                 if seen.contains(&child_id) {
                     return;
                 }

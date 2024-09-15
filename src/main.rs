@@ -2,7 +2,6 @@ mod kanban;
 use eframe::egui;
 
 use kanban::KanbanDocument;
-use kanban::KanbanItem;
 use std::fs;
 
 #[derive(Default)]
