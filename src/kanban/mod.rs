@@ -125,7 +125,7 @@ impl KanbanItem {
         &self,
         document: &KanbanDocument,
         ui: &mut egui::Ui,
-        mut onClick: G,
+        mut on_click: G,
     ) -> egui::Id
     where
         G: FnMut(&KanbanItem),
@@ -147,7 +147,6 @@ impl KanbanItem {
             Status::Ready => {
                 status_color = Color32::from_rgba_unmultiplied(0, 75, 0, 255);
                 style.window_fill = Color32::from_rgba_unmultiplied(0, 150, 0, 255);
-                println!("I'm ready :3");
             }
             _ => (),
         }
@@ -168,20 +167,19 @@ impl KanbanItem {
                 ui.horizontal(|ui| {
                     let button = ui.button("Edit");
                     if button.clicked() {
-                        onClick(self);
+                        on_click(self);
                     }
                     label = Some(ui.label(self.name.clone()));
                 });
-                if ui.is_rect_visible(label.unwrap().rect) {
-                    ui.horizontal(|ui| {
-                        let thing = match self.completed {
-                            Some(x) => format!("Completed on {}", x.to_string()),
-                            None => "Not completed".into(),
-                        };
-                        ui.label(RichText::new(thing).color(status_color).strong());
-                    });
-                    ui.label(RichText::new(self.description.clone()));
-                }
+
+                ui.horizontal(|ui| {
+                    let thing = match self.completed {
+                        Some(x) => format!("Completed on {}", x.to_string()),
+                        None => "Not completed".into(),
+                    };
+                    ui.label(RichText::new(thing).color(status_color).strong());
+                });
+                ui.label(RichText::new(self.description.clone()));
             });
         });
         id
@@ -212,7 +210,12 @@ pub mod editor {
             new_tag: "".into(),
         }
     }
-    pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) {
+    pub fn editor(
+        ui: &mut egui::Ui,
+        document: &KanbanDocument,
+        state: &mut State,
+    ) -> Option<KanbanItem> {
+        let mut create_child = false;
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label("Name");
@@ -221,6 +224,9 @@ pub mod editor {
             ui.text_edit_multiline(&mut state.item_copy.description);
 
             ui.horizontal(|ui| {
+                if ui.button("Add new child").clicked {
+                    create_child = true;
+                }
                 ComboBox::from_label("Select Child to add")
                     .selected_text(match state.selected_child {
                         None => "None",
@@ -242,22 +248,53 @@ pub mod editor {
                     }
                 }
             });
-            ui.label("Child tasks");
-            let mut removed_task: Option<i32> = None;
-            ui.group(|ui| {
-                for child in state.item_copy.child_tasks.iter() {
-                    ui.horizontal(|ui| {
-                        ui.label(document.tasks[child].name.clone());
-                        let button = ui.button("Remove dependency");
-                        if button.clicked {
-                            removed_task = Some(*child);
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("Child tasks");
+                    let mut removed_task: Option<i32> = None;
+                    ui.group(|ui| {
+                        for child in state.item_copy.child_tasks.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label(document.tasks[child].name.clone());
+                                let button = ui.button("Remove dependency");
+                                if button.clicked {
+                                    removed_task = Some(*child);
+                                }
+                            });
+                        }
+                        if let Some(id) = removed_task {
+                            state.item_copy.child_tasks.retain(|x| *x != id);
                         }
                     });
-                }
+                });
+                ui.vertical(|ui| {
+                    ui.label("Tags");
+                    let mut removed_tag: Option<String> = None;
+                    ui.horizontal(|ui| {
+                        ui.text_edit_singleline(&mut state.new_tag);
+                        if !state.item_copy.tags.contains(&state.new_tag) {
+                            if ui.button("Add tag").clicked {
+                                state.item_copy.tags.push(state.new_tag.clone());
+                                state.new_tag.clear();
+                            }
+                        }
+                    });
+                    ui.group(|ui| {
+                        for tag in state.item_copy.tags.iter() {
+                            ui.horizontal(|ui| {
+                                ui.label(tag);
+                                if ui.button("X").clicked {
+                                    removed_tag = Some(tag.clone());
+                                }
+                            });
+                        }
+                        if let Some(tag) = removed_tag {
+                            state.item_copy.tags.retain(|x| *x != tag);
+                        }
+                    });
+                });
             });
-            if let Some(id) = removed_task {
-                state.item_copy.child_tasks.retain(|x| *x != id);
-            }
+
             ui.horizontal(|ui| {
                 let accept_button = ui.button("Accept changes");
                 let cancel_button = ui.button("Cancel changes");
@@ -270,6 +307,12 @@ pub mod editor {
                 }
             });
         });
+        if create_child {
+            let new_child = KanbanItem::new(document);
+            state.item_copy.child_tasks.push(new_child.id);
+            return Some(new_child);
+        }
+        None
     }
 }
 #[cfg(test)]
