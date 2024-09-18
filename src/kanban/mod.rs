@@ -1,4 +1,4 @@
-use chrono::prelude::*;
+use chrono::{prelude::*, DurationRound, TimeDelta};
 use eframe::egui::{self, Color32, Margin, Response, RichText};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -36,15 +36,15 @@ impl KanbanDocument {
         stack.push(child.id);
         let mut found = false;
         while stack.len() > 0 {
-            // We can be sure that it won't return a nonopt because of the while loop's precondition
+            // We can be sure that it won't return a nonopt because of the loop's precondition
             let current = stack.pop().unwrap();
             if current == parent.id && seen.len() > 0 {
                 found = true;
                 break;
             }
             seen.push(current);
-            // Either parent or child may be a hypothetical, not yet committed to the document
-            // task, and thus needs to be intercepted here to ensure up-to-dateness
+            // Either parent or child may be a hypothetical; not yet committed to the document,
+            // and thus needs to be intercepted here to ensure up-to-dateness
             let task = if current == parent.id {
                 &parent
             } else if current == child.id {
@@ -98,6 +98,12 @@ impl KanbanDocument {
     pub fn get_task(&self, id: i32) -> Option<&KanbanItem> {
         self.tasks.get(&id)
     }
+    pub fn remove_task(&mut self, item: &KanbanItem) {
+        for i in self.tasks.values_mut() {
+            i.remove_child(item);
+        }
+        self.tasks.remove(&item.id);
+    }
 }
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct KanbanItem {
@@ -121,6 +127,9 @@ impl KanbanItem {
             child_tasks: Vec::new(),
         }
     }
+    pub fn remove_child(&mut self, other: &Self) {
+        self.child_tasks.retain(|x| *x != other.id);
+    }
     pub fn summary<G>(
         &self,
         document: &KanbanDocument,
@@ -133,6 +142,7 @@ impl KanbanItem {
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
         let mut panel_fill = style.panel_fill;
+        // Get the custom color for the category
         if self.category.is_some() {
             if let Some(color) = document.categories.get(self.category.as_ref().unwrap()) {
                 panel_fill =
@@ -174,7 +184,16 @@ impl KanbanItem {
 
                 ui.horizontal(|ui| {
                     let thing = match self.completed {
-                        Some(x) => format!("Completed on {}", x.to_string()),
+                        Some(x) => {
+                            let local: chrono::DateTime<chrono::Local> = x.into();
+                            format!(
+                                "Completed on {}",
+                                local
+                                    .duration_round(TimeDelta::try_minutes(1).unwrap())
+                                    .unwrap()
+                                    .to_string()
+                            )
+                        }
                         None => "Not completed".into(),
                     };
                     ui.label(RichText::new(thing).color(status_color).strong());
@@ -192,6 +211,7 @@ impl KanbanItem {
 */
 pub mod editor {
     use super::{KanbanDocument, KanbanItem};
+    use chrono::DateTime;
     use eframe::egui::{self, ComboBox};
     #[derive(Clone)]
     pub struct State {
@@ -210,17 +230,36 @@ pub mod editor {
             new_tag: "".into(),
         }
     }
+    pub enum EditorRequest {
+        NoRequest,
+        NewItem(KanbanItem),
+        OpenItem(KanbanItem),
+        DeleteItem(KanbanItem),
+    }
     pub fn editor(
         ui: &mut egui::Ui,
         document: &KanbanDocument,
         state: &mut State,
-    ) -> Option<KanbanItem> {
+    ) -> EditorRequest {
         let mut create_child = false;
+        let mut open_task: Option<i32> = None;
+        let mut delete_task: Option<KanbanItem> = None;
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label("Name");
                 ui.text_edit_singleline(&mut state.item_copy.name);
             });
+            if state.item_copy.completed.is_some() {
+                let local: DateTime<chrono::Local> = state.item_copy.completed.unwrap().into();
+                if ui.button(format!("Completed on {}", local)).clicked() {
+                    state.item_copy.completed = None;
+                }
+            } else {
+                if ui.button("Mark completed").clicked() {
+                    state.item_copy.completed = Some(chrono::Utc::now());
+                }
+            }
+            ui.heading("Description");
             ui.text_edit_multiline(&mut state.item_copy.description);
 
             ui.horizontal(|ui| {
@@ -237,6 +276,7 @@ pub mod editor {
                         for i in document.get_tasks().filter(|x| {
                             document.can_add_as_child(&state.item_copy, x)
                                 && x.id != state.item_copy.id
+                                && document.tasks.contains_key(&x.id)
                         }) {
                             ui.selectable_value(&mut state.selected_child, Some(i.id), &i.name);
                         }
@@ -252,10 +292,15 @@ pub mod editor {
                 ui.vertical(|ui| {
                     ui.label("Child tasks");
                     let mut removed_task: Option<i32> = None;
-                    ui.group(|ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
                         for child in state.item_copy.child_tasks.iter() {
+                            if !document.tasks.contains_key(&child) {
+                                continue;
+                            }
                             ui.horizontal(|ui| {
-                                ui.label(document.tasks[child].name.clone());
+                                if ui.link(document.tasks[child].name.clone()).clicked() {
+                                    open_task = Some(*child);
+                                }
                                 let button = ui.button("Remove dependency");
                                 if button.clicked {
                                     removed_task = Some(*child);
@@ -298,6 +343,7 @@ pub mod editor {
             ui.horizontal(|ui| {
                 let accept_button = ui.button("Accept changes");
                 let cancel_button = ui.button("Cancel changes");
+                let delete_button = ui.button("Delete and close");
                 if accept_button.clicked() {
                     state.open = false;
                 }
@@ -305,14 +351,27 @@ pub mod editor {
                     state.open = false;
                     state.cancelled = true;
                 }
+                if delete_button.clicked() {
+                    state.open = false;
+                    state.cancelled = true;
+                    // May be more efficient to avoid copying this in full and just populate a
+                    // dummy task with only the id set
+                    delete_task = Some(state.item_copy.clone());
+                }
             });
         });
+        if let Some(to_delete) = delete_task {
+            return EditorRequest::DeleteItem(to_delete);
+        }
         if create_child {
             let new_child = KanbanItem::new(document);
             state.item_copy.child_tasks.push(new_child.id);
-            return Some(new_child);
+            return EditorRequest::NewItem(new_child);
         }
-        None
+        if let Some(task_to_edit) = open_task {
+            return EditorRequest::OpenItem(document.get_task(task_to_edit).cloned().unwrap());
+        }
+        EditorRequest::NoRequest
     }
 }
 #[cfg(test)]
@@ -338,5 +397,24 @@ mod tests {
             .push(b_id);
         assert!(!document.can_add_as_child(&document.tasks[&b_id], &document.tasks[&a_id]));
         assert!(document.can_add_as_child(&document.tasks[&c_id], &document.tasks[&a_id]));
+    }
+    #[test]
+    fn test_task_removal() {
+        let mut document = KanbanDocument::new();
+
+        let mut a = document.get_new_task().clone();
+        let mut b = document.get_new_task().clone();
+        let mut c = document.get_new_task().clone();
+        document.replace_task(&a);
+        a.child_tasks.push(c.id);
+        {
+            let copy = document.get_task(a.id);
+        }
+
+        document.remove_task(&c);
+        {
+            let copy = document.get_task(a.id).unwrap();
+            assert!(copy.child_tasks.is_empty());
+        }
     }
 }

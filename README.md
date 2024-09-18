@@ -4,8 +4,9 @@
 * [x] Saving
 * [x] Loading
 * [ ] Recently opened
+* [ ] Search
 * [ ] Views
   * [ ] Queue view
   * [ ] Tree View?
-  * [ ] Column view(As in, Ready, Blocked, Completed)
+  * [x] Column view(As in, Ready, Blocked, Completed)
   *

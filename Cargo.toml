@@ -13,6 +13,7 @@ env_logger = { version = "0.10", default-features = false, features = [
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = { version = "~1.0" }
 rfd = "0.14.1"
+xdg = "~2.5.0"
 
 [profile.hyper]
 inherits = "release"
