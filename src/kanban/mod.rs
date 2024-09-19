@@ -151,11 +151,11 @@ impl KanbanItem {
         }
         match document.task_status(&self.id) {
             Status::Blocked => {
-                status_color = Color32::from_rgba_unmultiplied(75, 0, 0, 255);
+                status_color = Color32::from_rgba_unmultiplied(150, 0, 0, 255);
                 style.window_fill = Color32::from_rgba_unmultiplied(75, 0, 0, 255);
             }
             Status::Ready => {
-                status_color = Color32::from_rgba_unmultiplied(0, 75, 0, 255);
+                status_color = Color32::from_rgba_unmultiplied(0, 150, 0, 255);
                 style.window_fill = Color32::from_rgba_unmultiplied(0, 150, 0, 255);
             }
             _ => (),
