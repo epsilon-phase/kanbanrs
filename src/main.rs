@@ -101,8 +101,10 @@ impl eframe::App for KanbanRS {
                     ui.menu_button("Recently Used", |ui| {
                         for i in self.read_recents() {
                             let s: String = String::from(i.to_str().unwrap());
+                            println!("'{}' len = {}", &s, s.len());
                             if ui.button(&s).clicked() {
                                 self.open_file(&i);
+                                ui.close_menu();
                             }
                         }
                     })
@@ -197,6 +199,7 @@ impl KanbanRS {
         std::fs::read_to_string(recents_file)
             .unwrap_or("".to_string())
             .split("\n")
+            .filter(|x| x.len() > 0)
             .map(|x| x.into())
             .collect()
     }

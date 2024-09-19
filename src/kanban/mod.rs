@@ -409,6 +409,7 @@ mod tests {
         a.child_tasks.push(c.id);
         {
             let copy = document.get_task(a.id);
+            assert!(copy.unwrap().child_tasks.len() == 1);
         }
 
         document.remove_task(&c);
