@@ -203,6 +203,53 @@ impl KanbanItem {
         });
         id
     }
+    pub fn matches(&self, other: &str) -> bool {
+        if self.name.contains(other) {
+            return true;
+        }
+        if self.description.contains(other) {
+            return true;
+        }
+        if self.tags.iter().any(|tag| tag == other) {
+            return true;
+        }
+        false
+    }
+}
+/*
+*/
+pub mod search {
+    pub struct SearchState {
+        pub matched_ids: Vec<i32>,
+        pub search_prompt: String,
+        /**
+        The former search prompt, if search_prompt and former_search_prompt are in disagreement
+        the matched_ids must be rebuilt.
+        */
+        former_search_prompt: String,
+    }
+
+    impl SearchState {
+        pub fn new() -> Self {
+            SearchState {
+                matched_ids: Vec::new(),
+                search_prompt: String::new(),
+                former_search_prompt: String::new(),
+            }
+        }
+        pub fn update(&mut self, document: &super::KanbanDocument) {
+            if self.search_prompt == self.former_search_prompt {
+                return;
+            }
+            self.matched_ids.clear();
+            for i in document.get_tasks() {
+                if i.matches(&self.search_prompt) {
+                    self.matched_ids.push(i.id);
+                }
+            }
+            self.former_search_prompt = self.search_prompt.clone();
+        }
+    }
 }
 /*
  * This is for the item editor. It requires a state object to be kept alive'
@@ -244,120 +291,123 @@ pub mod editor {
         let mut create_child = false;
         let mut open_task: Option<i32> = None;
         let mut delete_task: Option<KanbanItem> = None;
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut state.item_copy.name);
-            });
-            if state.item_copy.completed.is_some() {
-                let local: DateTime<chrono::Local> = state.item_copy.completed.unwrap().into();
-                if ui.button(format!("Completed on {}", local)).clicked() {
-                    state.item_copy.completed = None;
-                }
-            } else {
-                if ui.button("Mark completed").clicked() {
-                    state.item_copy.completed = Some(chrono::Utc::now());
-                }
-            }
-            ui.heading("Description");
-            ui.text_edit_multiline(&mut state.item_copy.description);
 
-            ui.horizontal(|ui| {
-                if ui.button("Add new child").clicked {
-                    create_child = true;
-                }
-                ComboBox::from_label("Select Child to add")
-                    .selected_text(match state.selected_child {
-                        None => "None",
-                        Some(x) => &document.get_task(x).unwrap().name,
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut state.selected_child, None, "None");
-                        for i in document.get_tasks().filter(|x| {
-                            document.can_add_as_child(&state.item_copy, x)
-                                && x.id != state.item_copy.id
-                                && document.tasks.contains_key(&x.id)
-                        }) {
-                            ui.selectable_value(&mut state.selected_child, Some(i.id), &i.name);
-                        }
-                    });
-                if let Some(x) = state.selected_child {
-                    let button = ui.button("Add Child");
-                    if button.clicked() {
-                        state.item_copy.child_tasks.push(x);
+        ui.vertical(|ui| {
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Name");
+                    ui.text_edit_singleline(&mut state.item_copy.name);
+                });
+                if state.item_copy.completed.is_some() {
+                    let local: DateTime<chrono::Local> = state.item_copy.completed.unwrap().into();
+                    if ui.button(format!("Completed on {}", local)).clicked() {
+                        state.item_copy.completed = None;
+                    }
+                } else {
+                    if ui.button("Mark completed").clicked() {
+                        state.item_copy.completed = Some(chrono::Utc::now());
                     }
                 }
-            });
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label("Child tasks");
-                    let mut removed_task: Option<i32> = None;
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for child in state.item_copy.child_tasks.iter() {
-                            if !document.tasks.contains_key(&child) {
-                                continue;
-                            }
-                            ui.horizontal(|ui| {
-                                if ui.link(document.tasks[child].name.clone()).clicked() {
-                                    open_task = Some(*child);
-                                }
-                                let button = ui.button("Remove dependency");
-                                if button.clicked {
-                                    removed_task = Some(*child);
-                                }
-                            });
-                        }
-                        if let Some(id) = removed_task {
-                            state.item_copy.child_tasks.retain(|x| *x != id);
-                        }
-                    });
-                });
-                ui.vertical(|ui| {
-                    ui.label("Tags");
-                    let mut removed_tag: Option<String> = None;
-                    ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut state.new_tag);
-                        if !state.item_copy.tags.contains(&state.new_tag) {
-                            if ui.button("Add tag").clicked {
-                                state.item_copy.tags.push(state.new_tag.clone());
-                                state.new_tag.clear();
-                            }
-                        }
-                    });
-                    ui.group(|ui| {
-                        for tag in state.item_copy.tags.iter() {
-                            ui.horizontal(|ui| {
-                                ui.label(tag);
-                                if ui.button("X").clicked {
-                                    removed_tag = Some(tag.clone());
-                                }
-                            });
-                        }
-                        if let Some(tag) = removed_tag {
-                            state.item_copy.tags.retain(|x| *x != tag);
-                        }
-                    });
-                });
-            });
+                ui.heading("Description");
+                ui.text_edit_multiline(&mut state.item_copy.description);
 
-            ui.horizontal(|ui| {
-                let accept_button = ui.button("Accept changes");
-                let cancel_button = ui.button("Cancel changes");
-                let delete_button = ui.button("Delete and close");
-                if accept_button.clicked() {
-                    state.open = false;
-                }
-                if cancel_button.clicked() {
-                    state.open = false;
-                    state.cancelled = true;
-                }
-                if delete_button.clicked() {
-                    state.open = false;
-                    state.cancelled = true;
-                    // May be more efficient to avoid copying this in full and just populate a
-                    // dummy task with only the id set
-                    delete_task = Some(state.item_copy.clone());
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("Add new child").clicked {
+                        create_child = true;
+                    }
+                    ComboBox::from_label("Select Child to add")
+                        .selected_text(match state.selected_child {
+                            None => "None",
+                            Some(x) => &document.get_task(x).unwrap().name,
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut state.selected_child, None, "None");
+                            for i in document.get_tasks().filter(|x| {
+                                document.can_add_as_child(&state.item_copy, x)
+                                    && x.id != state.item_copy.id
+                                    && document.tasks.contains_key(&x.id)
+                            }) {
+                                ui.selectable_value(&mut state.selected_child, Some(i.id), &i.name);
+                            }
+                        });
+                    if let Some(x) = state.selected_child {
+                        let button = ui.button("Add Child");
+                        if button.clicked() {
+                            state.item_copy.child_tasks.push(x);
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label("Child tasks");
+                        let mut removed_task: Option<i32> = None;
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for child in state.item_copy.child_tasks.iter() {
+                                if !document.tasks.contains_key(&child) {
+                                    continue;
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.link(document.tasks[child].name.clone()).clicked() {
+                                        open_task = Some(*child);
+                                    }
+                                    let button = ui.button("Remove dependency");
+                                    if button.clicked {
+                                        removed_task = Some(*child);
+                                    }
+                                });
+                            }
+                            if let Some(id) = removed_task {
+                                state.item_copy.child_tasks.retain(|x| *x != id);
+                            }
+                        });
+                    });
+                    ui.vertical(|ui| {
+                        ui.label("Tags");
+                        let mut removed_tag: Option<String> = None;
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut state.new_tag);
+                            if !state.item_copy.tags.contains(&state.new_tag) {
+                                if ui.button("Add tag").clicked {
+                                    state.item_copy.tags.push(state.new_tag.clone());
+                                    state.new_tag.clear();
+                                }
+                            }
+                        });
+                        ui.group(|ui| {
+                            for tag in state.item_copy.tags.iter() {
+                                ui.horizontal(|ui| {
+                                    ui.label(tag);
+                                    if ui.button("X").clicked {
+                                        removed_tag = Some(tag.clone());
+                                    }
+                                });
+                            }
+                            if let Some(tag) = removed_tag {
+                                state.item_copy.tags.retain(|x| *x != tag);
+                            }
+                        });
+                    });
+                });
+
+                ui.horizontal(|ui| {
+                    let accept_button = ui.button("Accept changes");
+                    let cancel_button = ui.button("Cancel changes");
+                    let delete_button = ui.button("Delete and close");
+                    if accept_button.clicked() {
+                        state.open = false;
+                    }
+                    if cancel_button.clicked() {
+                        state.open = false;
+                        state.cancelled = true;
+                    }
+                    if delete_button.clicked() {
+                        state.open = false;
+                        state.cancelled = true;
+                        // May be more efficient to avoid copying this in full and just populate a
+                        // dummy task with only the id set
+                        delete_task = Some(state.item_copy.clone());
+                    }
+                });
             });
         });
         if let Some(to_delete) = delete_task {

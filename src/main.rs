@@ -1,8 +1,8 @@
 mod kanban;
-use eframe::egui::{self, ComboBox, Rect, RichText, WidgetText};
+use eframe::egui::{self, ComboBox, Rect, RichText, ScrollArea, WidgetText};
 
 use core::f32;
-use kanban::{KanbanDocument, KanbanItem};
+use kanban::{search::SearchState, KanbanDocument, KanbanItem};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -13,7 +13,8 @@ struct KanbanRS {
     task_name: String,
     open_editors: Vec<kanban::editor::State>,
     save_file_name: Option<PathBuf>,
-    current_layout: Layout,
+    current_layout: KanbanLayout,
+    searcher: kanban::search::SearchState,
     base_dirs: xdg::BaseDirectories,
 }
 impl Default for KanbanRS {
@@ -23,7 +24,8 @@ impl Default for KanbanRS {
             task_name: String::new(),
             open_editors: Vec::new(),
             save_file_name: None,
-            current_layout: Layout::default(),
+            current_layout: KanbanLayout::default(),
+            searcher: SearchState::new(),
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
         };
     }
@@ -101,7 +103,6 @@ impl eframe::App for KanbanRS {
                     ui.menu_button("Recently Used", |ui| {
                         for i in self.read_recents() {
                             let s: String = String::from(i.to_str().unwrap());
-                            println!("'{}' len = {}", &s, s.len());
                             if ui.button(&s).clicked() {
                                 self.open_file(&i);
                                 ui.close_menu();
@@ -110,12 +111,17 @@ impl eframe::App for KanbanRS {
                     })
                 });
             });
-            ui.end_row();
+
             ComboBox::from_label("Layout Type")
                 .selected_text(self.current_layout)
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.current_layout, Layout::Columnar, "Columnar");
-                    ui.selectable_value(&mut self.current_layout, Layout::Queue, "Queue");
+                    ui.selectable_value(
+                        &mut self.current_layout,
+                        KanbanLayout::Columnar,
+                        "Columnar",
+                    );
+                    ui.selectable_value(&mut self.current_layout, KanbanLayout::Queue, "Queue");
+                    ui.selectable_value(&mut self.current_layout, KanbanLayout::Search, "Search");
                 });
 
             ui.text_edit_singleline(&mut self.task_name);
@@ -126,8 +132,9 @@ impl eframe::App for KanbanRS {
 
             ui.end_row();
             match self.current_layout {
-                Layout::Columnar => self.layout_columnar(ui),
-                Layout::Queue => self.layout_queue(ui),
+                KanbanLayout::Columnar => self.layout_columnar(ui),
+                KanbanLayout::Queue => self.layout_queue(ui),
+                KanbanLayout::Search => self.layout_search(ui),
             }
 
             self.open_editors
@@ -220,6 +227,7 @@ impl KanbanRS {
             .map(|x| String::from(x))
             .collect();
         let pb: String = String::from(self.save_file_name.as_ref().unwrap().to_str().unwrap());
+        // If the file is already in recents then we should avoid adding it.
         if old_recents.contains(&pb) {
             return;
         }
@@ -271,10 +279,6 @@ impl KanbanRS {
                 .id_source("ReadyScrollarea")
                 // .auto_shrink([false; 2])
                 .show(&mut columns[0], |ui| {
-                    // ui.allocate_space(egui::Vec2 {
-                    //     x: width_available / 3.0,
-                    //     y: ui.available_size().y,
-                    // });
                     ui.vertical(|ui| {
                         for item in self
                             .document
@@ -335,22 +339,48 @@ impl KanbanRS {
         // });
     }
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
-}
-#[derive(PartialEq, Eq, Clone, Copy)]
-enum Layout {
-    Queue,
-    Columnar,
-}
-impl Default for Layout {
-    fn default() -> Self {
-        Layout::Columnar
+    pub fn layout_search(&mut self, ui: &mut egui::Ui) {
+        let mut add_item = |item: &kanban::KanbanItem| {
+            let mut editor = kanban::editor::state_from(item);
+            editor.open = true;
+            self.open_editors.push(editor);
+        };
+        ui.horizontal(|ui| {
+            let label = ui.label("Search");
+
+            ui.text_edit_singleline(&mut self.searcher.search_prompt)
+                .labelled_by(label.id);
+        });
+        self.searcher.update(&self.document);
+        ScrollArea::vertical()
+            .id_source("SearchArea")
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for task_id in self.searcher.matched_ids.iter() {
+                        let task = self.document.get_task(*task_id).unwrap();
+                        task.summary(&self.document, ui, |item| add_item(item));
+                    }
+                });
+            });
     }
 }
-impl Into<WidgetText> for Layout {
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum KanbanLayout {
+    Queue,
+    Columnar,
+    Search,
+}
+impl Default for KanbanLayout {
+    fn default() -> Self {
+        KanbanLayout::Columnar
+    }
+}
+impl Into<WidgetText> for KanbanLayout {
     fn into(self) -> WidgetText {
         match self {
-            Layout::Columnar => "Columnar",
-            Layout::Queue => "Queue",
+            KanbanLayout::Columnar => "Columnar",
+            KanbanLayout::Queue => "Queue",
+            KanbanLayout::Search => "Search",
         }
         .into()
     }
