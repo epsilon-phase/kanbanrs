@@ -1,5 +1,5 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
-use eframe::egui::{self, Color32, Margin, Response, RichText, Vec2};
+use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Vec2};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -273,7 +273,10 @@ impl KanbanItem {
                     };
                     ui.label(RichText::new(thing).color(status_color).strong());
                 });
-                ui.label(RichText::new(self.description.clone()));
+                ScrollArea::vertical()
+                    .id_source(4000000 + self.id)
+                    .max_height(200.0)
+                    .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
             });
         });
         action

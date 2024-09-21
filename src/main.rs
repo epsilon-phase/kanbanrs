@@ -18,6 +18,7 @@ struct KanbanRS {
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
     close_application: bool,
+    layout_cache_needs_updating: bool,
 }
 impl Default for KanbanRS {
     fn default() -> Self {
@@ -31,6 +32,7 @@ impl Default for KanbanRS {
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
             hovered_task: None,
             close_application: false,
+            layout_cache_needs_updating: true,
         };
     }
 }
@@ -53,6 +55,10 @@ impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.close_application {
             return;
+        }
+        if self.layout_cache_needs_updating {
+            self.current_layout.update_cache(&self.document);
+            self.layout_cache_needs_updating = false;
         }
         ctx.input_mut(|i| {
             let save_shortcut = egui::KeyboardShortcut {
@@ -102,6 +108,7 @@ impl eframe::App for KanbanRS {
                         if let Some(filename) = filename {
                             self.open_file(&filename);
                         }
+                        self.current_layout.update_cache(&self.document);
                         ui.close_menu();
                     }
                     ui.menu_button("Recently Used", |ui| {
@@ -110,6 +117,7 @@ impl eframe::App for KanbanRS {
                             if ui.button(&s).clicked() {
                                 self.open_file(&i);
                                 ui.close_menu();
+                                self.layout_cache_needs_updating = true;
                             }
                         }
                     });
@@ -121,26 +129,42 @@ impl eframe::App for KanbanRS {
             });
 
             ComboBox::from_label("Layout Type")
-                .selected_text(self.current_layout)
+                .selected_text(String::from(&self.current_layout))
                 .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.current_layout,
-                        KanbanLayout::Columnar,
-                        "Columnar",
-                    );
-                    ui.selectable_value(&mut self.current_layout, KanbanLayout::Queue, "Queue");
-                    ui.selectable_value(&mut self.current_layout, KanbanLayout::Search, "Search");
+                    if ui
+                        .selectable_value(
+                            &mut self.current_layout,
+                            KanbanLayout::default(),
+                            "Columnar",
+                        )
+                        .clicked()
+                    {
+                        self.layout_cache_needs_updating = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.current_layout, KanbanLayout::Queue, "Queue")
+                        .clicked()
+                    {
+                        self.layout_cache_needs_updating = true;
+                    }
+                    if ui
+                        .selectable_value(&mut self.current_layout, KanbanLayout::Search, "Search")
+                        .clicked()
+                    {
+                        self.layout_cache_needs_updating = true;
+                    }
                 });
 
             ui.text_edit_singleline(&mut self.task_name);
             if ui.button("Add Task").clicked() {
                 let thing = self.document.get_new_task();
                 thing.name = self.task_name.clone();
+                self.layout_cache_needs_updating = true;
             }
 
             ui.end_row();
             match self.current_layout {
-                KanbanLayout::Columnar => self.layout_columnar(ui),
+                KanbanLayout::Columnar(_) => self.layout_columnar(ui),
                 KanbanLayout::Queue => self.layout_queue(ui),
                 KanbanLayout::Search => self.layout_search(ui),
             }
@@ -151,9 +175,12 @@ impl eframe::App for KanbanRS {
                 .for_each(|editor| {
                     if !editor.cancelled {
                         self.document.replace_task(&editor.item_copy);
+                        self.layout_cache_needs_updating = true;
                     }
                 });
             self.open_editors.retain(|editor| editor.open);
+            // This should probably work more like the vectors of summary actions
+            //
             let mut new_item: Option<KanbanItem> = None;
             let mut delete_item: Option<KanbanItem> = None;
             for editor in self.open_editors.iter_mut() {
@@ -167,6 +194,7 @@ impl eframe::App for KanbanRS {
                                 kanban::editor::EditorRequest::NewItem(new_task) => {
                                     self.document.replace_task(&new_task);
                                     new_item = Some(new_task);
+                                    self.layout_cache_needs_updating = true;
                                 }
                                 // The main distinction between the two is that opening an
                                 // existing task shouldn't change the state of the item in the
@@ -176,6 +204,7 @@ impl eframe::App for KanbanRS {
                                 }
                                 kanban::editor::EditorRequest::DeleteItem(to_delete) => {
                                     delete_item = Some(to_delete);
+                                    self.layout_cache_needs_updating = true;
                                 }
                                 _ => {}
                             }
@@ -186,11 +215,13 @@ impl eframe::App for KanbanRS {
                     },
                 )
             }
+
             if let Some(to_delete) = delete_item {
                 self.document.remove_task(&to_delete);
                 for editor in self.open_editors.iter_mut() {
                     editor.item_copy.remove_child(&to_delete);
                 }
+                self.layout_cache_needs_updating = true;
             }
             if let Some(item) = new_item {
                 if !self
@@ -200,6 +231,7 @@ impl eframe::App for KanbanRS {
                 {
                     self.open_editors.push(kanban::editor::state_from(&item));
                 }
+                self.layout_cache_needs_updating = true;
             }
         });
     }
@@ -217,10 +249,11 @@ impl KanbanRS {
             SummaryAction::CreateChildOf(id) => {
                 let new_task = self.document.get_new_task().id;
                 let mut task_copy = self.document.get_task(*id).unwrap().clone();
-                task_copy.child_tasks.push(*id);
+                task_copy.child_tasks.push(new_task);
                 let editor = kanban::editor::state_from(self.document.get_task(new_task).unwrap());
                 self.document.replace_task(&task_copy);
                 self.open_editors.push(editor);
+                self.layout_cache_needs_updating = true;
             }
         }
     }
@@ -301,83 +334,69 @@ impl KanbanRS {
             editor.open = true;
             self.open_editors.push(editor);
         };
+        if let KanbanLayout::Columnar(cache) = &mut self.current_layout.clone() {
+            ui.columns(3, |columns| {
+                let mut actions: Vec<SummaryAction> = Vec::new();
+                columns[0].label(RichText::new("Ready").heading());
+                egui::ScrollArea::vertical()
+                    .id_source("ReadyScrollarea")
+                    // .auto_shrink([false; 2])
+                    .show(&mut columns[0], |ui| {
+                        ui.vertical_centered_justified(|ui| {
+                            for item_id in cache[0].iter() {
+                                let item = self.document.get_task(*item_id).unwrap();
+                                let action = item.summary(
+                                    &self.document,
+                                    &mut self.hovered_task,
+                                    ui,
+                                    |_item| (),
+                                );
+                                actions.push(action);
+                            }
+                        });
+                    });
+
+                columns[1].label(RichText::new("Blocked").heading());
+                egui::ScrollArea::vertical()
+                    .id_source("BlockedScrollArea")
+                    // .auto_shrink([false, true])
+                    .show(&mut columns[1], |ui| {
+                        ui.vertical(|ui| {
+                            for item_id in cache[1].iter() {
+                                let item = self.document.get_task(*item_id).unwrap();
+                                actions.push(item.summary(
+                                    &self.document,
+                                    &mut self.hovered_task,
+                                    ui,
+                                    |_item| (),
+                                ));
+                            }
+                        });
+                    });
+                columns[2].label(RichText::new("Completed").heading());
+                egui::ScrollArea::vertical()
+                    .id_source("CompletedScrollArea")
+                    // .auto_shrink(false)
+                    .show(&mut columns[2], |ui| {
+                        ui.vertical(|ui| {
+                            for item_id in cache[2].iter() {
+                                let item = self.document.get_task(*item_id).unwrap();
+                                actions.push(item.summary(
+                                    &self.document,
+                                    &mut self.hovered_task,
+                                    ui,
+                                    |_item| (),
+                                ));
+                            }
+                        });
+                    });
+                actions.iter().for_each(|x| self.handle_summary_action(x));
+            });
+        }
 
         // ui.push_id("Ready tasks", |ui| {
-        ui.columns(3, |columns| {
-            let mut actions: Vec<SummaryAction> = Vec::new();
-            columns[0].label(RichText::new("Ready").heading());
-            egui::ScrollArea::vertical()
-                .id_source("ReadyScrollarea")
-                // .auto_shrink([false; 2])
-                .show(&mut columns[0], |ui| {
-                    ui.vertical_centered_justified(|ui| {
-                        for item in self
-                            .document
-                            .get_tasks()
-                            .filter(|x| self.document.task_status(&x.id) == kanban::Status::Ready)
-                        {
-                            let action =
-                                item.summary(&self.document, &mut self.hovered_task, ui, |_item| {
-                                    ()
-                                });
-                            actions.push(action);
-                        }
-                    });
-                });
-
-            columns[1].label(RichText::new("Blocked").heading());
-            egui::ScrollArea::vertical()
-                .id_source("BlockedScrollArea")
-                // .auto_shrink([false, true])
-                .show(&mut columns[1], |ui| {
-                    ui.vertical(|ui| {
-                        for item in self
-                            .document
-                            .get_tasks()
-                            .filter(|x| self.document.task_status(&x.id) == kanban::Status::Blocked)
-                        {
-                            actions.push(item.summary(
-                                &self.document,
-                                &mut self.hovered_task,
-                                ui,
-                                |_item| (),
-                            ));
-                        }
-                    });
-                });
-            columns[2].label(RichText::new("Completed").heading());
-            egui::ScrollArea::vertical()
-                .id_source("CompletedScrollArea")
-                // .auto_shrink(false)
-                .show(&mut columns[2], |ui| {
-                    ui.vertical(|ui| {
-                        for item in self.document.get_tasks().filter(|x| {
-                            self.document.task_status(&x.id) == kanban::Status::Completed
-                        }) {
-                            actions.push(item.summary(
-                                &self.document,
-                                &mut self.hovered_task,
-                                ui,
-                                |_item| (),
-                            ));
-                        }
-                    });
-                });
-            actions.iter().for_each(|x| self.handle_summary_action(x));
-        });
-
-        // });
-        // ui.push_id("Blocked tasks", |ui| {
-
-        // ui.allocate_space(egui::Vec2 {
-        //     x: width_available / 3.0,
-        //     y: ui.available_size().y,
-        // });
-        // });
-        // ui.push_id("Completed task", |ui| {
-
-        // });
     }
+
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
         let mut actions: Vec<SummaryAction> = Vec::new();
@@ -411,21 +430,41 @@ impl KanbanRS {
         actions.iter().for_each(|x| self.handle_summary_action(x));
     }
 }
-#[derive(PartialEq, Eq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone)]
 enum KanbanLayout {
     Queue,
-    Columnar,
+    Columnar([Vec<i32>; 3]),
     Search,
+}
+impl KanbanLayout {
+    fn update_columnar(columnar_cache: &mut [Vec<i32>; 3], document: &KanbanDocument) {
+        columnar_cache.iter_mut().for_each(|x| x.clear());
+        for task in document.get_tasks() {
+            let index = match document.task_status(&task.id) {
+                kanban::Status::Ready => 0,
+                kanban::Status::Blocked => 1,
+                kanban::Status::Completed => 2,
+            };
+            columnar_cache[index].push(task.id);
+        }
+    }
+    pub fn update_cache(&mut self, document: &KanbanDocument) {
+        match self {
+            KanbanLayout::Queue => {}
+            KanbanLayout::Columnar(array) => KanbanLayout::update_columnar(array, document),
+            KanbanLayout::Search => {}
+        }
+    }
 }
 impl Default for KanbanLayout {
     fn default() -> Self {
-        KanbanLayout::Columnar
+        KanbanLayout::Columnar([Vec::new(), Vec::new(), Vec::new()])
     }
 }
-impl Into<WidgetText> for KanbanLayout {
-    fn into(self) -> WidgetText {
-        match self {
-            KanbanLayout::Columnar => "Columnar",
+impl From<&KanbanLayout> for String {
+    fn from(src: &KanbanLayout) -> String {
+        match src {
+            KanbanLayout::Columnar(_) => "Columnar",
             KanbanLayout::Queue => "Queue",
             KanbanLayout::Search => "Search",
         }
