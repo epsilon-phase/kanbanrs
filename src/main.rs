@@ -14,7 +14,7 @@ struct KanbanRS {
     open_editors: Vec<kanban::editor::State>,
     save_file_name: Option<PathBuf>,
     current_layout: KanbanLayout,
-    searcher: kanban::search::SearchState,
+
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
     close_application: bool,
@@ -28,7 +28,6 @@ impl Default for KanbanRS {
             open_editors: Vec::new(),
             save_file_name: None,
             current_layout: KanbanLayout::default(),
-            searcher: SearchState::new(),
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
             hovered_task: None,
             close_application: false,
@@ -148,7 +147,11 @@ impl eframe::App for KanbanRS {
                         self.layout_cache_needs_updating = true;
                     }
                     if ui
-                        .selectable_value(&mut self.current_layout, KanbanLayout::Search, "Search")
+                        .selectable_value(
+                            &mut self.current_layout,
+                            KanbanLayout::Search(SearchState::new()),
+                            "Search",
+                        )
                         .clicked()
                     {
                         self.layout_cache_needs_updating = true;
@@ -163,10 +166,12 @@ impl eframe::App for KanbanRS {
             }
 
             ui.end_row();
-            match self.current_layout {
-                KanbanLayout::Columnar(_) => self.layout_columnar(ui),
-                KanbanLayout::Queue => self.layout_queue(ui),
-                KanbanLayout::Search => self.layout_search(ui),
+            if let KanbanLayout::Columnar(_) = self.current_layout {
+                self.layout_columnar(ui);
+            } else if let KanbanLayout::Search(_) = self.current_layout {
+                self.layout_search(ui);
+            } else {
+                self.layout_queue(ui);
             }
 
             self.open_editors
@@ -382,32 +387,36 @@ impl KanbanRS {
 
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
-        let mut actions: Vec<SummaryAction> = Vec::new();
-        ui.horizontal(|ui| {
-            let label = ui.label("Search");
+        if let KanbanLayout::Search(search_state) = &mut self.current_layout {
+            let mut actions: Vec<SummaryAction> = Vec::new();
+            ui.horizontal(|ui| {
+                let label = ui.label("Search");
 
-            ui.text_edit_singleline(&mut self.searcher.search_prompt)
-                .labelled_by(label.id);
-        });
-        self.searcher.update(&self.document);
-        ScrollArea::vertical()
-            .id_source("SearchArea")
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for task_id in self.searcher.matched_ids.iter() {
-                        let task = self.document.get_task(*task_id).unwrap();
+                ui.text_edit_singleline(&mut search_state.search_prompt)
+                    .labelled_by(label.id);
+            });
+            search_state.update(&self.document);
+            ScrollArea::vertical().id_source("SearchArea").show_rows(
+                ui,
+                200.0,
+                search_state.matched_ids.len(),
+                |ui, range| {
+                    for row in range {
+                        let task_id = search_state.matched_ids[row];
+                        let task = self.document.get_task(task_id).unwrap();
                         actions.push(task.summary(&self.document, &mut self.hovered_task, ui));
                     }
-                });
-            });
-        actions.iter().for_each(|x| self.handle_summary_action(x));
+                },
+            );
+            actions.iter().for_each(|x| self.handle_summary_action(x));
+        }
     }
 }
 #[derive(PartialEq, Eq, Clone)]
 enum KanbanLayout {
     Queue,
     Columnar([Vec<i32>; 3]),
-    Search,
+    Search(kanban::search::SearchState),
 }
 impl KanbanLayout {
     fn update_columnar(columnar_cache: &mut [Vec<i32>; 3], document: &KanbanDocument) {
@@ -425,7 +434,9 @@ impl KanbanLayout {
         match self {
             KanbanLayout::Queue => {}
             KanbanLayout::Columnar(array) => KanbanLayout::update_columnar(array, document),
-            KanbanLayout::Search => {}
+            KanbanLayout::Search(search_state) => {
+                search_state.update(document);
+            }
         }
     }
 }
@@ -439,7 +450,7 @@ impl From<&KanbanLayout> for String {
         match src {
             KanbanLayout::Columnar(_) => "Columnar",
             KanbanLayout::Queue => "Queue",
-            KanbanLayout::Search => "Search",
+            KanbanLayout::Search(_) => "Search",
         }
         .into()
     }

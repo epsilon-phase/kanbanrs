@@ -307,6 +307,7 @@ impl KanbanItem {
 /*
 */
 pub mod search {
+    #[derive(PartialEq, Eq, Clone)]
     pub struct SearchState {
         pub matched_ids: Vec<i32>,
         pub search_prompt: String,
