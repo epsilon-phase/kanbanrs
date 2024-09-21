@@ -1,5 +1,5 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
-use eframe::egui::{self, Color32, Margin, Response, RichText};
+use eframe::egui::{self, Color32, Margin, Response, RichText, Vec2};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -178,6 +178,18 @@ impl KanbanItem {
             }
             _ => (),
         }
+        let mut stroke = style.noninteractive().bg_stroke;
+        if let Some(ht) = hovered_task {
+            match document.get_relation(self.id, *ht) {
+                TaskRelation::ChildOf => {
+                    stroke.color = Color32::from_rgba_premultiplied(50, 50, 250, 255)
+                }
+                TaskRelation::ParentOf => {
+                    stroke.color = Color32::from_rgba_unmultiplied(255, 50, 50, 255)
+                }
+                _ => (),
+            };
+        }
         let mut id: egui::Id = egui::Id::new(0);
         /* Groups don't allow for setting the fill color.
         They might still be better, after all, the category seems like a better
@@ -185,8 +197,9 @@ impl KanbanItem {
         let frame = eframe::egui::Frame::none()
             .fill(panel_fill)
             .inner_margin(Margin::same(6.0))
+            .outer_margin(Vec2::new(3.0, 0.0))
             .rounding(style.noninteractive().rounding)
-            .stroke(style.widgets.noninteractive.bg_stroke);
+            .stroke(stroke);
         frame.show(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
             // There might be a better way to do this :p
