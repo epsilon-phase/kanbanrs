@@ -329,28 +329,19 @@ impl KanbanRS {
         self.write_recents();
     }
     pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
-        let mut add_item = |item: &kanban::KanbanItem| {
-            let mut editor = kanban::editor::state_from(item);
-            editor.open = true;
-            self.open_editors.push(editor);
-        };
         if let KanbanLayout::Columnar(cache) = &mut self.current_layout.clone() {
             ui.columns(3, |columns| {
                 let mut actions: Vec<SummaryAction> = Vec::new();
                 columns[0].label(RichText::new("Ready").heading());
                 egui::ScrollArea::vertical()
                     .id_source("ReadyScrollarea")
-                    // .auto_shrink([false; 2])
-                    .show(&mut columns[0], |ui| {
+                    .show_rows(&mut columns[0], 200., cache[0].len(), |ui, range| {
                         ui.vertical_centered_justified(|ui| {
-                            for item_id in cache[0].iter() {
-                                let item = self.document.get_task(*item_id).unwrap();
-                                let action = item.summary(
-                                    &self.document,
-                                    &mut self.hovered_task,
-                                    ui,
-                                    |_item| (),
-                                );
+                            for row in range.clone() {
+                                let item_id = cache[0][row];
+                                let item = self.document.get_task(item_id).unwrap();
+                                let action =
+                                    item.summary(&self.document, &mut self.hovered_task, ui);
                                 actions.push(action);
                             }
                         });
@@ -359,52 +350,39 @@ impl KanbanRS {
                 columns[1].label(RichText::new("Blocked").heading());
                 egui::ScrollArea::vertical()
                     .id_source("BlockedScrollArea")
-                    // .auto_shrink([false, true])
-                    .show(&mut columns[1], |ui| {
-                        ui.vertical(|ui| {
-                            for item_id in cache[1].iter() {
-                                let item = self.document.get_task(*item_id).unwrap();
-                                actions.push(item.summary(
-                                    &self.document,
-                                    &mut self.hovered_task,
-                                    ui,
-                                    |_item| (),
-                                ));
+                    .show_rows(&mut columns[1], 200., cache[1].len(), |ui, range| {
+                        ui.vertical_centered_justified(|ui| {
+                            for row in range.clone() {
+                                let item_id = cache[1][row];
+                                let item = self.document.get_task(item_id).unwrap();
+                                let action =
+                                    item.summary(&self.document, &mut self.hovered_task, ui);
+                                actions.push(action);
                             }
                         });
                     });
                 columns[2].label(RichText::new("Completed").heading());
                 egui::ScrollArea::vertical()
                     .id_source("CompletedScrollArea")
-                    // .auto_shrink(false)
-                    .show(&mut columns[2], |ui| {
-                        ui.vertical(|ui| {
-                            for item_id in cache[2].iter() {
-                                let item = self.document.get_task(*item_id).unwrap();
-                                actions.push(item.summary(
-                                    &self.document,
-                                    &mut self.hovered_task,
-                                    ui,
-                                    |_item| (),
-                                ));
+                    .show_rows(&mut columns[2], 200., cache[2].len(), |ui, range| {
+                        ui.vertical_centered_justified(|ui| {
+                            for row in range.clone() {
+                                let item_id = cache[2][row];
+                                let item = self.document.get_task(item_id).unwrap();
+                                let action =
+                                    item.summary(&self.document, &mut self.hovered_task, ui);
+                                actions.push(action);
                             }
                         });
                     });
                 actions.iter().for_each(|x| self.handle_summary_action(x));
             });
         }
-
-        // ui.push_id("Ready tasks", |ui| {
     }
 
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
         let mut actions: Vec<SummaryAction> = Vec::new();
-        let mut add_item = |item: &kanban::KanbanItem| {
-            let mut editor = kanban::editor::state_from(item);
-            editor.open = true;
-            self.open_editors.push(editor);
-        };
         ui.horizontal(|ui| {
             let label = ui.label("Search");
 
@@ -418,12 +396,7 @@ impl KanbanRS {
                 ui.horizontal_wrapped(|ui| {
                     for task_id in self.searcher.matched_ids.iter() {
                         let task = self.document.get_task(*task_id).unwrap();
-                        actions.push(task.summary(
-                            &self.document,
-                            &mut self.hovered_task,
-                            ui,
-                            |_item| (),
-                        ));
+                        actions.push(task.summary(&self.document, &mut self.hovered_task, ui));
                     }
                 });
             });

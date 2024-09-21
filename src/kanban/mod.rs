@@ -170,16 +170,12 @@ pub enum SummaryAction {
     CreateChildOf(i32),
 }
 impl KanbanItem {
-    pub fn summary<G>(
+    pub fn summary(
         &self,
         document: &KanbanDocument,
         hovered_task: &mut Option<i32>,
         ui: &mut egui::Ui,
-        mut on_click: G,
-    ) -> SummaryAction
-    where
-        G: FnMut(&KanbanItem),
-    {
+    ) -> SummaryAction {
         let mut action = SummaryAction::NoAction;
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
@@ -250,7 +246,6 @@ impl KanbanItem {
                 ui.horizontal(|ui| {
                     let button = ui.button("Edit");
                     if button.clicked() {
-                        on_click(self);
                         action = SummaryAction::OpenEditor(self.id);
                     }
                     if ui.button("Add Child").clicked() {
@@ -275,8 +270,11 @@ impl KanbanItem {
                 });
                 ScrollArea::vertical()
                     .id_source(4000000 + self.id)
-                    .max_height(200.0)
+                    .max_height(100.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
+                if ui.min_size().y < 200. {
+                    ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));
+                }
             });
         });
         action
