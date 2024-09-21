@@ -2,7 +2,7 @@ mod kanban;
 use eframe::egui::{self, ComboBox, Rect, RichText, ScrollArea, WidgetText};
 
 use core::f32;
-use kanban::{search::SearchState, KanbanDocument, KanbanItem};
+use kanban::{search::SearchState, KanbanDocument, KanbanItem, SummaryAction};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -204,6 +204,28 @@ impl eframe::App for KanbanRS {
         });
     }
 }
+
+impl KanbanRS {
+    fn handle_summary_action(&mut self, action: &SummaryAction) {
+        match action {
+            SummaryAction::NoAction => (),
+            SummaryAction::OpenEditor(id) => {
+                let mut editor = kanban::editor::state_from(self.document.get_task(*id).unwrap());
+                editor.open = true;
+                self.open_editors.push(editor);
+            }
+            SummaryAction::CreateChildOf(id) => {
+                let new_task = self.document.get_new_task().id;
+                let mut task_copy = self.document.get_task(*id).unwrap().clone();
+                task_copy.child_tasks.push(*id);
+                let editor = kanban::editor::state_from(self.document.get_task(new_task).unwrap());
+                self.document.replace_task(&task_copy);
+                self.open_editors.push(editor);
+            }
+        }
+    }
+}
+
 impl KanbanRS {
     pub fn read_recents(&self) -> Vec<PathBuf> {
         let recents_file = self.base_dirs.find_state_file("recent");
@@ -282,6 +304,7 @@ impl KanbanRS {
 
         // ui.push_id("Ready tasks", |ui| {
         ui.columns(3, |columns| {
+            let mut actions: Vec<SummaryAction> = Vec::new();
             columns[0].label(RichText::new("Ready").heading());
             egui::ScrollArea::vertical()
                 .id_source("ReadyScrollarea")
@@ -293,9 +316,11 @@ impl KanbanRS {
                             .get_tasks()
                             .filter(|x| self.document.task_status(&x.id) == kanban::Status::Ready)
                         {
-                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
-                                add_item(item);
-                            });
+                            let action =
+                                item.summary(&self.document, &mut self.hovered_task, ui, |_item| {
+                                    ()
+                                });
+                            actions.push(action);
                         }
                     });
                 });
@@ -311,9 +336,12 @@ impl KanbanRS {
                             .get_tasks()
                             .filter(|x| self.document.task_status(&x.id) == kanban::Status::Blocked)
                         {
-                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
-                                add_item(item);
-                            });
+                            actions.push(item.summary(
+                                &self.document,
+                                &mut self.hovered_task,
+                                ui,
+                                |_item| (),
+                            ));
                         }
                     });
                 });
@@ -326,12 +354,16 @@ impl KanbanRS {
                         for item in self.document.get_tasks().filter(|x| {
                             self.document.task_status(&x.id) == kanban::Status::Completed
                         }) {
-                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
-                                add_item(item);
-                            });
+                            actions.push(item.summary(
+                                &self.document,
+                                &mut self.hovered_task,
+                                ui,
+                                |_item| (),
+                            ));
                         }
                     });
                 });
+            actions.iter().for_each(|x| self.handle_summary_action(x));
         });
 
         // });
@@ -348,6 +380,7 @@ impl KanbanRS {
     }
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
+        let mut actions: Vec<SummaryAction> = Vec::new();
         let mut add_item = |item: &kanban::KanbanItem| {
             let mut editor = kanban::editor::state_from(item);
             editor.open = true;
@@ -366,12 +399,16 @@ impl KanbanRS {
                 ui.horizontal_wrapped(|ui| {
                     for task_id in self.searcher.matched_ids.iter() {
                         let task = self.document.get_task(*task_id).unwrap();
-                        task.summary(&self.document, &mut self.hovered_task, ui, |item| {
-                            add_item(item)
-                        });
+                        actions.push(task.summary(
+                            &self.document,
+                            &mut self.hovered_task,
+                            ui,
+                            |_item| (),
+                        ));
                     }
                 });
             });
+        actions.iter().for_each(|x| self.handle_summary_action(x));
     }
 }
 #[derive(PartialEq, Eq, Clone, Copy)]

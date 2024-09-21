@@ -64,6 +64,9 @@ impl KanbanDocument {
     pub fn get_next_id(&self) -> i32 {
         self.next_id.replace_with(|val| (*val) + 1)
     }
+    /**
+    Create a new task and add it to the document, returning a mutable reference
+    */
     pub fn get_new_task(&mut self) -> &mut KanbanItem {
         let new_task = KanbanItem::new(&self);
         let new_task_id = new_task.id;
@@ -147,16 +150,37 @@ impl KanbanItem {
     pub fn remove_child(&mut self, other: &Self) {
         self.child_tasks.retain(|x| *x != other.id);
     }
+
+    pub fn matches(&self, other: &str) -> bool {
+        if self.name.contains(other) {
+            return true;
+        }
+        if self.description.contains(other) {
+            return true;
+        }
+        if self.tags.iter().any(|tag| tag == other) {
+            return true;
+        }
+        false
+    }
+}
+pub enum SummaryAction {
+    NoAction,
+    OpenEditor(i32),
+    CreateChildOf(i32),
+}
+impl KanbanItem {
     pub fn summary<G>(
         &self,
         document: &KanbanDocument,
         hovered_task: &mut Option<i32>,
         ui: &mut egui::Ui,
         mut on_click: G,
-    ) -> egui::Id
+    ) -> SummaryAction
     where
         G: FnMut(&KanbanItem),
     {
+        let mut action = SummaryAction::NoAction;
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
         let mut panel_fill = style.panel_fill;
@@ -207,11 +231,6 @@ impl KanbanItem {
             ui.vertical(|ui| {
                 let mut label: Option<Response> = None;
                 ui.horizontal(|ui| {
-                    let button = ui.button("Edit");
-                    if button.clicked() {
-                        on_click(self);
-                    }
-
                     if hovered_task.is_none() {
                         label = Some(ui.label(self.name.clone()));
                     } else {
@@ -223,11 +242,21 @@ impl KanbanItem {
                             },
                         ));
                     }
+
                     if label.unwrap().hovered() {
                         *hovered_task = Some(self.id);
                     }
                 });
-
+                ui.horizontal(|ui| {
+                    let button = ui.button("Edit");
+                    if button.clicked() {
+                        on_click(self);
+                        action = SummaryAction::OpenEditor(self.id);
+                    }
+                    if ui.button("Add Child").clicked() {
+                        action = SummaryAction::CreateChildOf(self.id)
+                    }
+                });
                 ui.horizontal(|ui| {
                     let thing = match self.completed {
                         Some(x) => {
@@ -247,19 +276,7 @@ impl KanbanItem {
                 ui.label(RichText::new(self.description.clone()));
             });
         });
-        id
-    }
-    pub fn matches(&self, other: &str) -> bool {
-        if self.name.contains(other) {
-            return true;
-        }
-        if self.description.contains(other) {
-            return true;
-        }
-        if self.tags.iter().any(|tag| tag == other) {
-            return true;
-        }
-        false
+        action
     }
 }
 /**
