@@ -1,12 +1,8 @@
 mod kanban;
-use eframe::egui::{self, ComboBox, Rect, RichText, ScrollArea, WidgetText};
+use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
-use core::f32;
 use kanban::{search::SearchState, KanbanDocument, KanbanItem, SummaryAction};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::PathBuf};
 
 struct KanbanRS {
     document: KanbanDocument,
