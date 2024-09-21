@@ -16,6 +16,8 @@ struct KanbanRS {
     current_layout: KanbanLayout,
     searcher: kanban::search::SearchState,
     base_dirs: xdg::BaseDirectories,
+    hovered_task: Option<i32>,
+    close_application: bool,
 }
 impl Default for KanbanRS {
     fn default() -> Self {
@@ -27,6 +29,8 @@ impl Default for KanbanRS {
             current_layout: KanbanLayout::default(),
             searcher: SearchState::new(),
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
+            hovered_task: None,
+            close_application: false,
         };
     }
 }
@@ -44,12 +48,11 @@ fn main() {
     ) {
         println!("{}", x);
     }
-    println!("Hello, world!");
 }
 impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if ctx.input(|i| i.viewport().close_requested()) {
-            println!("{}", serde_json::to_string(&self.document).unwrap());
+        if self.close_application {
+            return;
         }
         ctx.input_mut(|i| {
             let save_shortcut = egui::KeyboardShortcut {
@@ -79,6 +82,7 @@ impl eframe::App for KanbanRS {
                 self.save_file(false);
             });
         });
+        self.hovered_task = None;
         egui::CentralPanel::default().show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -108,7 +112,11 @@ impl eframe::App for KanbanRS {
                                 ui.close_menu();
                             }
                         }
-                    })
+                    });
+                    if ui.button("Quit").clicked() {
+                        self.close_application = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
                 });
             });
 
@@ -279,13 +287,13 @@ impl KanbanRS {
                 .id_source("ReadyScrollarea")
                 // .auto_shrink([false; 2])
                 .show(&mut columns[0], |ui| {
-                    ui.vertical(|ui| {
+                    ui.vertical_centered_justified(|ui| {
                         for item in self
                             .document
                             .get_tasks()
                             .filter(|x| self.document.task_status(&x.id) == kanban::Status::Ready)
                         {
-                            item.summary(&self.document, ui, |item| {
+                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
                                 add_item(item);
                             });
                         }
@@ -303,7 +311,7 @@ impl KanbanRS {
                             .get_tasks()
                             .filter(|x| self.document.task_status(&x.id) == kanban::Status::Blocked)
                         {
-                            item.summary(&self.document, ui, |item| {
+                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
                                 add_item(item);
                             });
                         }
@@ -318,7 +326,7 @@ impl KanbanRS {
                         for item in self.document.get_tasks().filter(|x| {
                             self.document.task_status(&x.id) == kanban::Status::Completed
                         }) {
-                            item.summary(&self.document, ui, |item| {
+                            item.summary(&self.document, &mut self.hovered_task, ui, |item| {
                                 add_item(item);
                             });
                         }
@@ -358,7 +366,9 @@ impl KanbanRS {
                 ui.horizontal_wrapped(|ui| {
                     for task_id in self.searcher.matched_ids.iter() {
                         let task = self.document.get_task(*task_id).unwrap();
-                        task.summary(&self.document, ui, |item| add_item(item));
+                        task.summary(&self.document, &mut self.hovered_task, ui, |item| {
+                            add_item(item)
+                        });
                     }
                 });
             });

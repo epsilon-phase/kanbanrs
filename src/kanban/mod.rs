@@ -104,6 +104,23 @@ impl KanbanDocument {
         }
         self.tasks.remove(&item.id);
     }
+    pub fn get_relation(&self, target: i32, other: i32) -> TaskRelation {
+        let task_a = self.get_task(target).unwrap();
+        let task_b = self.get_task(other).unwrap();
+        if task_a.is_child_of(task_b, self) {
+            return TaskRelation::ChildOf;
+        }
+        if task_b.is_child_of(task_a, self) {
+            return TaskRelation::ParentOf;
+        }
+        TaskRelation::Unrelated
+    }
+}
+#[derive(PartialEq, Eq)]
+pub enum TaskRelation {
+    Unrelated,
+    ChildOf,
+    ParentOf,
 }
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct KanbanItem {
@@ -133,6 +150,7 @@ impl KanbanItem {
     pub fn summary<G>(
         &self,
         document: &KanbanDocument,
+        hovered_task: &mut Option<i32>,
         ui: &mut egui::Ui,
         mut on_click: G,
     ) -> egui::Id
@@ -170,6 +188,7 @@ impl KanbanItem {
             .rounding(style.noninteractive().rounding)
             .stroke(style.widgets.noninteractive.bg_stroke);
         frame.show(ui, |ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
             // There might be a better way to do this :p
             id = ui.id();
             ui.vertical(|ui| {
@@ -179,7 +198,21 @@ impl KanbanItem {
                     if button.clicked() {
                         on_click(self);
                     }
-                    label = Some(ui.label(self.name.clone()));
+
+                    if hovered_task.is_none() {
+                        label = Some(ui.label(self.name.clone()));
+                    } else {
+                        label = Some(ui.label(
+                            match document.get_relation(self.id, hovered_task.unwrap()) {
+                                TaskRelation::Unrelated => self.name.clone(),
+                                TaskRelation::ChildOf => format!("{}\nDependent on", self.name),
+                                TaskRelation::ParentOf => format!("{}\nParent task of", self.name),
+                            },
+                        ));
+                    }
+                    if label.unwrap().hovered() {
+                        *hovered_task = Some(self.id);
+                    }
                 });
 
                 ui.horizontal(|ui| {
@@ -212,6 +245,30 @@ impl KanbanItem {
         }
         if self.tags.iter().any(|tag| tag == other) {
             return true;
+        }
+        false
+    }
+}
+/**
+Contains some methods to make determining relation easier.
+*/
+impl KanbanItem {
+    pub fn is_child_of(&self, parent: &Self, document: &KanbanDocument) -> bool {
+        let mut stack: Vec<i32> = Vec::new();
+        let mut seen: Vec<i32> = Vec::new();
+        stack.push(parent.id);
+        while !stack.is_empty() {
+            let current_id = stack.pop().unwrap();
+            let item = document.get_task(current_id).unwrap();
+            for child_id in item.child_tasks.iter() {
+                if *child_id == self.id {
+                    return true;
+                }
+                if !seen.contains(child_id) {
+                    seen.push(*child_id);
+                    stack.push(*child_id);
+                }
+            }
         }
         false
     }

@@ -15,9 +15,10 @@ serde_json = { version = "~1.0" }
 rfd = "0.14.1"
 xdg = "~2.5.0"
 
-[profile.hyper]
+[profile.small_as_can_be]
 inherits = "release"
 # strip = true
-opt-level = "z"
+opt-level = "s"
 lto = true
 panic = "abort"
+codegen-units = 1

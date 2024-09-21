@@ -3,8 +3,8 @@
 
 * [x] Saving
 * [x] Loading
-* [ ] Recently opened
-* [ ] Search
+* [x] Recently opened
+* [x] Search
 * [ ] Views
   * [ ] Queue view
   * [ ] Tree View?
