@@ -1,5 +1,5 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
-use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Vec2};
+use eframe::egui::{self, Color32, Margin, Response, RichText, Rounding, ScrollArea, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -15,7 +15,7 @@ pub enum Status {
 pub struct KanbanDocument {
     tasks: HashMap<i32, KanbanItem>,
     priorities: HashMap<String, i32>,
-    categories: HashMap<String, [u8; 4]>,
+    categories: HashMap<String, KanbanCategoryStyle>,
     next_id: RefCell<i32>,
 }
 impl KanbanDocument {
@@ -97,6 +97,15 @@ impl KanbanDocument {
     }
     pub fn replace_task(&mut self, item: &KanbanItem) {
         self.tasks.insert(item.id, item.clone());
+        if !self
+            .categories
+            .contains_key(item.category.as_ref().unwrap())
+        {
+            self.categories.insert(
+                item.category.as_ref().unwrap().clone(),
+                KanbanCategoryStyle::default(),
+            );
+        }
     }
     pub fn get_task(&self, id: i32) -> Option<&KanbanItem> {
         self.tasks.get(&id)
@@ -198,11 +207,11 @@ impl KanbanItem {
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
         let mut panel_fill = style.panel_fill;
+        let mut stroke = style.noninteractive().bg_stroke;
         // Get the custom color for the category
         if self.category.is_some() {
-            if let Some(color) = document.categories.get(self.category.as_ref().unwrap()) {
-                panel_fill =
-                    Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+            if let Some(category_style) = document.categories.get(self.category.as_ref().unwrap()) {
+                category_style.apply_to(&mut stroke, &mut panel_fill);
             }
         }
         match document.task_status(&self.id) {
@@ -216,7 +225,7 @@ impl KanbanItem {
             }
             _ => (),
         }
-        let mut stroke = style.noninteractive().bg_stroke;
+
         if let Some(ht) = hovered_task {
             match document.get_relation(self.id, *ht) {
                 TaskRelation::ChildOf => {
@@ -358,6 +367,9 @@ pub mod search {
         }
     }
 }
+/**
+ module for the queue_view, in this case, the cache state.
+*/
 pub mod queue_view {
     use super::*;
     #[derive(PartialEq, Eq, Clone)]
@@ -372,9 +384,9 @@ pub mod queue_view {
         }
         pub fn update(&mut self, document: &KanbanDocument) {
             let thing = document.get_tasks().map(|x| x.id);
-            self.cached_ready = thing
-                .filter(|x| document.task_status(x) == Status::Ready)
-                .collect();
+            self.cached_ready.clear();
+            self.cached_ready
+                .extend(thing.filter(|x| document.task_status(x) == Status::Ready));
             self.cached_ready
                 .sort_by_key(|x| document.task_priority_value(x));
             self.cached_ready.reverse();
@@ -397,6 +409,8 @@ pub mod editor {
         pub item_copy: super::KanbanItem,
         selected_child: Option<i32>,
         new_tag: String,
+        category: String,
+        priority: String,
     }
     pub fn state_from(item: &KanbanItem) -> State {
         State {
@@ -405,6 +419,8 @@ pub mod editor {
             item_copy: item.clone(),
             selected_child: None,
             new_tag: "".into(),
+            category: item.category.as_ref().unwrap_or(&String::new()).clone(),
+            priority: item.priority.as_ref().unwrap_or(&String::new()).clone(),
         }
     }
     pub enum EditorRequest {
@@ -440,6 +456,17 @@ pub mod editor {
                 }
                 ui.heading("Description");
                 ui.text_edit_multiline(&mut state.item_copy.description);
+                ui.columns(2, |columns| {
+                    columns[0].text_edit_singleline(&mut state.category);
+                    ComboBox::new("Category", "Category")
+                        .selected_text(&state.category)
+                        .show_ui(&mut columns[1], |ui| {
+                            ui.text_edit_singleline(&mut state.category);
+                            for i in document.categories.keys() {
+                                ui.selectable_value(&mut state.category, i.clone(), i.clone());
+                            }
+                        });
+                });
 
                 ui.horizontal(|ui| {
                     if ui.button("Add new child").clicked {
@@ -524,6 +551,16 @@ pub mod editor {
                     let cancel_button = ui.button("Cancel changes");
                     let delete_button = ui.button("Delete and close");
                     if accept_button.clicked() {
+                        if !state.category.is_empty() {
+                            state.item_copy.category = Some(state.category.clone());
+                        } else {
+                            state.item_copy.category = None;
+                        }
+                        if !state.priority.is_empty() {
+                            state.item_copy.priority = Some(state.priority.clone());
+                        } else {
+                            state.item_copy.priority = None;
+                        }
                         state.open = false;
                     }
                     if cancel_button.clicked() {
@@ -595,6 +632,31 @@ mod tests {
         {
             let copy = document.get_task(a.id).unwrap();
             assert!(copy.child_tasks.is_empty());
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Default)]
+struct KanbanCategoryStyle {
+    panel_stroke_width: Option<f32>,
+    panel_stroke_color: Option<[u8; 4]>,
+    panel_fill: Option<[u8; 4]>,
+    text_color: Option<[u8; 4]>,
+}
+impl KanbanCategoryStyle {
+    pub fn apply_to(&self, stroke: &mut Stroke, panel_fill: &mut Color32) {
+        if let Some(color) = self.panel_fill {
+            *panel_fill = Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+        }
+        if let Some(stroke_width) = self.panel_stroke_width {
+            stroke.width = stroke_width;
+        }
+        if let Some(stroke_color) = self.panel_stroke_color {
+            stroke.color = Color32::from_rgba_unmultiplied(
+                stroke_color[0],
+                stroke_color[1],
+                stroke_color[2],
+                stroke_color[3],
+            );
         }
     }
 }

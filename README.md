@@ -34,6 +34,7 @@
   Categories will allow you to alter the styling of the tasks to provide emphasis that you can benefit from.
   My intention is for this to allow setting a custom color, stroke thickness, and dash style, potentially
   even icons if I can be bothered.
+  * Category view, because focusing on a single category is nice sometimes.
 
 * Tree view
 
