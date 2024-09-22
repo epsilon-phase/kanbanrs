@@ -2,7 +2,8 @@ mod kanban;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
-    editor::EditorRequest, search::SearchState, KanbanDocument, KanbanItem, SummaryAction,
+    editor::EditorRequest, queue_view::QueueState, search::SearchState, KanbanDocument, KanbanItem,
+    SummaryAction,
 };
 use std::{fs, path::PathBuf};
 
@@ -143,7 +144,11 @@ impl eframe::App for KanbanRS {
                         self.layout_cache_needs_updating = true;
                     }
                     if ui
-                        .selectable_value(&mut self.current_layout, KanbanLayout::Queue, "Queue")
+                        .selectable_value(
+                            &mut self.current_layout,
+                            KanbanLayout::Queue(QueueState::new()),
+                            "Queue",
+                        )
                         .clicked()
                     {
                         self.layout_cache_needs_updating = true;
@@ -384,7 +389,25 @@ impl KanbanRS {
         }
     }
 
-    pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
+    pub fn layout_queue(&mut self, ui: &mut egui::Ui) {
+        if let KanbanLayout::Queue(qs) = &mut self.current_layout {
+            ScrollArea::vertical().id_source("Queue").show_rows(
+                ui,
+                200.0,
+                qs.cached_ready.len(),
+                |ui, range| {
+                    ui.vertical_centered_justified(|ui| {
+                        for row in range.clone() {
+                            let item_id = qs.cached_ready[row];
+                            let item = self.document.get_task(item_id).unwrap();
+                            let action = item.summary(&self.document, &mut self.hovered_task, ui);
+                            self.summary_actions_pending.push(action);
+                        }
+                    });
+                },
+            );
+        }
+    }
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
         if let KanbanLayout::Search(search_state) = &mut self.current_layout {
             ui.horizontal(|ui| {
@@ -414,7 +437,7 @@ impl KanbanRS {
 }
 #[derive(PartialEq, Eq, Clone)]
 enum KanbanLayout {
-    Queue,
+    Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
     Search(kanban::search::SearchState),
 }
@@ -432,7 +455,9 @@ impl KanbanLayout {
     }
     pub fn update_cache(&mut self, document: &KanbanDocument) {
         match self {
-            KanbanLayout::Queue => {}
+            KanbanLayout::Queue(x) => {
+                x.update(document);
+            }
             KanbanLayout::Columnar(array) => KanbanLayout::update_columnar(array, document),
             KanbanLayout::Search(search_state) => {
                 search_state.update(document);
@@ -449,7 +474,7 @@ impl From<&KanbanLayout> for String {
     fn from(src: &KanbanLayout) -> String {
         match src {
             KanbanLayout::Columnar(_) => "Columnar",
-            KanbanLayout::Queue => "Queue",
+            KanbanLayout::Queue(_) => "Queue",
             KanbanLayout::Search(_) => "Search",
         }
         .into()

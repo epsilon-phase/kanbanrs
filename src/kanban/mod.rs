@@ -118,6 +118,21 @@ impl KanbanDocument {
         }
         TaskRelation::Unrelated
     }
+    /**
+    Get the numeric priority of the task. Defaults to zero when
+    * The task does not have a set priority
+    * The task's priority does not have a numeric value assigned to it.
+    */
+    pub fn task_priority_value(&self, task: &i32) -> i32 {
+        if let Some(priority_name) = &self.tasks[task].priority {
+            if let Some(value) = self.priorities.get(priority_name) {
+                return *value;
+            } else {
+                return 0;
+            }
+        }
+        return 0;
+    }
 }
 #[derive(PartialEq, Eq)]
 pub enum TaskRelation {
@@ -132,6 +147,7 @@ pub struct KanbanItem {
     pub description: String,
     pub completed: Option<DateTime<Utc>>,
     pub category: Option<String>,
+    pub priority: Option<String>,
     pub tags: Vec<String>,
     pub child_tasks: Vec<i32>,
 }
@@ -144,6 +160,7 @@ impl KanbanItem {
             completed: None,
             category: None,
             tags: Vec::new(),
+            priority: None,
             child_tasks: Vec::new(),
         }
     }
@@ -338,6 +355,29 @@ pub mod search {
                 }
             }
             self.former_search_prompt = self.search_prompt.clone();
+        }
+    }
+}
+pub mod queue_view {
+    use super::*;
+    #[derive(PartialEq, Eq, Clone)]
+    pub struct QueueState {
+        pub cached_ready: Vec<i32>,
+    }
+    impl QueueState {
+        pub fn new() -> Self {
+            QueueState {
+                cached_ready: Vec::new(),
+            }
+        }
+        pub fn update(&mut self, document: &KanbanDocument) {
+            let thing = document.get_tasks().map(|x| x.id);
+            self.cached_ready = thing
+                .filter(|x| document.task_status(x) == Status::Ready)
+                .collect();
+            self.cached_ready
+                .sort_by_key(|x| document.task_priority_value(x));
+            self.cached_ready.reverse();
         }
     }
 }
