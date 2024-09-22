@@ -389,7 +389,6 @@ impl KanbanRS {
         if let KanbanLayout::Search(search_state) = &mut self.current_layout {
             ui.horizontal(|ui| {
                 let label = ui.label("Search");
-
                 ui.text_edit_singleline(&mut search_state.search_prompt)
                     .labelled_by(label.id);
             });

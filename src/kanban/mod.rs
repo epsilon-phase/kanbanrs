@@ -541,12 +541,11 @@ mod tests {
     #[test]
     fn test_task_removal() {
         let mut document = KanbanDocument::new();
-
         let mut a = document.get_new_task().clone();
         let mut b = document.get_new_task().clone();
         let mut c = document.get_new_task().clone();
-        document.replace_task(&a);
         a.child_tasks.push(c.id);
+        document.replace_task(&a);
         {
             let copy = document.get_task(a.id);
             assert!(copy.unwrap().child_tasks.len() == 1);
