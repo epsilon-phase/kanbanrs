@@ -97,14 +97,16 @@ impl KanbanDocument {
     }
     pub fn replace_task(&mut self, item: &KanbanItem) {
         self.tasks.insert(item.id, item.clone());
-        if !self
-            .categories
-            .contains_key(item.category.as_ref().unwrap())
-        {
-            self.categories.insert(
-                item.category.as_ref().unwrap().clone(),
-                KanbanCategoryStyle::default(),
-            );
+        if item.category.is_some() {
+            if !self
+                .categories
+                .contains_key(item.category.as_ref().unwrap())
+            {
+                self.categories.insert(
+                    item.category.as_ref().unwrap().clone(),
+                    KanbanCategoryStyle::default(),
+                );
+            }
         }
     }
     pub fn get_task(&self, id: i32) -> Option<&KanbanItem> {
