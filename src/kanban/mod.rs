@@ -164,6 +164,7 @@ impl KanbanItem {
         false
     }
 }
+#[derive(Clone, Copy)]
 pub enum SummaryAction {
     NoAction,
     OpenEditor(i32),

@@ -1,7 +1,9 @@
 mod kanban;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
-use kanban::{search::SearchState, KanbanDocument, KanbanItem, SummaryAction};
+use kanban::{
+    editor::EditorRequest, search::SearchState, KanbanDocument, KanbanItem, SummaryAction,
+};
 use std::{fs, path::PathBuf};
 
 struct KanbanRS {
@@ -10,11 +12,13 @@ struct KanbanRS {
     open_editors: Vec<kanban::editor::State>,
     save_file_name: Option<PathBuf>,
     current_layout: KanbanLayout,
-
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
     close_application: bool,
     layout_cache_needs_updating: bool,
+    // Both of these might merit renaming at some point
+    summary_actions_pending: Vec<SummaryAction>,
+    editor_requests_pending: Vec<EditorRequest>,
 }
 impl Default for KanbanRS {
     fn default() -> Self {
@@ -28,6 +32,8 @@ impl Default for KanbanRS {
             hovered_task: None,
             close_application: false,
             layout_cache_needs_updating: true,
+            summary_actions_pending: Vec::new(),
+            editor_requests_pending: Vec::new(),
         };
     }
 }
@@ -182,8 +188,6 @@ impl eframe::App for KanbanRS {
             self.open_editors.retain(|editor| editor.open);
             // This should probably work more like the vectors of summary actions
             //
-            let mut new_item: Option<KanbanItem> = None;
-            let mut delete_item: Option<KanbanItem> = None;
             for editor in self.open_editors.iter_mut() {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of(editor.item_copy.id),
@@ -191,24 +195,7 @@ impl eframe::App for KanbanRS {
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
                             let request = kanban::editor::editor(ui, &self.document, editor);
-                            match request {
-                                kanban::editor::EditorRequest::NewItem(new_task) => {
-                                    self.document.replace_task(&new_task);
-                                    new_item = Some(new_task);
-                                    self.layout_cache_needs_updating = true;
-                                }
-                                // The main distinction between the two is that opening an
-                                // existing task shouldn't change the state of the item in the
-                                // document.
-                                kanban::editor::EditorRequest::OpenItem(item_to_open) => {
-                                    new_item = Some(item_to_open);
-                                }
-                                kanban::editor::EditorRequest::DeleteItem(to_delete) => {
-                                    delete_item = Some(to_delete);
-                                    self.layout_cache_needs_updating = true;
-                                }
-                                _ => {}
-                            }
+                            self.editor_requests_pending.push(request);
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
                             editor.open = false;
@@ -217,22 +204,14 @@ impl eframe::App for KanbanRS {
                 )
             }
 
-            if let Some(to_delete) = delete_item {
-                self.document.remove_task(&to_delete);
-                for editor in self.open_editors.iter_mut() {
-                    editor.item_copy.remove_child(&to_delete);
-                }
-                self.layout_cache_needs_updating = true;
+            // I would prefer this in an iterator or a for loop, but, I am simply not brain enough tonight
+            while !self.summary_actions_pending.is_empty() {
+                let x = self.summary_actions_pending.pop().unwrap();
+                self.handle_summary_action(&x);
             }
-            if let Some(item) = new_item {
-                if !self
-                    .open_editors
-                    .iter()
-                    .any(|editor| editor.item_copy.id == item.id)
-                {
-                    self.open_editors.push(kanban::editor::state_from(&item));
-                }
-                self.layout_cache_needs_updating = true;
+            while !self.editor_requests_pending.is_empty() {
+                let x = self.editor_requests_pending.pop().unwrap();
+                self.handle_editor_request(&x);
             }
         });
     }
@@ -256,6 +235,32 @@ impl KanbanRS {
                 self.open_editors.push(editor);
                 self.layout_cache_needs_updating = true;
             }
+        }
+    }
+    fn handle_editor_request(&mut self, request: &EditorRequest) {
+        match request {
+            kanban::editor::EditorRequest::NewItem(new_task) => {
+                self.document.replace_task(&new_task);
+                self.open_editors
+                    .push(kanban::editor::state_from(&new_task));
+
+                self.layout_cache_needs_updating = true;
+            }
+            // The main distinction between the two is that opening an
+            // existing task shouldn't change the state of the item in the
+            // document.
+            kanban::editor::EditorRequest::OpenItem(item_to_open) => {
+                self.open_editors
+                    .push(kanban::editor::state_from(&item_to_open));
+            }
+            kanban::editor::EditorRequest::DeleteItem(to_delete) => {
+                self.document.remove_task(&to_delete);
+                for editor in self.open_editors.iter_mut() {
+                    editor.item_copy.remove_child(&to_delete);
+                }
+                self.layout_cache_needs_updating = true;
+            }
+            _ => {}
         }
     }
 }
@@ -332,7 +337,6 @@ impl KanbanRS {
     pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
         if let KanbanLayout::Columnar(cache) = &mut self.current_layout.clone() {
             ui.columns(3, |columns| {
-                let mut actions: Vec<SummaryAction> = Vec::new();
                 columns[0].label(RichText::new("Ready").heading());
                 egui::ScrollArea::vertical()
                     .id_source("ReadyScrollarea")
@@ -343,7 +347,7 @@ impl KanbanRS {
                                 let item = self.document.get_task(item_id).unwrap();
                                 let action =
                                     item.summary(&self.document, &mut self.hovered_task, ui);
-                                actions.push(action);
+                                self.summary_actions_pending.push(action);
                             }
                         });
                     });
@@ -358,7 +362,7 @@ impl KanbanRS {
                                 let item = self.document.get_task(item_id).unwrap();
                                 let action =
                                     item.summary(&self.document, &mut self.hovered_task, ui);
-                                actions.push(action);
+                                self.summary_actions_pending.push(action);
                             }
                         });
                     });
@@ -372,11 +376,10 @@ impl KanbanRS {
                                 let item = self.document.get_task(item_id).unwrap();
                                 let action =
                                     item.summary(&self.document, &mut self.hovered_task, ui);
-                                actions.push(action);
+                                self.summary_actions_pending.push(action);
                             }
                         });
                     });
-                actions.iter().for_each(|x| self.handle_summary_action(x));
             });
         }
     }
@@ -384,7 +387,6 @@ impl KanbanRS {
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {}
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
         if let KanbanLayout::Search(search_state) = &mut self.current_layout {
-            let mut actions: Vec<SummaryAction> = Vec::new();
             ui.horizontal(|ui| {
                 let label = ui.label("Search");
 
@@ -400,11 +402,14 @@ impl KanbanRS {
                     for row in range {
                         let task_id = search_state.matched_ids[row];
                         let task = self.document.get_task(task_id).unwrap();
-                        actions.push(task.summary(&self.document, &mut self.hovered_task, ui));
+                        self.summary_actions_pending.push(task.summary(
+                            &self.document,
+                            &mut self.hovered_task,
+                            ui,
+                        ));
                     }
                 },
             );
-            actions.iter().for_each(|x| self.handle_summary_action(x));
         }
     }
 }
