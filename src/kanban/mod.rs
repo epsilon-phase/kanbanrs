@@ -154,6 +154,32 @@ impl KanbanDocument {
         self.categories.insert(name.clone(), style);
     }
 }
+
+/// Layout helper functions. Very simple. Might be better moved elsewhere at some point
+impl KanbanDocument {
+    //! Produce a vertical layout scrolling downwards.
+    //!
+    //! self the document, you silly goose
+    pub fn layout_id_list<I>(
+        &self,
+        ui: &mut egui::Ui,
+        ids: &I,
+        range: std::ops::Range<usize>,
+        hovered_task: &mut Option<i32>,
+        event_collector: &mut Vec<SummaryAction>,
+    ) where
+        I: std::ops::Index<usize, Output = i32>,
+    {
+        ui.vertical_centered_justified(|ui| {
+            for row in range.clone() {
+                let item_id = ids[row];
+                let item = &self.tasks[&item_id];
+                let action = item.summary(&self, hovered_task, ui);
+                event_collector.push(action);
+            }
+        });
+    }
+}
 #[derive(PartialEq, Eq)]
 pub enum TaskRelation {
     Unrelated,
@@ -200,6 +226,8 @@ impl KanbanItem {
         }
         false
     }
+    /// Fill a buffer with a string for the purposes of full text search
+    /// \param
     pub fn into_searchable_string(&self, output: &mut String) {
         output.extend(self.name.chars());
         output.push(' ');
@@ -389,7 +417,18 @@ pub mod search {
                 ),
             }
         }
+        pub fn force_update(&mut self) {
+            self.matched_ids.clear();
+        }
         pub fn update(&mut self, document: &super::KanbanDocument) {
+            // This is *kinda* expensive, so we should avoid it if possible.
+            // The two conditions I can think of off the top of my head are that
+            // if the search prompt is unchanged, and the matched_ids are not empty, then
+            // we don't need to update.
+            if self.search_prompt == self.former_search_prompt && !self.matched_ids.is_empty() {
+                println!("I don't need to update :3");
+                return;
+            }
             if self.search_prompt != self.former_search_prompt {
                 self.pattern.reparse(
                     &self.search_prompt,
@@ -401,7 +440,7 @@ pub mod search {
             self.matched_ids.clear();
             let mut thing: String = "".into();
             let mut utfs_buffer: Vec<char> = Vec::new();
-
+            let mut values: Vec<(i32, i32)> = Vec::new();
             for i in document.get_tasks() {
                 thing.clear();
                 i.into_searchable_string(&mut thing);
@@ -410,9 +449,15 @@ pub mod search {
                     Utf32Str::new(&thing.as_str(), &mut utfs_buffer),
                     &mut self.matcher,
                 ) {
-                    self.matched_ids.push(i.id);
+                    values.push((i.id, score as i32));
+                    // self.matched_ids.push(i.id);
                 }
             }
+            values.sort_by_key(|x| x.1);
+            // println!("Top score: {}", values.first().unwrap().1);
+            // values.reverse();
+            self.matched_ids.extend(values.drain(..).map(|x| x.0));
+            self.matched_ids.reverse();
             self.former_search_prompt = self.search_prompt.clone();
         }
     }
