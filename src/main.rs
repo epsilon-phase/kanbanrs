@@ -133,6 +133,7 @@ impl eframe::App for KanbanRS {
                 ui.menu_button("Edit", |ui| {
                     if ui.button("Category editor").clicked() {
                         self.category_editor.open = true;
+                        ui.close_menu();
                     }
                 });
             });
