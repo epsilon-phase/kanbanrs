@@ -5,6 +5,8 @@ use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 
+pub mod category_editor;
+
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
     Blocked,
@@ -143,6 +145,12 @@ impl KanbanDocument {
             }
         }
         return 0;
+    }
+}
+/// Category functions
+impl KanbanDocument {
+    pub fn replace_category_style(&mut self, name: &String, style: KanbanCategoryStyle) {
+        self.categories.insert(name.clone(), style);
     }
 }
 #[derive(PartialEq, Eq)]
@@ -459,10 +467,10 @@ pub mod editor {
                 ui.heading("Description");
                 ui.text_edit_multiline(&mut state.item_copy.description);
                 ui.columns(2, |columns| {
-                    columns[0].text_edit_singleline(&mut state.category);
+                    columns[1].text_edit_singleline(&mut state.category);
                     ComboBox::new("Category", "Category")
                         .selected_text(&state.category)
-                        .show_ui(&mut columns[1], |ui| {
+                        .show_ui(&mut columns[0], |ui| {
                             ui.text_edit_singleline(&mut state.category);
                             for i in document.categories.keys() {
                                 ui.selectable_value(&mut state.category, i.clone(), i.clone());
@@ -496,6 +504,60 @@ pub mod editor {
                         }
                     }
                 });
+                ui.columns(2, |columns| {
+                    {
+                        let ui = &mut columns[0];
+                        ui.label("Child tasks");
+                        let mut removed_task: Option<i32> = None;
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for child in state.item_copy.child_tasks.iter() {
+                                if !document.tasks.contains_key(&child) {
+                                    continue;
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.link(document.tasks[child].name.clone()).clicked() {
+                                        open_task = Some(*child);
+                                    }
+                                    let button = ui.button("Remove dependency");
+                                    if button.clicked {
+                                        removed_task = Some(*child);
+                                    }
+                                });
+                            }
+                            if let Some(id) = removed_task {
+                                state.item_copy.child_tasks.retain(|x| *x != id);
+                            }
+                        });
+                    }
+                    {
+                        let ui = &mut columns[1];
+                        ui.label("Tags");
+                        let mut removed_tag: Option<String> = None;
+                        ui.horizontal(|ui| {
+                            ui.text_edit_singleline(&mut state.new_tag);
+                            if !state.item_copy.tags.contains(&state.new_tag) {
+                                if ui.button("Add tag").clicked {
+                                    state.item_copy.tags.push(state.new_tag.clone());
+                                    state.new_tag.clear();
+                                }
+                            }
+                        });
+                        ui.group(|ui| {
+                            for tag in state.item_copy.tags.iter() {
+                                ui.horizontal(|ui| {
+                                    ui.label(tag);
+                                    if ui.button("X").clicked {
+                                        removed_tag = Some(tag.clone());
+                                    }
+                                });
+                            }
+                            if let Some(tag) = removed_tag {
+                                state.item_copy.tags.retain(|x| *x != tag);
+                            }
+                        });
+                    }
+                });
+                /*
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label("Child tasks");
@@ -520,6 +582,7 @@ pub mod editor {
                             }
                         });
                     });
+
                     ui.vertical(|ui| {
                         ui.label("Tags");
                         let mut removed_tag: Option<String> = None;
@@ -547,7 +610,7 @@ pub mod editor {
                         });
                     });
                 });
-
+                */
                 ui.horizontal(|ui| {
                     let accept_button = ui.button("Accept changes");
                     let cancel_button = ui.button("Cancel changes");
@@ -637,12 +700,12 @@ mod tests {
         }
     }
 }
-#[derive(Serialize, Deserialize, Default)]
-struct KanbanCategoryStyle {
-    panel_stroke_width: Option<f32>,
-    panel_stroke_color: Option<[u8; 4]>,
-    panel_fill: Option<[u8; 4]>,
-    text_color: Option<[u8; 4]>,
+#[derive(Serialize, Deserialize, Default, PartialEq, Copy, Clone)]
+pub struct KanbanCategoryStyle {
+    pub panel_stroke_width: Option<f32>,
+    pub panel_stroke_color: Option<[u8; 4]>,
+    pub panel_fill: Option<[u8; 4]>,
+    pub text_color: Option<[u8; 4]>,
 }
 impl KanbanCategoryStyle {
     pub fn apply_to(&self, stroke: &mut Stroke, panel_fill: &mut Color32) {

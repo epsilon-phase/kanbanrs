@@ -2,8 +2,8 @@ mod kanban;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
-    editor::EditorRequest, queue_view::QueueState, search::SearchState, KanbanDocument, KanbanItem,
-    SummaryAction,
+    category_editor::State, editor::EditorRequest, queue_view::QueueState, search::SearchState,
+    KanbanDocument, KanbanItem, SummaryAction,
 };
 use std::{fs, path::PathBuf};
 
@@ -20,6 +20,7 @@ struct KanbanRS {
     // Both of these might merit renaming at some point
     summary_actions_pending: Vec<SummaryAction>,
     editor_requests_pending: Vec<EditorRequest>,
+    category_editor: kanban::category_editor::State,
 }
 impl Default for KanbanRS {
     fn default() -> Self {
@@ -35,6 +36,7 @@ impl Default for KanbanRS {
             layout_cache_needs_updating: true,
             summary_actions_pending: Vec::new(),
             editor_requests_pending: Vec::new(),
+            category_editor: State::new(),
         };
     }
 }
@@ -128,6 +130,11 @@ impl eframe::App for KanbanRS {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
+                ui.menu_button("Edit", |ui| {
+                    if ui.button("Category editor").clicked() {
+                        self.category_editor.open = true;
+                    }
+                });
             });
 
             ComboBox::from_label("Layout Type")
@@ -217,6 +224,30 @@ impl eframe::App for KanbanRS {
             while !self.editor_requests_pending.is_empty() {
                 let x = self.editor_requests_pending.pop().unwrap();
                 self.handle_editor_request(&x);
+            }
+            if self.category_editor.open {
+                ui.ctx().show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("Category Editor"),
+                    egui::ViewportBuilder::default(),
+                    |ctx, _class| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let action = self.category_editor.show(ui, &self.document);
+                            match action {
+                                kanban::category_editor::EditorAction::CreateCategory(
+                                    name,
+                                    style,
+                                ) => self.document.replace_category_style(&name, style),
+                                kanban::category_editor::EditorAction::ApplyStyle(name, style) => {
+                                    self.document.replace_category_style(&name, style)
+                                }
+                                kanban::category_editor::EditorAction::Nothing => (),
+                            }
+                        });
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            self.category_editor.open = false;
+                        }
+                    },
+                );
             }
         });
     }
