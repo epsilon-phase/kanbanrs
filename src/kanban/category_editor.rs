@@ -10,7 +10,8 @@ pub enum EditorAction {
 pub struct State {
     style: KanbanCategoryStyle,
     new_category_name: String,
-    // Necessary because if the selected style and current s
+    // Necessary because if the selected style changes it needs to wait till the next
+    // frame to update
     selected_category_name: String,
     current_category_name: String,
     pub open: bool,
@@ -90,7 +91,7 @@ impl State {
             //Outline width
             ui.group(|ui| {
                 ui.label("Outline thickness");
-                if let Some(width) = self.style.panel_stroke_width {
+                if self.style.panel_stroke_width.is_some() {
                     egui::Slider::new(self.style.panel_stroke_width.as_mut().unwrap(), 0.5..=12.)
                         .ui(ui);
                 } else {

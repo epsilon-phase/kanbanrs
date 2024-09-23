@@ -131,7 +131,7 @@ impl eframe::App for KanbanRS {
                     }
                 });
                 ui.menu_button("Edit", |ui| {
-                    if ui.button("Category editor").clicked() {
+                    if ui.button("Category style editor").clicked() {
                         self.category_editor.open = true;
                         ui.close_menu();
                     }
@@ -445,9 +445,10 @@ impl KanbanRS {
             ui.horizontal(|ui| {
                 let label = ui.label("Search");
                 ui.text_edit_singleline(&mut search_state.search_prompt)
-                    .labelled_by(label.id);
+                    .labelled_by(label.id)
+                    .has_focus()
+                    .then(|| search_state.update(&self.document));
             });
-            search_state.update(&self.document);
             ScrollArea::vertical().id_source("SearchArea").show_rows(
                 ui,
                 200.0,
@@ -467,11 +468,29 @@ impl KanbanRS {
         }
     }
 }
-#[derive(PartialEq, Eq, Clone)]
+#[derive(Clone)]
 enum KanbanLayout {
     Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
     Search(kanban::search::SearchState),
+}
+impl PartialEq for KanbanLayout {
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            KanbanLayout::Columnar(_) => match other {
+                KanbanLayout::Columnar(_) => true,
+                _ => false,
+            },
+            KanbanLayout::Queue(_) => match other {
+                KanbanLayout::Queue(_) => true,
+                _ => false,
+            },
+            KanbanLayout::Search(_) => match other {
+                KanbanLayout::Search(_) => true,
+                _ => false,
+            },
+        }
+    }
 }
 impl KanbanLayout {
     fn update_columnar(columnar_cache: &mut [Vec<i32>; 3], document: &KanbanDocument) {

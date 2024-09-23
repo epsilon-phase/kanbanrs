@@ -1,5 +1,6 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
 use eframe::egui::{self, Color32, Margin, Response, RichText, Rounding, ScrollArea, Stroke, Vec2};
+use nucleo_matcher::pattern::Pattern;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -199,6 +200,20 @@ impl KanbanItem {
         }
         false
     }
+    pub fn into_searchable_string(&self, output: &mut String) {
+        output.extend(self.name.chars());
+        output.push(' ');
+        output.push_str(self.category.as_ref().map(|x| x.as_str()).unwrap_or(""));
+        output.push(' ');
+        output.push_str(self.priority.as_ref().map(|x| x.as_str()).unwrap_or(""));
+        output.push(' ');
+        output.push_str(&self.description);
+        output.push(' ');
+        for tag in self.tags.iter() {
+            output.push_str(tag.as_str());
+            output.push(' ');
+        }
+    }
 }
 #[derive(Clone, Copy)]
 pub enum SummaryAction {
@@ -344,7 +359,9 @@ impl KanbanItem {
 /*
 */
 pub mod search {
-    #[derive(PartialEq, Eq, Clone)]
+    use nucleo_matcher::{chars::normalize, pattern::Pattern, Config, Utf32Str, Utf32String};
+
+    #[derive(Clone)]
     pub struct SearchState {
         pub matched_ids: Vec<i32>,
         pub search_prompt: String,
@@ -353,6 +370,8 @@ pub mod search {
         the matched_ids must be rebuilt.
         */
         former_search_prompt: String,
+        matcher: nucleo_matcher::Matcher,
+        pattern: nucleo_matcher::pattern::Pattern,
     }
 
     impl SearchState {
@@ -361,15 +380,36 @@ pub mod search {
                 matched_ids: Vec::new(),
                 search_prompt: String::new(),
                 former_search_prompt: String::new(),
+                matcher: nucleo_matcher::Matcher::new(Config::DEFAULT),
+                pattern: Pattern::new(
+                    "",
+                    nucleo_matcher::pattern::CaseMatching::Smart,
+                    nucleo_matcher::pattern::Normalization::Smart,
+                    nucleo_matcher::pattern::AtomKind::Fuzzy,
+                ),
             }
         }
         pub fn update(&mut self, document: &super::KanbanDocument) {
-            if self.search_prompt == self.former_search_prompt {
-                return;
+            if self.search_prompt != self.former_search_prompt {
+                self.pattern.reparse(
+                    &self.search_prompt,
+                    nucleo_matcher::pattern::CaseMatching::Smart,
+                    nucleo_matcher::pattern::Normalization::Smart,
+                );
+                self.former_search_prompt = self.search_prompt.clone();
             }
             self.matched_ids.clear();
+            let mut thing: String = "".into();
+            let mut utfs_buffer: Vec<char> = Vec::new();
+
             for i in document.get_tasks() {
-                if i.matches(&self.search_prompt) {
+                thing.clear();
+                i.into_searchable_string(&mut thing);
+
+                if let Some(score) = self.pattern.score(
+                    Utf32Str::new(&thing.as_str(), &mut utfs_buffer),
+                    &mut self.matcher,
+                ) {
                     self.matched_ids.push(i.id);
                 }
             }
