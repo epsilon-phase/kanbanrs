@@ -818,8 +818,14 @@ mod tests {
         use super::*;
         #[test]
         fn test_queue_state() {
-            let children = vec![Vec::new(), vec![0], vec![1]];
-            let document = make_document_easy(4, &children);
+            let children = vec![vec![4], vec![0], vec![1]];
+            let mut document = make_document_easy(5, &children);
+
+            // This honestly might be better to extract into a test for the document itself
+            let mut task = document.get_task(4).unwrap().clone();
+            task.completed = Some(chrono::Utc::now());
+
+            document.replace_task(&task);
             assert_eq!(document.get_task(1).unwrap().child_tasks.len(), 1);
             let mut qs = QueueState::new();
             qs.update(&document);
