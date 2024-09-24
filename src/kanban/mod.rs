@@ -11,7 +11,7 @@ pub mod sorting;
 
 pub type KanbanId = i32;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Status {
     Blocked,
     Completed,
@@ -787,6 +787,53 @@ mod tests {
         {
             let copy = document.get_task(a.id).unwrap();
             assert!(copy.child_tasks.is_empty());
+        }
+    }
+    /**
+    Make a KanbanDocument easily.
+
+        number_of_tasks The number of tasks to populate the document with.
+        children The ids of each child in order. Assume that ids start from 0, as they are going to
+        continue to regardless of what numeric type they make use of.
+    */
+    fn make_document_easy(number_of_tasks: usize, children: &Vec<Vec<KanbanId>>) -> KanbanDocument {
+        let mut n = KanbanDocument::new();
+        let mut ids = Vec::new();
+        for _ in 0..number_of_tasks {
+            ids.push(n.get_new_task().id);
+        }
+        for (index, child_set) in children.iter().enumerate() {
+            let mut task = n.get_task(index as KanbanId).unwrap().clone();
+            for child_id in child_set.iter() {
+                task.child_tasks.push(*child_id);
+            }
+            n.replace_task(&task);
+        }
+        return n;
+    }
+    mod queue_state_tests {
+        use queue_view::QueueState;
+
+        use super::super::*;
+        use super::*;
+        #[test]
+        fn test_queue_state() {
+            let children = vec![Vec::new(), vec![0], vec![1]];
+            let document = make_document_easy(4, &children);
+            assert_eq!(document.get_task(1).unwrap().child_tasks.len(), 1);
+            let mut qs = QueueState::new();
+            qs.update(&document);
+            assert_eq!(qs.cached_ready.len(), 2);
+            assert!(qs.cached_ready.contains(&0));
+            assert!(qs.cached_ready.contains(&3));
+            // Make sure that every task that it collects is ready.
+            for task in qs
+                .cached_ready
+                .iter()
+                .map(|x| document.get_task(*x).unwrap())
+            {
+                assert_eq!(document.task_status(&task.id), Status::Ready);
+            }
         }
     }
 }
