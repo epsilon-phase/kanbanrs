@@ -141,52 +141,55 @@ impl eframe::App for KanbanRS {
                     }
                 });
             });
-
-            ComboBox::from_label("Layout Type")
-                .selected_text(String::from(&self.current_layout))
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_value(
-                            &mut self.current_layout,
-                            KanbanLayout::default(),
-                            "Columnar",
-                        )
-                        .clicked()
-                    {
-                        self.layout_cache_needs_updating = true;
-                    }
-                    if ui
-                        .selectable_value(
-                            &mut self.current_layout,
-                            KanbanLayout::Queue(QueueState::new()),
-                            "Queue",
-                        )
-                        .clicked()
-                    {
-                        self.layout_cache_needs_updating = true;
-                    }
-                    if ui
-                        .selectable_value(
-                            &mut self.current_layout,
-                            KanbanLayout::Search(SearchState::new()),
-                            "Search",
-                        )
-                        .clicked()
-                    {
-                        self.layout_cache_needs_updating = true;
-                    }
-                });
-            if let KanbanLayout::Search(_) = self.current_layout {
-            } else {
-                self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
-            }
-            ui.text_edit_singleline(&mut self.task_name);
-            if ui.button("Add Task").clicked() {
-                let thing = self.document.get_new_task();
-                thing.name = self.task_name.clone();
-                self.layout_cache_needs_updating = true;
-                self.current_layout.inform_of_new_items();
-            }
+            ui.horizontal(|ui| {
+                ComboBox::from_label("Layout Type")
+                    .selected_text(String::from(&self.current_layout))
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_value(
+                                &mut self.current_layout,
+                                KanbanLayout::default(),
+                                "Columnar",
+                            )
+                            .clicked()
+                        {
+                            self.layout_cache_needs_updating = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut self.current_layout,
+                                KanbanLayout::Queue(QueueState::new()),
+                                "Queue",
+                            )
+                            .clicked()
+                        {
+                            self.layout_cache_needs_updating = true;
+                        }
+                        if ui
+                            .selectable_value(
+                                &mut self.current_layout,
+                                KanbanLayout::Search(SearchState::new()),
+                                "Search",
+                            )
+                            .clicked()
+                        {
+                            self.layout_cache_needs_updating = true;
+                        }
+                    });
+                if let KanbanLayout::Search(_) = self.current_layout {
+                } else {
+                    self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut self.task_name);
+                if ui.button("Add Task").clicked() {
+                    let thing = self.document.get_new_task();
+                    thing.name = self.task_name.clone();
+                    self.layout_cache_needs_updating = true;
+                    self.current_layout.inform_of_new_items();
+                }
+            });
 
             ui.end_row();
             if let KanbanLayout::Columnar(_) = self.current_layout {

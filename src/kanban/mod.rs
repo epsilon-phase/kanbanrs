@@ -537,7 +537,7 @@ pub mod editor {
         let mut create_child = false;
         let mut open_task: Option<KanbanId> = None;
         let mut delete_task: Option<KanbanItem> = None;
-
+        super::sorting::sort_completed_last(&document, &mut state.item_copy.child_tasks);
         ui.vertical(|ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 ui.horizontal(|ui| {

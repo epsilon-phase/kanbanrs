@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use super::{KanbanDocument, KanbanId, KanbanItem};
 use eframe::egui::{self, ComboBox};
 #[derive(PartialEq, Copy, Clone)]
@@ -36,16 +38,41 @@ impl ItemSort {
     }
     pub fn combobox(&mut self, ui: &mut egui::Ui) -> bool {
         let mut needs_sorting = false;
-        ComboBox::new("SortingScheme", "Sort by").show_ui(ui, |ui| {
-            needs_sorting = [
-                ui.selectable_value(self, Self::None, "None"),
-                ui.selectable_value(self, Self::Name, "Name"),
-                ui.selectable_value(self, Self::Category, "Category"),
-                ui.selectable_value(self, Self::Completed, "Completed"),
-            ]
-            .iter()
-            .any(|x| x.clicked());
-        });
+        ComboBox::new("SortingScheme", "Sort by")
+            .selected_text(String::from(*self))
+            .show_ui(ui, |ui| {
+                needs_sorting = [
+                    ui.selectable_value(self, Self::None, "None"),
+                    ui.selectable_value(self, Self::Name, "Name"),
+                    ui.selectable_value(self, Self::Category, "Category"),
+                    ui.selectable_value(self, Self::Completed, "Completed"),
+                ]
+                .iter()
+                .any(|x| x.clicked());
+            });
         return needs_sorting;
     }
+}
+
+pub fn sort_completed_last(document: &KanbanDocument, ids: &mut Vec<KanbanId>) {
+    ids.sort_by(|a, b| {
+        let task_a = document.get_task(*a).unwrap();
+        let task_b = document.get_task(*b).unwrap();
+        if task_a.completed.is_some() {
+            if task_b.completed.is_some() {
+                return task_a
+                    .completed
+                    .unwrap()
+                    .cmp(task_b.completed.as_ref().unwrap());
+            } else {
+                return Ordering::Greater;
+            }
+        } else {
+            if task_b.completed.is_some() {
+                return Ordering::Less;
+            } else {
+                return Ordering::Equal;
+            }
+        }
+    })
 }
