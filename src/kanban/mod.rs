@@ -7,6 +7,9 @@ use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 
 pub mod category_editor;
+pub mod sorting;
+
+pub type KanbanId = i32;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
@@ -16,10 +19,10 @@ pub enum Status {
 }
 #[derive(Default, Serialize, Deserialize)]
 pub struct KanbanDocument {
-    tasks: HashMap<i32, KanbanItem>,
+    tasks: HashMap<KanbanId, KanbanItem>,
     priorities: HashMap<String, i32>,
     categories: HashMap<String, KanbanCategoryStyle>,
-    next_id: RefCell<i32>,
+    next_id: RefCell<KanbanId>,
 }
 impl KanbanDocument {
     pub fn new() -> Self {
@@ -34,8 +37,8 @@ impl KanbanDocument {
        causing a cycle
     */
     pub fn can_add_as_child(&self, parent: &KanbanItem, child: &KanbanItem) -> bool {
-        let mut stack: Vec<i32> = Vec::new();
-        let mut seen: Vec<i32> = Vec::new();
+        let mut stack: Vec<KanbanId> = Vec::new();
+        let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(child.id);
         let mut found = false;
         while stack.len() > 0 {
@@ -64,7 +67,7 @@ impl KanbanDocument {
         }
         return !found;
     }
-    pub fn get_next_id(&self) -> i32 {
+    pub fn get_next_id(&self) -> KanbanId {
         self.next_id.replace_with(|val| (*val) + 1)
     }
     /**
@@ -76,13 +79,13 @@ impl KanbanDocument {
         self.tasks.insert(new_task_id, new_task);
         return self.tasks.get_mut(&new_task_id).unwrap();
     }
-    pub fn get_tasks<'a>(&'a self) -> Values<'a, i32, KanbanItem> {
+    pub fn get_tasks<'a>(&'a self) -> Values<'a, KanbanId, KanbanItem> {
         self.tasks.values()
     }
-    pub fn get_tasks_mut<'a>(&'a mut self) -> ValuesMut<'a, i32, KanbanItem> {
+    pub fn get_tasks_mut<'a>(&'a mut self) -> ValuesMut<'a, KanbanId, KanbanItem> {
         self.tasks.values_mut()
     }
-    pub fn task_status(&self, id: &i32) -> Status {
+    pub fn task_status(&self, id: &KanbanId) -> Status {
         match self.tasks[id].completed {
             Some(_) => return Status::Completed,
             None => {
@@ -112,7 +115,7 @@ impl KanbanDocument {
             }
         }
     }
-    pub fn get_task(&self, id: i32) -> Option<&KanbanItem> {
+    pub fn get_task(&self, id: KanbanId) -> Option<&KanbanItem> {
         self.tasks.get(&id)
     }
     pub fn remove_task(&mut self, item: &KanbanItem) {
@@ -121,7 +124,7 @@ impl KanbanDocument {
         }
         self.tasks.remove(&item.id);
     }
-    pub fn get_relation(&self, target: i32, other: i32) -> TaskRelation {
+    pub fn get_relation(&self, target: KanbanId, other: KanbanId) -> TaskRelation {
         let task_a = self.get_task(target).unwrap();
         let task_b = self.get_task(other).unwrap();
         if task_a.is_child_of(task_b, self) {
@@ -188,14 +191,14 @@ pub enum TaskRelation {
 }
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct KanbanItem {
-    pub id: i32,
+    pub id: KanbanId,
     pub name: String,
     pub description: String,
     pub completed: Option<DateTime<Utc>>,
     pub category: Option<String>,
     pub priority: Option<String>,
     pub tags: Vec<String>,
-    pub child_tasks: Vec<i32>,
+    pub child_tasks: Vec<KanbanId>,
 }
 impl KanbanItem {
     pub fn new(document: &KanbanDocument) -> Self {
@@ -246,14 +249,14 @@ impl KanbanItem {
 #[derive(Clone, Copy)]
 pub enum SummaryAction {
     NoAction,
-    OpenEditor(i32),
-    CreateChildOf(i32),
+    OpenEditor(KanbanId),
+    CreateChildOf(KanbanId),
 }
 impl KanbanItem {
     pub fn summary(
         &self,
         document: &KanbanDocument,
-        hovered_task: &mut Option<i32>,
+        hovered_task: &mut Option<KanbanId>,
         ui: &mut egui::Ui,
     ) -> SummaryAction {
         let mut action = SummaryAction::NoAction;
@@ -365,8 +368,8 @@ Contains some methods to make determining relation easier.
 */
 impl KanbanItem {
     pub fn is_child_of(&self, parent: &Self, document: &KanbanDocument) -> bool {
-        let mut stack: Vec<i32> = Vec::new();
-        let mut seen: Vec<i32> = Vec::new();
+        let mut stack: Vec<KanbanId> = Vec::new();
+        let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(parent.id);
         while !stack.is_empty() {
             let current_id = stack.pop().unwrap();
@@ -388,6 +391,8 @@ impl KanbanItem {
 */
 pub mod search {
     use nucleo_matcher::{chars::normalize, pattern::Pattern, Config, Utf32Str, Utf32String};
+
+    use super::KanbanId;
 
     #[derive(Clone)]
     pub struct SearchState {
@@ -440,7 +445,7 @@ pub mod search {
             self.matched_ids.clear();
             let mut thing: String = "".into();
             let mut utfs_buffer: Vec<char> = Vec::new();
-            let mut values: Vec<(i32, i32)> = Vec::new();
+            let mut values: Vec<(KanbanId, i32)> = Vec::new();
             for i in document.get_tasks() {
                 thing.clear();
                 i.into_searchable_string(&mut thing);
@@ -469,7 +474,7 @@ pub mod queue_view {
     use super::*;
     #[derive(PartialEq, Eq, Clone)]
     pub struct QueueState {
-        pub cached_ready: Vec<i32>,
+        pub cached_ready: Vec<KanbanId>,
     }
     impl QueueState {
         pub fn new() -> Self {
@@ -494,7 +499,7 @@ pub mod queue_view {
  * 'twitchy'
 */
 pub mod editor {
-    use super::{KanbanDocument, KanbanItem};
+    use super::{KanbanDocument, KanbanId, KanbanItem};
     use chrono::DateTime;
     use eframe::egui::{self, ComboBox};
     #[derive(Clone)]
@@ -502,7 +507,7 @@ pub mod editor {
         pub open: bool,
         pub cancelled: bool,
         pub item_copy: super::KanbanItem,
-        selected_child: Option<i32>,
+        selected_child: Option<KanbanId>,
         new_tag: String,
         category: String,
         priority: String,
@@ -530,7 +535,7 @@ pub mod editor {
         state: &mut State,
     ) -> EditorRequest {
         let mut create_child = false;
-        let mut open_task: Option<i32> = None;
+        let mut open_task: Option<KanbanId> = None;
         let mut delete_task: Option<KanbanItem> = None;
 
         ui.vertical(|ui| {
@@ -593,7 +598,7 @@ pub mod editor {
                     {
                         let ui = &mut columns[0];
                         ui.label("Child tasks");
-                        let mut removed_task: Option<i32> = None;
+                        let mut removed_task: Option<KanbanId> = None;
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             for child in state.item_copy.child_tasks.iter() {
                                 if !document.tasks.contains_key(&child) {

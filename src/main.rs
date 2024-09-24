@@ -3,7 +3,7 @@ use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
     category_editor::State, editor::EditorRequest, queue_view::QueueState, search::SearchState,
-    KanbanDocument, KanbanItem, SummaryAction,
+    sorting::ItemSort, KanbanDocument, KanbanItem, SummaryAction,
 };
 use std::{fs, ops::Range, path::PathBuf};
 
@@ -20,6 +20,7 @@ struct KanbanRS {
     // Both of these might merit renaming at some point
     summary_actions_pending: Vec<SummaryAction>,
     editor_requests_pending: Vec<EditorRequest>,
+    sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
 }
 impl Default for KanbanRS {
@@ -36,6 +37,7 @@ impl Default for KanbanRS {
             layout_cache_needs_updating: true,
             summary_actions_pending: Vec::new(),
             editor_requests_pending: Vec::new(),
+            sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
         };
     }
@@ -62,6 +64,8 @@ impl eframe::App for KanbanRS {
         }
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(&self.document);
+            self.current_layout
+                .sort_cache(&self.document, &self.sorting_type);
             self.layout_cache_needs_updating = false;
         }
         ctx.input_mut(|i| {
@@ -172,7 +176,10 @@ impl eframe::App for KanbanRS {
                         self.layout_cache_needs_updating = true;
                     }
                 });
-
+            if let KanbanLayout::Search(_) = self.current_layout {
+            } else {
+                self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
+            }
             ui.text_edit_singleline(&mut self.task_name);
             if ui.button("Add Task").clicked() {
                 let thing = self.document.get_new_task();
@@ -392,15 +399,6 @@ impl KanbanRS {
                             &mut self.hovered_task,
                             &mut self.summary_actions_pending,
                         );
-                        // ui.vertical_centered_justified(|ui| {
-                        //     for row in range.clone() {
-                        //         let item_id = cache[0][row];
-                        //         let item = self.document.get_task(item_id).unwrap();
-                        //         let action =
-                        //             item.summary(&self.document, &mut self.hovered_task, ui);
-                        //         self.summary_actions_pending.push(action);
-                        //     }
-                        // });
                     });
 
                 columns[1].label(RichText::new("Blocked").heading());
@@ -521,10 +519,20 @@ impl KanbanLayout {
             KanbanLayout::Queue(x) => {
                 x.update(document);
             }
-            KanbanLayout::Columnar(array) => KanbanLayout::update_columnar(array, document),
+            KanbanLayout::Columnar(array) => {
+                KanbanLayout::update_columnar(array, document);
+            }
             KanbanLayout::Search(search_state) => {
                 search_state.update(document);
             }
+        }
+    }
+    pub fn sort_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
+        match self {
+            KanbanLayout::Columnar(array) => array
+                .iter_mut()
+                .for_each(|item| sort.sort_by(item, document)),
+            _ => (),
         }
     }
 }
