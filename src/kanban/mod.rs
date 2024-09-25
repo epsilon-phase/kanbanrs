@@ -647,60 +647,6 @@ pub mod editor {
                         });
                     }
                 });
-                /*
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label("Child tasks");
-                        let mut removed_task: Option<i32> = None;
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            for child in state.item_copy.child_tasks.iter() {
-                                if !document.tasks.contains_key(&child) {
-                                    continue;
-                                }
-                                ui.horizontal(|ui| {
-                                    if ui.link(document.tasks[child].name.clone()).clicked() {
-                                        open_task = Some(*child);
-                                    }
-                                    let button = ui.button("Remove dependency");
-                                    if button.clicked {
-                                        removed_task = Some(*child);
-                                    }
-                                });
-                            }
-                            if let Some(id) = removed_task {
-                                state.item_copy.child_tasks.retain(|x| *x != id);
-                            }
-                        });
-                    });
-
-                    ui.vertical(|ui| {
-                        ui.label("Tags");
-                        let mut removed_tag: Option<String> = None;
-                        ui.horizontal(|ui| {
-                            ui.text_edit_singleline(&mut state.new_tag);
-                            if !state.item_copy.tags.contains(&state.new_tag) {
-                                if ui.button("Add tag").clicked {
-                                    state.item_copy.tags.push(state.new_tag.clone());
-                                    state.new_tag.clear();
-                                }
-                            }
-                        });
-                        ui.group(|ui| {
-                            for tag in state.item_copy.tags.iter() {
-                                ui.horizontal(|ui| {
-                                    ui.label(tag);
-                                    if ui.button("X").clicked {
-                                        removed_tag = Some(tag.clone());
-                                    }
-                                });
-                            }
-                            if let Some(tag) = removed_tag {
-                                state.item_copy.tags.retain(|x| *x != tag);
-                            }
-                        });
-                    });
-                });
-                */
                 ui.horizontal(|ui| {
                     let accept_button = ui.button("Accept changes");
                     let cancel_button = ui.button("Cancel changes");
@@ -747,7 +693,7 @@ pub mod editor {
     }
 }
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     #[test]
     fn test_cycle_detection() {
@@ -792,11 +738,14 @@ mod tests {
     /**
     Make a KanbanDocument easily.
 
-        number_of_tasks The number of tasks to populate the document with.
-        children The ids of each child in order. Assume that ids start from 0, as they are going to
-        continue to regardless of what numeric type they make use of.
+    * `number_of_tasks` - The number of tasks to populate the document with.
+    * `children` - The ids of each child in order. If the vector ends prior to the last task,
+      it assumes none of the following tasks have children. Assume that ids start from 0 and end at number_of_tasks
     */
-    fn make_document_easy(number_of_tasks: usize, children: &Vec<Vec<KanbanId>>) -> KanbanDocument {
+    pub fn make_document_easy(
+        number_of_tasks: usize,
+        children: &Vec<Vec<KanbanId>>,
+    ) -> KanbanDocument {
         let mut n = KanbanDocument::new();
         let mut ids = Vec::new();
         for _ in 0..number_of_tasks {

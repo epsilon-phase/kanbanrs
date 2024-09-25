@@ -530,6 +530,7 @@ impl KanbanLayout {
             }
         }
     }
+
     pub fn sort_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
         match self {
             KanbanLayout::Columnar(array) => array
@@ -552,5 +553,28 @@ impl From<&KanbanLayout> for String {
             KanbanLayout::Search(_) => "Search",
         }
         .into()
+    }
+}
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    #[test]
+    fn test_columnar_layout() {
+        use chrono::Utc;
+
+        let children = vec![vec![1], Vec::new(), vec![3]];
+        let mut document = kanban::tests::make_document_easy(4, &children);
+        {
+            let mut task = document.get_task(1).unwrap().clone();
+            task.completed = Some(Utc::now());
+            document.replace_task(&task);
+        }
+        let mut layout = KanbanLayout::Columnar([Vec::new(), vec![], vec![]]);
+        layout.update_cache(&document);
+        if let KanbanLayout::Columnar(cache) = layout {
+            assert_eq!(cache[0].len(), 2);
+            assert_eq!(cache[1].len(), 1);
+            assert_eq!(cache[2].len(), 1);
+        }
     }
 }
