@@ -95,6 +95,20 @@ impl eframe::App for KanbanRS {
             i.consume_shortcut(&save_shortcut).then(|| {
                 self.save_file(false);
             });
+            let find_shortcut = egui::KeyboardShortcut {
+                modifiers: egui::Modifiers {
+                    alt: false,
+                    ctrl: true,
+                    shift: false,
+                    mac_cmd: true,
+                    command: false,
+                },
+                logical_key: egui::Key::F,
+            };
+            i.consume_shortcut(&find_shortcut).then(|| {
+                self.current_layout = KanbanLayout::Search(SearchState::new());
+                self.layout_cache_needs_updating = true;
+            })
         });
         self.hovered_task = None;
         egui::CentralPanel::default().show(ctx, |ui| {
