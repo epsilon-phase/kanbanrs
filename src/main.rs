@@ -7,12 +7,15 @@ use kanban::{
 };
 use std::{fs, ops::Range, path::PathBuf};
 
+mod document_layout;
+use document_layout::*;
+
 struct KanbanRS {
     document: KanbanDocument,
     task_name: String,
     open_editors: Vec<kanban::editor::State>,
     save_file_name: Option<PathBuf>,
-    current_layout: KanbanLayout,
+    current_layout: KanbanDocumentLayout,
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
     close_application: bool,
@@ -30,7 +33,7 @@ impl Default for KanbanRS {
             task_name: String::new(),
             open_editors: Vec::new(),
             save_file_name: None,
-            current_layout: KanbanLayout::default(),
+            current_layout: KanbanDocumentLayout::default(),
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
             hovered_task: None,
             close_application: false,
@@ -74,7 +77,7 @@ impl eframe::App for KanbanRS {
                     alt: false,
                     ctrl: true,
                     shift: false,
-                    mac_cmd: true,
+                    mac_cmd: false,
                     command: false,
                 },
                 logical_key: egui::Key::S,
@@ -84,7 +87,7 @@ impl eframe::App for KanbanRS {
                     alt: false,
                     ctrl: true,
                     shift: true,
-                    mac_cmd: true,
+                    mac_cmd: false,
                     command: false,
                 },
                 logical_key: egui::Key::S,
@@ -100,14 +103,15 @@ impl eframe::App for KanbanRS {
                     alt: false,
                     ctrl: true,
                     shift: false,
-                    mac_cmd: true,
+                    mac_cmd: false,
                     command: false,
                 },
                 logical_key: egui::Key::F,
             };
             i.consume_shortcut(&find_shortcut).then(|| {
-                self.current_layout = KanbanLayout::Search(SearchState::new());
+                self.current_layout = KanbanDocumentLayout::Search(SearchState::new());
                 self.layout_cache_needs_updating = true;
+                println!("FINDING");
             })
         });
         self.hovered_task = None;
@@ -156,13 +160,13 @@ impl eframe::App for KanbanRS {
                 });
             });
             ui.horizontal(|ui| {
-                ComboBox::from_label("Layout Type")
+                ComboBox::from_label("Layout")
                     .selected_text(String::from(&self.current_layout))
                     .show_ui(ui, |ui| {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanLayout::default(),
+                                KanbanDocumentLayout::default(),
                                 "Columnar",
                             )
                             .clicked()
@@ -172,7 +176,7 @@ impl eframe::App for KanbanRS {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanLayout::Queue(QueueState::new()),
+                                KanbanDocumentLayout::Queue(QueueState::new()),
                                 "Queue",
                             )
                             .clicked()
@@ -182,7 +186,7 @@ impl eframe::App for KanbanRS {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanLayout::Search(SearchState::new()),
+                                KanbanDocumentLayout::Search(SearchState::new()),
                                 "Search",
                             )
                             .clicked()
@@ -190,7 +194,7 @@ impl eframe::App for KanbanRS {
                             self.layout_cache_needs_updating = true;
                         }
                     });
-                if let KanbanLayout::Search(_) = self.current_layout {
+                if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 } else {
                     self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
                 }
@@ -206,9 +210,9 @@ impl eframe::App for KanbanRS {
             });
 
             ui.end_row();
-            if let KanbanLayout::Columnar(_) = self.current_layout {
+            if let KanbanDocumentLayout::Columnar(_) = self.current_layout {
                 self.layout_columnar(ui);
-            } else if let KanbanLayout::Search(_) = self.current_layout {
+            } else if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 self.layout_search(ui);
             } else {
                 self.layout_queue(ui);
@@ -398,197 +402,5 @@ impl KanbanRS {
             println!("Error on saving: {}", x);
         }
         self.write_recents();
-    }
-}
-/// Layout code
-impl KanbanRS {
-    pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
-        if let KanbanLayout::Columnar(cache) = &mut self.current_layout.clone() {
-            ui.columns(3, |columns| {
-                columns[0].label(RichText::new("Ready").heading());
-                egui::ScrollArea::vertical()
-                    .id_source("ReadyScrollarea")
-                    .show_rows(&mut columns[0], 200., cache[0].len(), |ui, range| {
-                        self.document.layout_id_list(
-                            ui,
-                            &cache[0],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
-
-                columns[1].label(RichText::new("Blocked").heading());
-                egui::ScrollArea::vertical()
-                    .id_source("BlockedScrollArea")
-                    .show_rows(&mut columns[1], 200., cache[1].len(), |ui, range| {
-                        self.document.layout_id_list(
-                            ui,
-                            &cache[1],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
-                columns[2].label(RichText::new("Completed").heading());
-                egui::ScrollArea::vertical()
-                    .id_source("CompletedScrollArea")
-                    .show_rows(&mut columns[2], 200., cache[2].len(), |ui, range| {
-                        self.document.layout_id_list(
-                            ui,
-                            &cache[2],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
-            });
-        }
-    }
-
-    pub fn layout_queue(&mut self, ui: &mut egui::Ui) {
-        if let KanbanLayout::Queue(qs) = &mut self.current_layout {
-            ScrollArea::vertical().id_source("Queue").show_rows(
-                ui,
-                200.0,
-                qs.cached_ready.len(),
-                |ui, range| {
-                    self.document.layout_id_list(
-                        ui,
-                        &qs.cached_ready,
-                        range,
-                        &mut self.hovered_task,
-                        &mut self.summary_actions_pending,
-                    );
-                },
-            );
-        }
-    }
-    pub fn layout_search(&mut self, ui: &mut egui::Ui) {
-        if let KanbanLayout::Search(search_state) = &mut self.current_layout {
-            ui.horizontal(|ui| {
-                let label = ui.label("Search");
-                ui.text_edit_singleline(&mut search_state.search_prompt)
-                    .labelled_by(label.id);
-                search_state.update(&self.document);
-            });
-            ScrollArea::vertical().id_source("SearchArea").show_rows(
-                ui,
-                200.0,
-                search_state.matched_ids.len(),
-                |ui, range| {
-                    self.document.layout_id_list(
-                        ui,
-                        &search_state.matched_ids,
-                        range,
-                        &mut self.hovered_task,
-                        &mut self.summary_actions_pending,
-                    );
-                },
-            );
-        }
-    }
-}
-#[derive(Clone)]
-enum KanbanLayout {
-    Queue(kanban::queue_view::QueueState),
-    Columnar([Vec<i32>; 3]),
-    Search(kanban::search::SearchState),
-}
-impl PartialEq for KanbanLayout {
-    fn eq(&self, other: &Self) -> bool {
-        match self {
-            KanbanLayout::Columnar(_) => match other {
-                KanbanLayout::Columnar(_) => true,
-                _ => false,
-            },
-            KanbanLayout::Queue(_) => match other {
-                KanbanLayout::Queue(_) => true,
-                _ => false,
-            },
-            KanbanLayout::Search(_) => match other {
-                KanbanLayout::Search(_) => true,
-                _ => false,
-            },
-        }
-    }
-}
-impl KanbanLayout {
-    fn update_columnar(columnar_cache: &mut [Vec<i32>; 3], document: &KanbanDocument) {
-        columnar_cache.iter_mut().for_each(|x| x.clear());
-        for task in document.get_tasks() {
-            let index = match document.task_status(&task.id) {
-                kanban::Status::Ready => 0,
-                kanban::Status::Blocked => 1,
-                kanban::Status::Completed => 2,
-            };
-            columnar_cache[index].push(task.id);
-        }
-    }
-    pub fn inform_of_new_items(&mut self) {
-        match self {
-            KanbanLayout::Search(x) => x.force_update(),
-            _ => (),
-        }
-    }
-    pub fn update_cache(&mut self, document: &KanbanDocument) {
-        match self {
-            KanbanLayout::Queue(x) => {
-                x.update(document);
-            }
-            KanbanLayout::Columnar(array) => {
-                KanbanLayout::update_columnar(array, document);
-            }
-            KanbanLayout::Search(search_state) => {
-                search_state.update(document);
-            }
-        }
-    }
-
-    pub fn sort_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
-        match self {
-            KanbanLayout::Columnar(array) => array
-                .iter_mut()
-                .for_each(|item| sort.sort_by(item, document)),
-            _ => (),
-        }
-    }
-}
-impl Default for KanbanLayout {
-    fn default() -> Self {
-        KanbanLayout::Columnar([Vec::new(), Vec::new(), Vec::new()])
-    }
-}
-impl From<&KanbanLayout> for String {
-    fn from(src: &KanbanLayout) -> String {
-        match src {
-            KanbanLayout::Columnar(_) => "Columnar",
-            KanbanLayout::Queue(_) => "Queue",
-            KanbanLayout::Search(_) => "Search",
-        }
-        .into()
-    }
-}
-#[cfg(test)]
-pub mod test {
-    use super::*;
-    #[test]
-    fn test_columnar_layout() {
-        use chrono::Utc;
-
-        let children = vec![vec![1], Vec::new(), vec![3]];
-        let mut document = kanban::tests::make_document_easy(4, &children);
-        {
-            let mut task = document.get_task(1).unwrap().clone();
-            task.completed = Some(Utc::now());
-            document.replace_task(&task);
-        }
-        let mut layout = KanbanLayout::Columnar([Vec::new(), vec![], vec![]]);
-        layout.update_cache(&document);
-        if let KanbanLayout::Columnar(cache) = layout {
-            assert_eq!(cache[0].len(), 2);
-            assert_eq!(cache[1].len(), 1);
-            assert_eq!(cache[2].len(), 1);
-        }
     }
 }

@@ -431,7 +431,6 @@ pub mod search {
             // if the search prompt is unchanged, and the matched_ids are not empty, then
             // we don't need to update.
             if self.search_prompt == self.former_search_prompt && !self.matched_ids.is_empty() {
-                println!("I don't need to update :3");
                 return;
             }
             if self.search_prompt != self.former_search_prompt {
