@@ -12,13 +12,13 @@ env_logger = { version = "0.10", default-features = false, features = [
 ] }
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = { version = "~1.0" }
-rfd = "0.14.1"
+rfd = { version = "0.14.1" }
 xdg = "~2.5.0"
 nucleo-matcher = { version = "0.3.1" }
 
 [profile.small_as_can_be]
 inherits = "release"
-# strip = true
+strip = true
 opt-level = "s"
 lto = true
 panic = "abort"
