@@ -1,9 +1,9 @@
 
 # Features so far
 
-* Basic searching
+* Fuzzy searching
 
-  You can search tasks using exact matching over multiple fields.
+  You can search tasks using fuzzy matching over multiple fields.
 * "Lightweight"
 
   The document I use to track development only allocates 17 mb to the heap
@@ -18,6 +18,14 @@
   like I often do), if you use priorities and the task dependency system then this will allow you
   to see the most important unblocked tasks first.
 
+* Focus View
+
+  Focus on the related tasks.
+
+* Categories
+* Category based styling - Allows styling the presentation of tasks based on what they are.
+* Sorting
+
 # It might even do
 
 * Some semblance of being accessible.
@@ -27,14 +35,7 @@
 
 # Upcoming features
 
-* Categories
-
-  These differ from tags because a task can only be in one category.
-
-  Categories will allow you to alter the styling of the tasks to provide emphasis that you can benefit from.
-  My intention is for this to allow setting a custom color, stroke thickness, and dash style, potentially
-  even icons if I can be bothered.
-  * Category view, because focusing on a single category is nice sometimes.
+* Category view, because focusing on a single category is nice sometimes.
 
 * Tree view
 
