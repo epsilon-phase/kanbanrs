@@ -230,7 +230,7 @@ impl KanbanItem {
         false
     }
     /// Fill a buffer with a string for the purposes of full text search
-    /// \param
+    /// * `output` - The output string buffer. For reuse.
     pub fn into_searchable_string(&self, output: &mut String) {
         output.extend(self.name.chars());
         output.push(' ');
@@ -390,7 +390,7 @@ impl KanbanItem {
 /*
 */
 pub mod search {
-    use nucleo_matcher::{chars::normalize, pattern::Pattern, Config, Utf32Str, Utf32String};
+    use nucleo_matcher::{pattern::Pattern, Config, Utf32Str};
 
     use super::KanbanId;
 

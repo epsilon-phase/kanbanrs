@@ -228,8 +228,6 @@ impl eframe::App for KanbanRS {
                     }
                 });
             self.open_editors.retain(|editor| editor.open);
-            // This should probably work more like the vectors of summary actions
-            //
             for editor in self.open_editors.iter_mut() {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of(editor.item_copy.id),
