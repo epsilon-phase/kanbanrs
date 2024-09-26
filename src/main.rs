@@ -4,9 +4,9 @@ use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
     category_editor::State, editor::EditorRequest, queue_view::QueueState, search::SearchState,
-    sorting::ItemSort, KanbanDocument, KanbanItem, SummaryAction,
+    sorting::ItemSort, KanbanDocument, SummaryAction,
 };
-use std::{fs, ops::Range, path::PathBuf};
+use std::{fs, path::PathBuf};
 
 mod document_layout;
 use document_layout::*;

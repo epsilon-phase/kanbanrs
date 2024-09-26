@@ -1,6 +1,5 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
-use eframe::egui::{self, Color32, Margin, Response, RichText, Rounding, ScrollArea, Stroke, Vec2};
-use nucleo_matcher::pattern::Pattern;
+use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -740,8 +739,8 @@ pub mod tests {
     fn test_task_removal() {
         let mut document = KanbanDocument::new();
         let mut a = document.get_new_task().clone();
-        let mut b = document.get_new_task().clone();
-        let mut c = document.get_new_task().clone();
+        let b = document.get_new_task().clone();
+        let c = document.get_new_task().clone();
         a.child_tasks.push(c.id);
         document.replace_task(&a);
         {
