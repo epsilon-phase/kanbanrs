@@ -251,6 +251,7 @@ pub enum SummaryAction {
     NoAction,
     OpenEditor(KanbanId),
     CreateChildOf(KanbanId),
+    MarkCompleted(KanbanId),
 }
 impl KanbanItem {
     pub fn summary(
@@ -333,6 +334,16 @@ impl KanbanItem {
                     }
                     if ui.button("Add Child").clicked() {
                         action = SummaryAction::CreateChildOf(self.id)
+                    }
+                    if ui
+                        .button(if self.completed.is_some() {
+                            "Uncomplete"
+                        } else {
+                            "Complete"
+                        })
+                        .clicked()
+                    {
+                        action = SummaryAction::MarkCompleted(self.id);
                     }
                 });
                 ui.horizontal(|ui| {

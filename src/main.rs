@@ -1,4 +1,5 @@
 mod kanban;
+use chrono::Utc;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
@@ -299,6 +300,16 @@ impl KanbanRS {
                 self.open_editors.push(editor);
                 self.layout_cache_needs_updating = true;
                 self.current_layout.inform_of_new_items();
+            }
+            SummaryAction::MarkCompleted(id) => {
+                let mut task = self.document.get_task(*id).unwrap().clone();
+                let new = match task.completed {
+                    Some(_) => None,
+                    None => Some(Utc::now()),
+                };
+                task.completed = new;
+                self.document.replace_task(&task);
+                self.layout_cache_needs_updating = true;
             }
         }
     }
