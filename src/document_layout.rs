@@ -4,6 +4,7 @@ pub enum KanbanDocumentLayout {
     Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
     Search(kanban::search::SearchState),
+    Focused(kanban::focused_layout::Focus),
 }
 impl PartialEq for KanbanDocumentLayout {
     fn eq(&self, other: &Self) -> bool {
@@ -18,6 +19,10 @@ impl PartialEq for KanbanDocumentLayout {
             },
             KanbanDocumentLayout::Search(_) => match other {
                 KanbanDocumentLayout::Search(_) => true,
+                _ => false,
+            },
+            KanbanDocumentLayout::Focused(_) => match other {
+                KanbanDocumentLayout::Focused(_) => true,
                 _ => false,
             },
         }
@@ -52,6 +57,9 @@ impl KanbanDocumentLayout {
             KanbanDocumentLayout::Search(search_state) => {
                 search_state.update(document);
             }
+            KanbanDocumentLayout::Focused(focus) => {
+                focus.update(document);
+            }
         }
     }
 
@@ -60,6 +68,10 @@ impl KanbanDocumentLayout {
             KanbanDocumentLayout::Columnar(array) => array
                 .iter_mut()
                 .for_each(|item| sort.sort_by(item, document)),
+            KanbanDocumentLayout::Focused(focus) => {
+                sort.sort_by(&mut focus.children, &document);
+                sort.sort_by(&mut focus.ancestors, &document);
+            }
             _ => (),
         }
     }
@@ -75,6 +87,7 @@ impl From<&KanbanDocumentLayout> for String {
             KanbanDocumentLayout::Columnar(_) => "Columnar",
             KanbanDocumentLayout::Queue(_) => "Queue",
             KanbanDocumentLayout::Search(_) => "Search",
+            KanbanDocumentLayout::Focused(_) => "Focus",
         }
         .into()
     }
@@ -170,6 +183,49 @@ impl KanbanRS {
                     );
                 },
             );
+        }
+    }
+    pub fn layout_focused(&mut self, ui: &mut egui::Ui) {
+        if let KanbanDocumentLayout::Focused(focus) = &mut self.current_layout {
+            ui.columns(3, |columns| {
+                columns[0].label(RichText::new("Child tasks").heading());
+                columns[2].label(RichText::new("Parent tasks").heading());
+                if let Some(target) = focus.cares_about {
+                    let task = self.document.get_task(target).unwrap();
+                    task.summary(&self.document, &mut self.hovered_task, &mut columns[1]);
+                }
+
+                ScrollArea::vertical().id_source("ChildScroller").show_rows(
+                    &mut columns[0],
+                    200.0,
+                    focus.children.len(),
+                    |ui, range| {
+                        self.document.layout_id_list(
+                            ui,
+                            &focus.children,
+                            range,
+                            &mut self.hovered_task,
+                            &mut self.summary_actions_pending,
+                        );
+                    },
+                );
+                ScrollArea::vertical()
+                    .id_source("ParentScroller")
+                    .show_rows(
+                        &mut columns[2],
+                        200.0,
+                        focus.ancestors.len(),
+                        |ui, range| {
+                            self.document.layout_id_list(
+                                ui,
+                                &focus.ancestors,
+                                range,
+                                &mut self.hovered_task,
+                                &mut self.summary_actions_pending,
+                            );
+                        },
+                    );
+            });
         }
     }
 }

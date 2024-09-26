@@ -215,6 +215,8 @@ impl eframe::App for KanbanRS {
                 self.layout_columnar(ui);
             } else if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 self.layout_search(ui);
+            } else if let KanbanDocumentLayout::Focused(_) = self.current_layout {
+                self.layout_focused(ui);
             } else {
                 self.layout_queue(ui);
             }
@@ -309,6 +311,11 @@ impl KanbanRS {
                 };
                 task.completed = new;
                 self.document.replace_task(&task);
+                self.layout_cache_needs_updating = true;
+            }
+            SummaryAction::FocusOn(id) => {
+                self.current_layout =
+                    KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));
                 self.layout_cache_needs_updating = true;
             }
         }

@@ -1,11 +1,13 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
+use focused_layout::Focus;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 
 pub mod category_editor;
+pub mod focused_layout;
 pub mod sorting;
 
 pub type KanbanId = i32;
@@ -251,6 +253,7 @@ pub enum SummaryAction {
     OpenEditor(KanbanId),
     CreateChildOf(KanbanId),
     MarkCompleted(KanbanId),
+    FocusOn(KanbanId),
 }
 impl KanbanItem {
     pub fn summary(
@@ -323,8 +326,11 @@ impl KanbanItem {
                         ));
                     }
 
-                    if label.unwrap().hovered() {
+                    if label.as_ref().unwrap().hovered() {
                         *hovered_task = Some(self.id);
+                    }
+                    if label.as_ref().unwrap().middle_clicked() {
+                        action = SummaryAction::FocusOn(self.id);
                     }
                 });
                 ui.horizontal(|ui| {
@@ -344,6 +350,9 @@ impl KanbanItem {
                         .clicked()
                     {
                         action = SummaryAction::MarkCompleted(self.id);
+                    }
+                    if ui.button("focus").clicked() {
+                        action = SummaryAction::FocusOn(self.id);
                     }
                 });
                 ui.horizontal(|ui| {
