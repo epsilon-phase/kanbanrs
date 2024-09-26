@@ -119,6 +119,23 @@ impl State {
                     }
                 }
             });
+            ui.group(|ui| {
+                ui.label("Task Name color");
+                if let Some(color) = self.style.text_color {
+                    let mut color = egui::Color32::from_rgba_unmultiplied(
+                        color[0], color[1], color[2], color[3],
+                    );
+                    ui.color_edit_button_srgba(&mut color);
+                    self.style.text_color = Some(color.to_array());
+                    if ui.button("Clear color").clicked() {
+                        self.style.text_color = None;
+                    }
+                } else {
+                    if ui.button("Set text color").clicked() {
+                        self.style.text_color = Some([255, 255, 255, 255])
+                    }
+                }
+            });
         });
         self.dummy_document
             .replace_category_style(&String::from("category"), self.style);
