@@ -333,7 +333,7 @@ impl KanbanItem {
                         action = SummaryAction::FocusOn(self.id);
                     }
                 });
-                ui.horizontal(|ui| {
+                ui.horizontal_wrapped(|ui| {
                     let button = ui.button("Edit");
                     if button.clicked() {
                         action = SummaryAction::OpenEditor(self.id);
