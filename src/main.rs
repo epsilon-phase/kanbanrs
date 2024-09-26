@@ -338,6 +338,10 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
                 self.current_layout.inform_of_new_items();
             }
+            kanban::editor::EditorRequest::UpdateItem(item) => {
+                self.document.replace_task(&item);
+                self.layout_cache_needs_updating = true;
+            }
             _ => {}
         }
     }

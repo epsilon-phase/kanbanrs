@@ -465,7 +465,6 @@ pub mod search {
                     &mut self.matcher,
                 ) {
                     values.push((i.id, score as i32));
-                    // self.matched_ids.push(i.id);
                 }
             }
             values.sort_by_key(|x| x.1);
@@ -538,6 +537,7 @@ pub mod editor {
         NewItem(KanbanItem),
         OpenItem(KanbanItem),
         DeleteItem(KanbanItem),
+        UpdateItem(KanbanItem),
     }
     pub fn editor(
         ui: &mut egui::Ui,
@@ -547,6 +547,10 @@ pub mod editor {
         let mut create_child = false;
         let mut open_task: Option<KanbanId> = None;
         let mut delete_task: Option<KanbanItem> = None;
+        let mut update_task = false;
+        // I'm kinda meh on this particular mechanic.
+        // It is convenient, but it also changes things that you would not expect to be
+        // changed simply by opening the editor.
         super::sorting::sort_completed_last(&document, &mut state.item_copy.child_tasks);
         ui.vertical(|ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -685,9 +689,15 @@ pub mod editor {
                         // dummy task with only the id set
                         delete_task = Some(state.item_copy.clone());
                     }
+                    if ui.button("Apply").clicked() {
+                        update_task = true;
+                    }
                 });
             });
         });
+        if update_task {
+            return EditorRequest::UpdateItem(state.item_copy.clone());
+        }
         if let Some(to_delete) = delete_task {
             return EditorRequest::DeleteItem(to_delete);
         }
