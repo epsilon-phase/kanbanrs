@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = "0.28.1"
+eframe = "0.29.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",

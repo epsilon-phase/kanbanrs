@@ -54,6 +54,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     state.item_copy.completed = Some(chrono::Utc::now());
                 }
             }
+
             ui.heading("Description");
             ui.text_edit_multiline(&mut state.item_copy.description);
             ui.columns(2, |columns| {
@@ -97,18 +98,21 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
             ui.columns(2, |columns| {
                 {
                     let ui = &mut columns[0];
+                    ui.set_max_width(ui.available_width());
                     ui.label("Child tasks");
                     let mut removed_task: Option<KanbanId> = None;
                     egui::ScrollArea::vertical()
                         // Without the .max_height it seems to force the button cluster at the
                         // bottom half-off the screen, which I don't care for.
                         .max_height(ui.available_height() / 2.0)
+                        .max_width(ui.available_width())
+                        .id_salt("child tasks")
                         .show(ui, |ui| {
                             for child in state.item_copy.child_tasks.iter() {
                                 if !document.tasks.contains_key(&child) {
                                     continue;
                                 }
-                                ui.horizontal(|ui| {
+                                ui.horizontal_wrapped(|ui| {
                                     if ui.link(document.tasks[child].name.clone()).clicked() {
                                         open_task = Some(*child);
                                     }
@@ -138,6 +142,8 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     });
                     egui::ScrollArea::vertical()
                         .max_height(ui.available_height() / 2.0)
+                        .max_width(ui.available_width())
+                        .id_salt("tags")
                         .show(ui, |ui| {
                             for tag in state.item_copy.tags.iter() {
                                 ui.horizontal(|ui| {
