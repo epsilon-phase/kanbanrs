@@ -190,6 +190,7 @@ impl KanbanRS {
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Child tasks").heading());
                 columns[2].label(RichText::new("Parent tasks").heading());
+                columns[1].label(RichText::new("Focused Task").heading());
                 if let Some(target) = focus.cares_about {
                     let task = self.document.get_task(target).unwrap();
                     task.summary(&self.document, &mut self.hovered_task, &mut columns[1]);
