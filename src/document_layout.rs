@@ -193,7 +193,11 @@ impl KanbanRS {
                 columns[1].label(RichText::new("Focused Task").heading());
                 if let Some(target) = focus.cares_about {
                     let task = self.document.get_task(target).unwrap();
-                    task.summary(&self.document, &mut self.hovered_task, &mut columns[1]);
+                    self.summary_actions_pending.push(task.summary(
+                        &self.document,
+                        &mut self.hovered_task,
+                        &mut columns[1],
+                    ));
                 }
 
                 ScrollArea::vertical().id_source("ChildScroller").show_rows(

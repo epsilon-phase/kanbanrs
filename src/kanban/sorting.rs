@@ -14,7 +14,7 @@ impl From<ItemSort> for String {
     fn from(value: ItemSort) -> Self {
         match value {
             ItemSort::None => "None",
-            ItemSort::Id => "Id",
+            ItemSort::Id => "Creation Order",
             ItemSort::Name => "Name",
             ItemSort::Category => "Category",
             ItemSort::Completed => "Completed",
@@ -43,6 +43,7 @@ impl ItemSort {
             .show_ui(ui, |ui| {
                 needs_sorting = [
                     ui.selectable_value(self, Self::None, "None"),
+                    ui.selectable_value(self, Self::Id, "Creation order"),
                     ui.selectable_value(self, Self::Name, "Name"),
                     ui.selectable_value(self, Self::Category, "Category"),
                     ui.selectable_value(self, Self::Completed, "Completed"),

@@ -1,6 +1,6 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
 use chrono::DateTime;
-use eframe::egui::{self, ComboBox};
+use eframe::egui::{self, ComboBox, ScrollArea};
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -99,25 +99,29 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     let ui = &mut columns[0];
                     ui.label("Child tasks");
                     let mut removed_task: Option<KanbanId> = None;
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for child in state.item_copy.child_tasks.iter() {
-                            if !document.tasks.contains_key(&child) {
-                                continue;
+                    egui::ScrollArea::vertical()
+                        // Without the .max_height it seems to force the button cluster at the
+                        // bottom half-off the screen, which I don't care for.
+                        .max_height(ui.available_height() / 2.0)
+                        .show(ui, |ui| {
+                            for child in state.item_copy.child_tasks.iter() {
+                                if !document.tasks.contains_key(&child) {
+                                    continue;
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.link(document.tasks[child].name.clone()).clicked() {
+                                        open_task = Some(*child);
+                                    }
+                                    let button = ui.button("Remove dependency");
+                                    if button.clicked {
+                                        removed_task = Some(*child);
+                                    }
+                                });
                             }
-                            ui.horizontal(|ui| {
-                                if ui.link(document.tasks[child].name.clone()).clicked() {
-                                    open_task = Some(*child);
-                                }
-                                let button = ui.button("Remove dependency");
-                                if button.clicked {
-                                    removed_task = Some(*child);
-                                }
-                            });
-                        }
-                        if let Some(id) = removed_task {
-                            state.item_copy.child_tasks.retain(|x| *x != id);
-                        }
-                    });
+                            if let Some(id) = removed_task {
+                                state.item_copy.child_tasks.retain(|x| *x != id);
+                            }
+                        });
                 }
                 {
                     let ui = &mut columns[1];
@@ -132,19 +136,21 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                             }
                         }
                     });
-                    ui.group(|ui| {
-                        for tag in state.item_copy.tags.iter() {
-                            ui.horizontal(|ui| {
-                                ui.label(tag);
-                                if ui.button("X").clicked {
-                                    removed_tag = Some(tag.clone());
-                                }
-                            });
-                        }
-                        if let Some(tag) = removed_tag {
-                            state.item_copy.tags.retain(|x| *x != tag);
-                        }
-                    });
+                    egui::ScrollArea::vertical()
+                        .max_height(ui.available_height() / 2.0)
+                        .show(ui, |ui| {
+                            for tag in state.item_copy.tags.iter() {
+                                ui.horizontal(|ui| {
+                                    ui.label(tag);
+                                    if ui.button("X").clicked {
+                                        removed_tag = Some(tag.clone());
+                                    }
+                                });
+                            }
+                            if let Some(tag) = removed_tag {
+                                state.item_copy.tags.retain(|x| *x != tag);
+                            }
+                        });
                 }
             });
             ui.horizontal(|ui| {

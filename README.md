@@ -20,7 +20,7 @@
 
 * Focus View
 
-  Focus on the related tasks.
+  Focus on related tasks.
 
 * Categories
 * Category based styling - Allows styling the presentation of tasks based on what they are.
