@@ -9,22 +9,10 @@ pub enum KanbanDocumentLayout {
 impl PartialEq for KanbanDocumentLayout {
     fn eq(&self, other: &Self) -> bool {
         match self {
-            KanbanDocumentLayout::Columnar(_) => match other {
-                KanbanDocumentLayout::Columnar(_) => true,
-                _ => false,
-            },
-            KanbanDocumentLayout::Queue(_) => match other {
-                KanbanDocumentLayout::Queue(_) => true,
-                _ => false,
-            },
-            KanbanDocumentLayout::Search(_) => match other {
-                KanbanDocumentLayout::Search(_) => true,
-                _ => false,
-            },
-            KanbanDocumentLayout::Focused(_) => match other {
-                KanbanDocumentLayout::Focused(_) => true,
-                _ => false,
-            },
+            KanbanDocumentLayout::Columnar(_) => matches!(other, KanbanDocumentLayout::Columnar(_)),
+            KanbanDocumentLayout::Queue(_) => matches!(other, KanbanDocumentLayout::Queue(_)),
+            KanbanDocumentLayout::Search(_) => matches!(other, KanbanDocumentLayout::Search(_)),
+            KanbanDocumentLayout::Focused(_) => matches!(other, KanbanDocumentLayout::Focused(_)),
         }
     }
 }
@@ -41,9 +29,8 @@ impl KanbanDocumentLayout {
         }
     }
     pub fn inform_of_new_items(&mut self) {
-        match self {
-            KanbanDocumentLayout::Search(x) => x.force_update(),
-            _ => (),
+        if let KanbanDocumentLayout::Search(x) = self {
+            x.force_update();
         }
     }
     pub fn update_cache(&mut self, document: &KanbanDocument) {
@@ -69,8 +56,8 @@ impl KanbanDocumentLayout {
                 .iter_mut()
                 .for_each(|item| sort.sort_by(item, document)),
             KanbanDocumentLayout::Focused(focus) => {
-                sort.sort_by(&mut focus.children, &document);
-                sort.sort_by(&mut focus.ancestors, &document);
+                sort.sort_by(&mut focus.children, document);
+                sort.sort_by(&mut focus.ancestors, document);
             }
             _ => (),
         }

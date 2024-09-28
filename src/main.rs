@@ -3,8 +3,8 @@ use chrono::Utc;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
-    category_editor::State, editor::EditorRequest, queue_view::QueueState, search::SearchState,
-    sorting::ItemSort, KanbanDocument, SummaryAction,
+    category_editor::State, editor::EditorRequest, priority_editor::PriorityEditor,
+    queue_view::QueueState, search::SearchState, sorting::ItemSort, KanbanDocument, SummaryAction,
 };
 use std::{fs, path::PathBuf};
 
@@ -26,10 +26,11 @@ struct KanbanRS {
     editor_requests_pending: Vec<EditorRequest>,
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
+    priority_editor: PriorityEditor,
 }
 impl Default for KanbanRS {
     fn default() -> Self {
-        return KanbanRS {
+        KanbanRS {
             document: KanbanDocument::default(),
             task_name: String::new(),
             open_editors: Vec::new(),
@@ -43,7 +44,8 @@ impl Default for KanbanRS {
             editor_requests_pending: Vec::new(),
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
-        };
+            priority_editor: PriorityEditor::new(),
+        }
     }
 }
 
@@ -158,6 +160,10 @@ impl eframe::App for KanbanRS {
                         self.category_editor.open = true;
                         ui.close_menu();
                     }
+                    if ui.button("Priority editor").clicked() {
+                        self.priority_editor.open = true;
+                        ui.close_menu();
+                    }
                 });
             });
             ui.horizontal(|ui| {
@@ -248,12 +254,10 @@ impl eframe::App for KanbanRS {
             }
 
             // I would prefer this in an iterator or a for loop, but, I am simply not brain enough tonight
-            while !self.summary_actions_pending.is_empty() {
-                let x = self.summary_actions_pending.pop().unwrap();
+            while let Some(x) = self.summary_actions_pending.pop() {
                 self.handle_summary_action(&x);
             }
-            while !self.editor_requests_pending.is_empty() {
-                let x = self.editor_requests_pending.pop().unwrap();
+            while let Some(x) = self.editor_requests_pending.pop() {
                 self.handle_editor_request(&x);
             }
             if self.category_editor.open {
@@ -276,6 +280,21 @@ impl eframe::App for KanbanRS {
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
                             self.category_editor.open = false;
+                        }
+                    },
+                );
+            }
+            if self.priority_editor.open {
+                ui.ctx().show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("Category Editor"),
+                    egui::ViewportBuilder::default(),
+                    |ctx, _class| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            self.layout_cache_needs_updating |=
+                                self.priority_editor.show(&mut self.document, ui);
+                        });
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            self.priority_editor.open = false;
                         }
                     },
                 );
@@ -323,9 +342,8 @@ impl KanbanRS {
     fn handle_editor_request(&mut self, request: &EditorRequest) {
         match request {
             kanban::editor::EditorRequest::NewItem(new_task) => {
-                self.document.replace_task(&new_task);
-                self.open_editors
-                    .push(kanban::editor::state_from(&new_task));
+                self.document.replace_task(new_task);
+                self.open_editors.push(kanban::editor::state_from(new_task));
 
                 self.layout_cache_needs_updating = true;
                 self.current_layout.inform_of_new_items();
@@ -335,18 +353,18 @@ impl KanbanRS {
             // document.
             kanban::editor::EditorRequest::OpenItem(item_to_open) => {
                 self.open_editors
-                    .push(kanban::editor::state_from(&item_to_open));
+                    .push(kanban::editor::state_from(item_to_open));
             }
             kanban::editor::EditorRequest::DeleteItem(to_delete) => {
-                self.document.remove_task(&to_delete);
+                self.document.remove_task(to_delete);
                 for editor in self.open_editors.iter_mut() {
-                    editor.item_copy.remove_child(&to_delete);
+                    editor.item_copy.remove_child(to_delete);
                 }
                 self.layout_cache_needs_updating = true;
                 self.current_layout.inform_of_new_items();
             }
             kanban::editor::EditorRequest::UpdateItem(item) => {
-                self.document.replace_task(&item);
+                self.document.replace_task(item);
                 self.layout_cache_needs_updating = true;
             }
             _ => {}
@@ -357,14 +375,14 @@ impl KanbanRS {
 impl KanbanRS {
     pub fn read_recents(&self) -> Vec<PathBuf> {
         let recents_file = self.base_dirs.find_state_file("recent");
-        if let None = recents_file {
+        if recents_file.is_none() {
             return Vec::new();
         }
         let recents_file = recents_file.unwrap();
         std::fs::read_to_string(recents_file)
             .unwrap_or("".to_string())
             .split("\n")
-            .filter(|x| x.len() > 0)
+            .filter(|x| !x.is_empty())
             .map(|x| x.into())
             .collect()
     }
@@ -375,14 +393,14 @@ impl KanbanRS {
             .expect("Could not create state file");
         if !std::fs::exists(&recents_file).unwrap() {
             if let Err(x) = std::fs::File::create(&recents_file) {
-                println!("Failed to open file with error '{}'", x.to_string());
+                println!("Failed to open file with error '{}'", x);
             }
         }
         let mut old_recents: Vec<String> = std::fs::read_to_string(&recents_file)
             .unwrap()
             .split('\n')
             .filter(|x| x.len() > 1)
-            .map(|x| String::from(x))
+            .map(String::from)
             .collect();
         let pb: String = String::from(self.save_file_name.as_ref().unwrap().to_str().unwrap());
         // If the file is already in recents then we should avoid adding it.
@@ -402,13 +420,13 @@ impl KanbanRS {
         }
     }
     fn open_file(&mut self, path: &PathBuf) {
-        let file = fs::File::open(&path).unwrap();
+        let file = fs::File::open(path).unwrap();
         self.document = serde_json::from_reader(file).unwrap();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
     }
     pub fn save_file(&mut self, force_choose_file: bool) {
-        if !self.save_file_name.is_some() || force_choose_file {
+        if self.save_file_name.is_none() || force_choose_file {
             let filename = rfd::FileDialog::new()
                 .add_filter("Kanban", &["kan"])
                 .save_file();

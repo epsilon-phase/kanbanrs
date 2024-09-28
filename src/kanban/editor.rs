@@ -1,5 +1,4 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
-use chrono::DateTime;
 use eframe::egui::{self, ComboBox};
 #[derive(Clone)]
 pub struct State {
@@ -9,7 +8,7 @@ pub struct State {
     selected_child: Option<KanbanId>,
     new_tag: String,
     category: String,
-    priority: String,
+    // priority: String,
 }
 pub fn state_from(item: &KanbanItem) -> State {
     State {
@@ -19,7 +18,6 @@ pub fn state_from(item: &KanbanItem) -> State {
         selected_child: None,
         new_tag: "".into(),
         category: item.category.as_ref().unwrap_or(&String::new()).clone(),
-        priority: item.priority.as_ref().unwrap_or(&String::new()).clone(),
     }
 }
 pub enum EditorRequest {
@@ -37,7 +35,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
     // I'm kinda meh on this particular mechanic.
     // It is convenient, but it also changes things that you would not expect to be
     // changed simply by opening the editor.
-    super::sorting::sort_completed_last(&document, &mut state.item_copy.child_tasks);
+    super::sorting::sort_completed_last(document, &mut state.item_copy.child_tasks);
     ui.vertical(|ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {
@@ -51,12 +49,27 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 {
                     state.item_copy.completed = None;
                 }
-            } else {
-                if ui.button("Mark completed").clicked() {
-                    state.item_copy.completed = Some(chrono::Utc::now());
-                }
+            } else if ui.button("Mark completed").clicked() {
+                state.item_copy.completed = Some(chrono::Utc::now());
             }
-
+            ui.horizontal(|ui| {
+                ui.label("Priority");
+                ComboBox::from_label("Priority")
+                    .selected_text(match &state.item_copy.priority {
+                        Some(x) => x,
+                        None => "None",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut state.item_copy.priority, None, "None");
+                        for (name, _) in document.get_sorted_priorities().iter() {
+                            ui.selectable_value(
+                                &mut state.item_copy.priority,
+                                Some((*name).clone()),
+                                (*name).clone(),
+                            );
+                        }
+                    })
+            });
             ui.heading("Description");
             ui.text_edit_multiline(&mut state.item_copy.description);
             ui.columns(2, |columns| {
@@ -64,7 +77,6 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 ComboBox::new("Category", "Category")
                     .selected_text(&state.category)
                     .show_ui(&mut columns[0], |ui| {
-                        ui.text_edit_singleline(&mut state.category);
                         for i in document.categories.keys() {
                             ui.selectable_value(&mut state.category, i.clone(), i.clone());
                         }
@@ -111,7 +123,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                         .id_salt("child tasks")
                         .show(ui, |ui| {
                             for child in state.item_copy.child_tasks.iter() {
-                                if !document.tasks.contains_key(&child) {
+                                if !document.tasks.contains_key(child) {
                                     continue;
                                 }
                                 ui.horizontal_wrapped(|ui| {
@@ -135,11 +147,11 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     let mut removed_tag: Option<String> = None;
                     ui.horizontal(|ui| {
                         ui.text_edit_singleline(&mut state.new_tag);
-                        if !state.item_copy.tags.contains(&state.new_tag) {
-                            if ui.button("Add tag").clicked {
-                                state.item_copy.tags.push(state.new_tag.clone());
-                                state.new_tag.clear();
-                            }
+                        if !state.item_copy.tags.contains(&state.new_tag)
+                            && ui.button("Add tag").clicked
+                        {
+                            state.item_copy.tags.push(state.new_tag.clone());
+                            state.new_tag.clear();
                         }
                     });
                     egui::ScrollArea::vertical()
@@ -171,11 +183,11 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     } else {
                         state.item_copy.category = None;
                     }
-                    if !state.priority.is_empty() {
-                        state.item_copy.priority = Some(state.priority.clone());
-                    } else {
-                        state.item_copy.priority = None;
-                    }
+                    // if !state.priority.is_empty() {
+                    //     state.item_copy.priority = Some(state.priority.clone());
+                    // } else {
+                    //     state.item_copy.priority = None;
+                    // }
                     state.open = false;
                 }
                 if cancel_button.clicked() {

@@ -51,7 +51,7 @@ impl ItemSort {
                 .iter()
                 .any(|x| x.clicked());
             });
-        return needs_sorting;
+        needs_sorting
     }
 }
 pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Ordering {
@@ -59,20 +59,18 @@ pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Orderin
         if b.completed.is_some() {
             return a.completed.unwrap().cmp(b.completed.as_ref().unwrap());
         } else {
-            return Ordering::Greater;
+            Ordering::Greater
         }
+    } else if a.completed.is_some() {
+        Ordering::Less
     } else {
-        if a.completed.is_some() {
-            return Ordering::Less;
-        } else {
-            return Ordering::Equal;
-        }
+        Ordering::Equal
     }
 }
-pub fn sort_completed_last(document: &KanbanDocument, ids: &mut Vec<KanbanId>) {
+pub fn sort_completed_last(document: &KanbanDocument, ids: &mut [KanbanId]) {
     ids.sort_by(|a, b| {
         let task_a = document.get_task(*a).unwrap();
         let task_b = document.get_task(*b).unwrap();
-        return task_comparison_completed_last(task_a, task_b);
+        task_comparison_completed_last(task_a, task_b)
     })
 }

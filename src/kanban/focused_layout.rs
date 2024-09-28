@@ -7,11 +7,11 @@ pub struct Focus {
 }
 impl Focus {
     pub fn new(id: KanbanId) -> Focus {
-        return Focus {
+        Focus {
             cares_about: Some(id),
             children: Vec::new(),
             ancestors: Vec::new(),
-        };
+        }
     }
     pub fn update(&mut self, document: &KanbanDocument) {
         if self.cares_about.is_none() {

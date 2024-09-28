@@ -1,4 +1,4 @@
-use chrono::{prelude::*, DurationRound, TimeDelta};
+use chrono::prelude::*;
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 pub mod category_editor;
 pub mod focused_layout;
+pub mod priority_editor;
 pub mod sorting;
 
 pub type KanbanId = i32;
@@ -41,10 +42,10 @@ impl KanbanDocument {
         let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(child.id);
         let mut found = false;
-        while stack.len() > 0 {
+        while let Some(current) = stack.pop() {
             // We can be sure that it won't return a nonopt because of the loop's precondition
-            let current = stack.pop().unwrap();
-            if current == parent.id && seen.len() > 0 {
+
+            if current == parent.id && !seen.is_empty() {
                 found = true;
                 break;
             }
@@ -52,20 +53,20 @@ impl KanbanDocument {
             // Either parent or child may be a hypothetical; not yet committed to the document,
             // and thus needs to be intercepted here to ensure up-to-dateness
             let task = if current == parent.id {
-                &parent
+                parent
             } else if current == child.id {
-                &child
+                child
             } else {
                 &self.tasks[&current]
             };
             task.child_tasks.iter().for_each(|child_id| {
-                if seen.contains(&child_id) {
+                if seen.contains(child_id) {
                     return;
                 }
                 stack.push(*child_id);
             });
         }
-        return !found;
+        !found
     }
     pub fn get_next_id(&self) -> KanbanId {
         self.next_id.replace_with(|val| (*val) + 1)
@@ -74,46 +75,50 @@ impl KanbanDocument {
     Create a new task and add it to the document, returning a mutable reference
     */
     pub fn get_new_task(&mut self) -> &mut KanbanItem {
-        let new_task = KanbanItem::new(&self);
+        let new_task = KanbanItem::new(self);
         let new_task_id = new_task.id;
         self.tasks.insert(new_task_id, new_task);
         return self.tasks.get_mut(&new_task_id).unwrap();
     }
-    pub fn get_tasks<'a>(&'a self) -> Values<'a, KanbanId, KanbanItem> {
+    pub fn get_tasks(&'_ self) -> Values<'_, KanbanId, KanbanItem> {
         self.tasks.values()
     }
-    pub fn get_tasks_mut<'a>(&'a mut self) -> ValuesMut<'a, KanbanId, KanbanItem> {
+    pub fn get_tasks_mut(&'_ mut self) -> ValuesMut<'_, KanbanId, KanbanItem> {
         self.tasks.values_mut()
     }
     pub fn task_status(&self, id: &KanbanId) -> Status {
         match self.tasks[id].completed {
-            Some(_) => return Status::Completed,
+            Some(_) => Status::Completed,
             None => {
                 if self.tasks[id]
                     .child_tasks
                     .iter()
                     .all(|child_id| self.task_status(child_id) == Status::Completed)
                 {
-                    return Status::Ready;
+                    Status::Ready
                 } else {
-                    return Status::Blocked;
+                    Status::Blocked
                 }
             }
         }
     }
     pub fn replace_task(&mut self, item: &KanbanItem) {
         self.tasks.insert(item.id, item.clone());
-        if item.category.is_some() {
-            if !self
+        if item.category.is_some()
+            && !self
                 .categories
                 .contains_key(item.category.as_ref().unwrap())
-            {
-                self.categories.insert(
-                    item.category.as_ref().unwrap().clone(),
-                    KanbanCategoryStyle::default(),
-                );
-            }
+        {
+            self.categories.insert(
+                item.category.as_ref().unwrap().clone(),
+                KanbanCategoryStyle::default(),
+            );
         }
+    }
+    pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
+        let mut i: Vec<(&'a String, &'a i32)> = self.priorities.iter().collect();
+        i.sort_by(|a, b| a.1.cmp(b.1));
+        i
     }
     pub fn get_task(&self, id: KanbanId) -> Option<&KanbanItem> {
         self.tasks.get(&id)
@@ -148,13 +153,13 @@ impl KanbanDocument {
                 return 0;
             }
         }
-        return 0;
+        0
     }
 }
 /// Category functions
 impl KanbanDocument {
-    pub fn replace_category_style(&mut self, name: &String, style: KanbanCategoryStyle) {
-        self.categories.insert(name.clone(), style);
+    pub fn replace_category_style(&mut self, name: &str, style: KanbanCategoryStyle) {
+        self.categories.insert(name.into(), style);
     }
 }
 
@@ -177,7 +182,7 @@ impl KanbanDocument {
             for row in range.clone() {
                 let item_id = ids[row];
                 let item = &self.tasks[&item_id];
-                let action = item.summary(&self, hovered_task, ui);
+                let action = item.summary(self, hovered_task, ui);
                 event_collector.push(action);
             }
         });
@@ -219,7 +224,7 @@ impl KanbanItem {
             let difference = current_time - completion_time;
             if difference.num_days() > 7 {
                 let local: DateTime<chrono::Local> = completion_time.into();
-                return Some(format!("on {}", local));
+                Some(format!("on {}", local))
             } else {
                 let diff_str;
                 if difference.num_days() >= 1 {
@@ -237,7 +242,7 @@ impl KanbanItem {
                 } else {
                     diff_str = format!("{} minutes ago", difference.num_minutes());
                 }
-                return Some(diff_str);
+                Some(diff_str)
             }
         } else {
             None
@@ -262,11 +267,11 @@ impl KanbanItem {
     /// Fill a buffer with a string for the purposes of full text search
     /// * `output` - The output string buffer. For reuse.
     pub fn into_searchable_string(&self, output: &mut String) {
-        output.extend(self.name.chars());
+        output.push_str(&self.name);
         output.push(' ');
-        output.push_str(self.category.as_ref().map(|x| x.as_str()).unwrap_or(""));
+        output.push_str(self.category.as_deref().unwrap_or(""));
         output.push(' ');
-        output.push_str(self.priority.as_ref().map(|x| x.as_str()).unwrap_or(""));
+        output.push_str(self.priority.as_deref().unwrap_or(""));
         output.push(' ');
         output.push_str(&self.description);
         output.push(' ');
@@ -413,8 +418,7 @@ impl KanbanItem {
         let mut stack: Vec<KanbanId> = Vec::new();
         let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(parent.id);
-        while !stack.is_empty() {
-            let current_id = stack.pop().unwrap();
+        while let Some(current_id) = stack.pop() {
             let item = document.get_task(current_id).unwrap();
             for child_id in item.child_tasks.iter() {
                 if *child_id == self.id {
@@ -492,7 +496,7 @@ pub mod search {
                 i.into_searchable_string(&mut thing);
 
                 if let Some(score) = self.pattern.score(
-                    Utf32Str::new(&thing.as_str(), &mut utfs_buffer),
+                    Utf32Str::new(thing.as_str(), &mut utfs_buffer),
                     &mut self.matcher,
                 ) {
                     values.push((i.id, score as i32));
@@ -515,6 +519,11 @@ pub mod queue_view {
     #[derive(PartialEq, Eq, Clone)]
     pub struct QueueState {
         pub cached_ready: Vec<KanbanId>,
+    }
+    impl Default for QueueState {
+        fn default() -> Self {
+            Self::new()
+        }
     }
     impl QueueState {
         pub fn new() -> Self {
@@ -591,7 +600,7 @@ pub mod tests {
     */
     pub fn make_document_easy(
         number_of_tasks: usize,
-        children: &Vec<Vec<KanbanId>>,
+        children: &[Vec<KanbanId>],
     ) -> KanbanDocument {
         let mut n = KanbanDocument::new();
         let mut ids = Vec::new();
@@ -605,7 +614,7 @@ pub mod tests {
             }
             n.replace_task(&task);
         }
-        return n;
+        n
     }
     mod queue_state_tests {
         use queue_view::QueueState;

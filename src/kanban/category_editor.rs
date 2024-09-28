@@ -31,7 +31,7 @@ impl State {
         task.category = Some("category".into());
         task.name = "Test".into();
         result.dummy_document.replace_task(&task);
-        return result;
+        result
     }
     pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> EditorAction {
         let mut action = EditorAction::Nothing;
@@ -82,10 +82,8 @@ impl State {
                     if ui.button("Clear color").clicked() {
                         self.style.panel_stroke_color = None;
                     }
-                } else {
-                    if ui.button("Add stroke color").clicked() {
-                        self.style.panel_stroke_color = Some([0, 0, 0, 255]);
-                    }
+                } else if ui.button("Add stroke color").clicked() {
+                    self.style.panel_stroke_color = Some([0, 0, 0, 255]);
                 }
             });
             //Outline width
@@ -94,11 +92,9 @@ impl State {
                 if self.style.panel_stroke_width.is_some() {
                     egui::Slider::new(self.style.panel_stroke_width.as_mut().unwrap(), 0.5..=12.)
                         .ui(ui);
-                } else {
-                    if ui.button("Set stroke width").clicked() {
-                        self.style.panel_stroke_width =
-                            Some(ui.style().noninteractive().bg_stroke.width);
-                    }
+                } else if ui.button("Set stroke width").clicked() {
+                    self.style.panel_stroke_width =
+                        Some(ui.style().noninteractive().bg_stroke.width);
                 }
             });
             // Fill color
@@ -113,10 +109,8 @@ impl State {
                     if ui.button("Clear color").clicked() {
                         self.style.panel_fill = None;
                     }
-                } else {
-                    if ui.button("Add fill color").clicked() {
-                        self.style.panel_fill = ui.style().visuals.panel_fill.to_array().into();
-                    }
+                } else if ui.button("Add fill color").clicked() {
+                    self.style.panel_fill = ui.style().visuals.panel_fill.to_array().into();
                 }
             });
             ui.group(|ui| {
@@ -130,10 +124,8 @@ impl State {
                     if ui.button("Clear color").clicked() {
                         self.style.text_color = None;
                     }
-                } else {
-                    if ui.button("Set text color").clicked() {
-                        self.style.text_color = Some([255, 255, 255, 255])
-                    }
+                } else if ui.button("Set text color").clicked() {
+                    self.style.text_color = Some([255, 255, 255, 255])
                 }
             });
         });
@@ -146,6 +138,6 @@ impl State {
         if ui.button("Apply style").clicked() {
             action = EditorAction::ApplyStyle(self.current_category_name.clone(), self.style);
         }
-        return action;
+        action
     }
 }
