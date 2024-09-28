@@ -292,7 +292,7 @@ impl KanbanItem {
     }
     /// Fill a buffer with a string for the purposes of full text search
     /// * `output` - The output string buffer. For reuse.
-    pub fn into_searchable_string(&self, output: &mut String) {
+    pub fn fill_searchable_buffer(&self, output: &mut String) {
         output.push_str(&self.name);
         output.push(' ');
         output.push_str(self.category.as_deref().unwrap_or(""));
@@ -519,7 +519,7 @@ pub mod search {
             let mut values: Vec<(KanbanId, i32)> = Vec::new();
             for i in document.get_tasks() {
                 thing.clear();
-                i.into_searchable_string(&mut thing);
+                i.fill_searchable_buffer(&mut thing);
 
                 if let Some(score) = self.pattern.score(
                     Utf32Str::new(thing.as_str(), &mut utfs_buffer),
