@@ -4,9 +4,10 @@ use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
     category_editor::State, editor::EditorRequest, priority_editor::PriorityEditor,
-    queue_view::QueueState, search::SearchState, sorting::ItemSort, KanbanDocument, SummaryAction,
+    queue_view::QueueState, search::SearchState, sorting::ItemSort,
+    tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
 };
-use std::{fs, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf};
 
 mod document_layout;
 use document_layout::*;
@@ -69,7 +70,8 @@ impl eframe::App for KanbanRS {
             return;
         }
         if self.layout_cache_needs_updating {
-            self.current_layout.update_cache(&self.document);
+            self.current_layout
+                .update_cache(&self.document, &self.sorting_type);
             self.current_layout
                 .sort_cache(&self.document, &self.sorting_type);
             self.layout_cache_needs_updating = false;
@@ -137,7 +139,8 @@ impl eframe::App for KanbanRS {
                         if let Some(filename) = filename {
                             self.open_file(&filename);
                         }
-                        self.current_layout.update_cache(&self.document);
+                        self.current_layout
+                            .update_cache(&self.document, &self.sorting_type);
                         ui.close_menu();
                     }
                     ui.menu_button("Recently Used", |ui| {
@@ -150,6 +153,9 @@ impl eframe::App for KanbanRS {
                             }
                         }
                     });
+                    if ui.button("Export to graphviz").clicked() {
+                        self.write_dot();
+                    }
                     if ui.button("Quit").clicked() {
                         self.close_application = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -200,6 +206,16 @@ impl eframe::App for KanbanRS {
                         {
                             self.layout_cache_needs_updating = true;
                         }
+                        if ui
+                            .selectable_value(
+                                &mut self.current_layout,
+                                KanbanDocumentLayout::TreeOutline(TreeOutline::new()),
+                                "Tree Outline",
+                            )
+                            .clicked()
+                        {
+                            self.layout_cache_needs_updating = true;
+                        }
                     });
                 if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 } else {
@@ -223,6 +239,13 @@ impl eframe::App for KanbanRS {
                 self.layout_search(ui);
             } else if let KanbanDocumentLayout::Focused(_) = self.current_layout {
                 self.layout_focused(ui);
+            } else if let KanbanDocumentLayout::TreeOutline(tr) = &self.current_layout {
+                tr.show(
+                    ui,
+                    &self.document,
+                    &mut self.summary_actions_pending,
+                    &mut self.hovered_task,
+                )
             } else {
                 self.layout_queue(ui);
             }
@@ -333,8 +356,12 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
             }
             SummaryAction::FocusOn(id) => {
-                self.current_layout =
-                    KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));
+                if let KanbanDocumentLayout::TreeOutline(t_o) = &mut self.current_layout {
+                    t_o.set_focus(*id);
+                } else {
+                    self.current_layout =
+                        KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));
+                }
                 self.layout_cache_needs_updating = true;
             }
         }
@@ -424,6 +451,38 @@ impl KanbanRS {
         self.document = serde_json::from_reader(file).unwrap();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
+    }
+    fn write_dot(&self) {
+        let filename = rfd::FileDialog::new()
+            .add_filter("Graphviz", &["dot"])
+            .save_file();
+        if filename.is_none() {
+            return;
+        }
+        let file = fs::File::create(filename.as_ref().unwrap());
+        if let Ok(mut file) = file {
+            writeln!(&mut file, "Digraph G{{").unwrap();
+            for i in self.document.get_tasks() {
+                writeln!(
+                    &mut file,
+                    " {} [label=\"{}\"];",
+                    i.id,
+                    i.name.clone().replace("\"", "\\\"")
+                )
+                .unwrap();
+                write!(&mut file, "{} -> {{ ", i.id).unwrap();
+                let mut needs_comma = false;
+                for id in i.child_tasks.iter() {
+                    if needs_comma {
+                        write!(&mut file, ",").unwrap();
+                    }
+                    write!(&mut file, "{}", id).unwrap();
+                    needs_comma = true;
+                }
+                writeln!(&mut file, "}};").unwrap();
+            }
+            writeln!(&mut file, "}}").unwrap();
+        }
     }
     pub fn save_file(&mut self, force_choose_file: bool) {
         if self.save_file_name.is_none() || force_choose_file {

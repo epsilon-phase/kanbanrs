@@ -23,6 +23,15 @@ impl From<ItemSort> for String {
     }
 }
 impl ItemSort {
+    pub fn cmp_by(&self, a: &KanbanItem, b: &KanbanItem) -> std::cmp::Ordering {
+        match self {
+            Self::None => Ordering::Equal,
+            Self::Id => a.id.cmp(&b.id),
+            Self::Name => a.name.cmp(&b.name),
+            Self::Category => a.category.cmp(&b.category),
+            Self::Completed => a.completed.cmp(&b.completed),
+        }
+    }
     pub fn sort_by(&self, ids: &mut [KanbanId], document: &KanbanDocument) {
         match self {
             Self::None => (),

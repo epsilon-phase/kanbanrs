@@ -9,6 +9,7 @@ pub mod category_editor;
 pub mod focused_layout;
 pub mod priority_editor;
 pub mod sorting;
+pub mod tree_outline_layout;
 
 pub type KanbanId = i32;
 
@@ -38,6 +39,9 @@ impl KanbanDocument {
        causing a cycle
     */
     pub fn can_add_as_child(&self, parent: &KanbanItem, child: &KanbanItem) -> bool {
+        if parent.id == child.id {
+            return false;
+        }
         let mut stack: Vec<KanbanId> = Vec::new();
         let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(child.id);
@@ -154,6 +158,28 @@ impl KanbanDocument {
             }
         }
         0
+    }
+    /// Operate on the whole of the tree.
+    ///
+    /// This will visit the same nodes multiple times; try not to worry too much.
+    ///
+    /// * `root_id` The starting point for this tree
+    /// * `depth` The starting depth
+    /// * `func` The function to call on each child.
+    ///
+    pub fn on_tree<F>(&self, root_id: KanbanId, depth: u32, mut func: F)
+    where
+        F: FnMut(&Self, KanbanId, u32),
+    {
+        let mut stack = Vec::new();
+        stack.push((root_id, depth));
+        while let Some((id, depth)) = stack.pop() {
+            let task = self.get_task(id).unwrap();
+            func(self, id, depth);
+            for child in task.child_tasks.iter() {
+                stack.push((*child, depth + 1));
+            }
+        }
     }
 }
 /// Category functions

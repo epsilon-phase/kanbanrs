@@ -5,6 +5,7 @@ pub enum KanbanDocumentLayout {
     Columnar([Vec<i32>; 3]),
     Search(kanban::search::SearchState),
     Focused(kanban::focused_layout::Focus),
+    TreeOutline(kanban::tree_outline_layout::TreeOutline),
 }
 impl PartialEq for KanbanDocumentLayout {
     fn eq(&self, other: &Self) -> bool {
@@ -13,6 +14,9 @@ impl PartialEq for KanbanDocumentLayout {
             KanbanDocumentLayout::Queue(_) => matches!(other, KanbanDocumentLayout::Queue(_)),
             KanbanDocumentLayout::Search(_) => matches!(other, KanbanDocumentLayout::Search(_)),
             KanbanDocumentLayout::Focused(_) => matches!(other, KanbanDocumentLayout::Focused(_)),
+            KanbanDocumentLayout::TreeOutline(_) => {
+                matches!(other, KanbanDocumentLayout::TreeOutline(_))
+            }
         }
     }
 }
@@ -33,7 +37,7 @@ impl KanbanDocumentLayout {
             x.force_update();
         }
     }
-    pub fn update_cache(&mut self, document: &KanbanDocument) {
+    pub fn update_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
         match self {
             KanbanDocumentLayout::Queue(x) => {
                 x.update(document);
@@ -46,6 +50,9 @@ impl KanbanDocumentLayout {
             }
             KanbanDocumentLayout::Focused(focus) => {
                 focus.update(document);
+            }
+            KanbanDocumentLayout::TreeOutline(tree) => {
+                tree.update(document, *sort);
             }
         }
     }
@@ -75,6 +82,7 @@ impl From<&KanbanDocumentLayout> for String {
             KanbanDocumentLayout::Queue(_) => "Queue",
             KanbanDocumentLayout::Search(_) => "Search",
             KanbanDocumentLayout::Focused(_) => "Focus",
+            KanbanDocumentLayout::TreeOutline(_) => "Tree outline",
         }
         .into()
     }
@@ -235,7 +243,7 @@ pub mod test {
             document.replace_task(&task);
         }
         let mut layout = KanbanDocumentLayout::Columnar([Vec::new(), vec![], vec![]]);
-        layout.update_cache(&document);
+        layout.update_cache(&document, &ItemSort::None);
         if let KanbanDocumentLayout::Columnar(cache) = layout {
             assert_eq!(cache[0].len(), 2);
             assert_eq!(cache[1].len(), 1);
