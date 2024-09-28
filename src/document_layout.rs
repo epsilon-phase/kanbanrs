@@ -104,7 +104,7 @@ impl KanbanRS {
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());
                 egui::ScrollArea::vertical()
-                    .id_source("ReadyScrollarea")
+                    .id_salt("ReadyScrollarea")
                     .show_rows(&mut columns[0], 200., cache[0].len(), |ui, range| {
                         self.document.layout_id_list(
                             ui,
@@ -117,7 +117,7 @@ impl KanbanRS {
 
                 columns[1].label(RichText::new("Blocked").heading());
                 egui::ScrollArea::vertical()
-                    .id_source("BlockedScrollArea")
+                    .id_salt("BlockedScrollArea")
                     .show_rows(&mut columns[1], 200., cache[1].len(), |ui, range| {
                         self.document.layout_id_list(
                             ui,
@@ -129,7 +129,7 @@ impl KanbanRS {
                     });
                 columns[2].label(RichText::new("Completed").heading());
                 egui::ScrollArea::vertical()
-                    .id_source("CompletedScrollArea")
+                    .id_salt("CompletedScrollArea")
                     .show_rows(&mut columns[2], 200., cache[2].len(), |ui, range| {
                         self.document.layout_id_list(
                             ui,
@@ -145,7 +145,7 @@ impl KanbanRS {
 
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {
         if let KanbanDocumentLayout::Queue(qs) = &mut self.current_layout {
-            ScrollArea::vertical().id_source("Queue").show_rows(
+            ScrollArea::vertical().id_salt("Queue").show_rows(
                 ui,
                 200.0,
                 qs.cached_ready.len(),
@@ -169,7 +169,7 @@ impl KanbanRS {
                     .labelled_by(label.id);
                 search_state.update(&self.document);
             });
-            ScrollArea::vertical().id_source("SearchArea").show_rows(
+            ScrollArea::vertical().id_salt("SearchArea").show_rows(
                 ui,
                 200.0,
                 search_state.matched_ids.len(),
@@ -200,7 +200,7 @@ impl KanbanRS {
                     ));
                 }
 
-                ScrollArea::vertical().id_source("ChildScroller").show_rows(
+                ScrollArea::vertical().id_salt("ChildScroller").show_rows(
                     &mut columns[0],
                     200.0,
                     focus.children.len(),
@@ -214,22 +214,20 @@ impl KanbanRS {
                         );
                     },
                 );
-                ScrollArea::vertical()
-                    .id_source("ParentScroller")
-                    .show_rows(
-                        &mut columns[2],
-                        200.0,
-                        focus.ancestors.len(),
-                        |ui, range| {
-                            self.document.layout_id_list(
-                                ui,
-                                &focus.ancestors,
-                                range,
-                                &mut self.hovered_task,
-                                &mut self.summary_actions_pending,
-                            );
-                        },
-                    );
+                ScrollArea::vertical().id_salt("ParentScroller").show_rows(
+                    &mut columns[2],
+                    200.0,
+                    focus.ancestors.len(),
+                    |ui, range| {
+                        self.document.layout_id_list(
+                            ui,
+                            &focus.ancestors,
+                            range,
+                            &mut self.hovered_task,
+                            &mut self.summary_actions_pending,
+                        );
+                    },
+                );
             });
         }
     }

@@ -1,6 +1,6 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
 use chrono::DateTime;
-use eframe::egui::{self, ComboBox, ScrollArea};
+use eframe::egui::{self, ComboBox};
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -45,8 +45,10 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 ui.text_edit_singleline(&mut state.item_copy.name);
             });
             if state.item_copy.completed.is_some() {
-                let local: DateTime<chrono::Local> = state.item_copy.completed.unwrap().into();
-                if ui.button(format!("Completed on {}", local)).clicked() {
+                if ui
+                    .button(state.item_copy.get_completed_time_string().unwrap())
+                    .clicked()
+                {
                     state.item_copy.completed = None;
                 }
             } else {
@@ -116,7 +118,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                                     if ui.link(document.tasks[child].name.clone()).clicked() {
                                         open_task = Some(*child);
                                     }
-                                    let button = ui.button("Remove dependency");
+                                    let button = ui.button("Remove");
                                     if button.clicked {
                                         removed_task = Some(*child);
                                     }

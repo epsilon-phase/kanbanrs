@@ -1,6 +1,5 @@
 use chrono::{prelude::*, DurationRound, TimeDelta};
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
-use focused_layout::Focus;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
@@ -214,6 +213,36 @@ impl KanbanItem {
             child_tasks: Vec::new(),
         }
     }
+    pub fn get_completed_time_string(&self) -> Option<String> {
+        if let Some(completion_time) = self.completed {
+            let current_time = Utc::now();
+            let difference = current_time - completion_time;
+            if difference.num_days() > 7 {
+                let local: DateTime<chrono::Local> = completion_time.into();
+                return Some(format!("on {}", local));
+            } else {
+                let diff_str;
+                if difference.num_days() >= 1 {
+                    diff_str = format!(
+                        "{} days, {} hours ago",
+                        difference.num_days(),
+                        difference.num_hours() % 24
+                    );
+                } else if difference.num_hours() >= 1 {
+                    diff_str = format!(
+                        "{} hour, {}minutes ago",
+                        difference.num_hours(),
+                        difference.num_minutes() % 60
+                    );
+                } else {
+                    diff_str = format!("{} minutes ago", difference.num_minutes());
+                }
+                return Some(diff_str);
+            }
+        } else {
+            None
+        }
+    }
     pub fn remove_child(&mut self, other: &Self) {
         self.child_tasks.retain(|x| *x != other.id);
     }
@@ -357,22 +386,15 @@ impl KanbanItem {
                 });
                 ui.horizontal(|ui| {
                     let thing = match self.completed {
-                        Some(x) => {
-                            let local: chrono::DateTime<chrono::Local> = x.into();
-                            format!(
-                                "Completed on {}",
-                                local
-                                    .duration_round(TimeDelta::try_minutes(1).unwrap())
-                                    .unwrap()
-                                    .to_string()
-                            )
+                        Some(_) => {
+                            format!("Completed {}", self.get_completed_time_string().unwrap())
                         }
                         None => "Not completed".into(),
                     };
                     ui.label(RichText::new(thing).color(status_color).strong());
                 });
                 ScrollArea::vertical()
-                    .id_source(4000000 + self.id)
+                    .id_salt(4000000 + self.id)
                     .max_height(100.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
                 if ui.min_size().y < 200. {
@@ -545,7 +567,7 @@ pub mod tests {
     fn test_task_removal() {
         let mut document = KanbanDocument::new();
         let mut a = document.get_new_task().clone();
-        let b = document.get_new_task().clone();
+        document.get_new_task();
         let c = document.get_new_task().clone();
         a.child_tasks.push(c.id);
         document.replace_task(&a);
