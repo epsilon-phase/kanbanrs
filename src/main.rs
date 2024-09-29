@@ -70,8 +70,11 @@ impl eframe::App for KanbanRS {
             return;
         }
         if self.layout_cache_needs_updating {
-            self.current_layout
-                .update_cache(&self.document, &self.sorting_type);
+            self.current_layout.update_cache(
+                &self.document,
+                &self.sorting_type,
+                ctx.style().as_ref(),
+            );
             self.current_layout
                 .sort_cache(&self.document, &self.sorting_type);
             self.layout_cache_needs_updating = false;
@@ -139,8 +142,11 @@ impl eframe::App for KanbanRS {
                         if let Some(filename) = filename {
                             self.open_file(&filename);
                         }
-                        self.current_layout
-                            .update_cache(&self.document, &self.sorting_type);
+                        self.current_layout.update_cache(
+                            &self.document,
+                            &self.sorting_type,
+                            ui.style(),
+                        );
                         ui.close_menu();
                     }
                     ui.menu_button("Recently Used", |ui| {
@@ -256,7 +262,7 @@ impl eframe::App for KanbanRS {
                     &mut self.hovered_task,
                 )
             } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
-                nl.show(&self.document, ui);
+                nl.show(&self.document, ui, &mut self.summary_actions_pending);
             } else {
                 self.layout_queue(ui);
             }

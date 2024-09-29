@@ -23,7 +23,7 @@ struct ArrowOptions {
 
 #[derive(Clone, PartialEq)]
 enum DrawCommand {
-    Rect(Rect),
+    Rect(Rect, Color32),
     Line(Pos2, Pos2),
     Text(Pos2, String, f32),
     Arrow(ArrowOptions),
@@ -33,7 +33,7 @@ impl DrawCommand {
     pub fn operate_on(&self, paint: &egui::Painter, style: &egui::Style, painting_rectangle: Rect) {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
         match self {
-            DrawCommand::Rect(r) => {
+            DrawCommand::Rect(r, color) => {
                 let mut r = *r;
                 r.min += offset;
                 r.max += offset;
@@ -41,7 +41,7 @@ impl DrawCommand {
                     r,
                     0.0,
                     style.noninteractive().bg_fill,
-                    style.noninteractive().fg_stroke,
+                    egui::Stroke::new(style.noninteractive().bg_stroke.width, *color),
                 );
             }
             DrawCommand::Text(pos, str, size) => {
@@ -95,6 +95,7 @@ pub struct NodeLayout {
     commands: Vec<DrawCommand>,
     min: Pos2,
     max: Pos2,
+    sense_regions: Vec<(KanbanId, Rect)>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -102,6 +103,7 @@ impl NodeLayout {
             commands: Vec::new(),
             min: Pos2 { x: 0.0, y: 0.0 },
             max: Pos2::new(0.0, 0.0),
+            sense_regions: Vec::new(),
         }
     }
 }
@@ -111,7 +113,12 @@ fn from_point(value: Point) -> Pos2 {
         y: value.y as f32,
     }
 }
-
+fn offset_rect(rect: Rect, pos: Vec2) -> Rect {
+    Rect {
+        min: rect.min + pos,
+        max: rect.max + pos,
+    }
+}
 impl RenderBackend for NodeLayout {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
         if clip.is_some() {
@@ -139,17 +146,19 @@ impl RenderBackend for NodeLayout {
             self.max.x = end.x;
         }
 
-        self.commands.push(DrawCommand::Rect(Rect {
-            min: start,
-            max: end,
-        }));
+        self.commands.push(DrawCommand::Rect(
+            Rect {
+                min: start,
+                max: end,
+            },
+            Color32::from_hex(&look.line_color.to_web_color()).unwrap(),
+        ));
     }
     fn draw_line(&mut self, start: Point, end: Point, look: &StyleAttr) {
         self.commands
             .push(DrawCommand::Line(from_point(start), from_point(end)));
     }
     fn draw_text(&mut self, xy: Point, text: &str, _look: &StyleAttr) {
-        println!("Font size: {}", _look.font_size as f32);
         self.commands.push(DrawCommand::Text(
             from_point(xy),
             text.to_string(),
@@ -189,11 +198,10 @@ impl RenderBackend for NodeLayout {
     }
 }
 impl NodeLayout {
-    pub fn update(&mut self, document: &KanbanDocument) {
+    pub fn update(&mut self, document: &KanbanDocument, style: &egui::Style) {
         self.commands.clear();
         let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
-        let sp0 = ShapeKind::new_box("one");
-        let look0 = StyleAttr::simple();
+
         let mut handles: HashMap<KanbanId, NodeHandle> = HashMap::new();
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::None;
@@ -201,6 +209,15 @@ impl NodeLayout {
         for i in document.get_tasks() {
             let id = i.id;
             let shape = ShapeKind::new_box(&i.name);
+            let mut look0 = StyleAttr::simple();
+            if i.completed.is_some() {
+                look0.line_color = layout::core::color::Color::from_name("green").unwrap();
+            } else {
+                look0.line_color = layout::core::color::Color::from_name(
+                    &style.noninteractive().fg_stroke.color.to_hex(),
+                )
+                .unwrap();
+            }
             let sz = get_shape_size(
                 layout::core::base::Orientation::LeftToRight,
                 &shape,
@@ -223,9 +240,33 @@ impl NodeLayout {
             }
         }
         vg.do_it(false, false, false, self);
+        self.sense_regions.clear();
+        for (task_id, node_handle) in handles.iter() {
+            let element = vg.element(*node_handle);
+            let start_x = element.pos.left(false) as f32;
+            let start_y = element.pos.top(false) as f32;
+            let end_x = element.pos.right(false) as f32;
+            let end_y = element.pos.bottom(false) as f32;
+            self.sense_regions.push((
+                *task_id,
+                Rect::from_min_max(
+                    Pos2 {
+                        x: start_x,
+                        y: start_y,
+                    },
+                    Pos2 { x: end_x, y: end_y },
+                ),
+            ));
+        }
     }
-    pub fn show(&mut self, document: &KanbanDocument, ui: &mut egui::Ui) {
+    pub fn show(
+        &mut self,
+        document: &KanbanDocument,
+        ui: &mut egui::Ui,
+        actions: &mut Vec<SummaryAction>,
+    ) {
         ScrollArea::both().id_salt("NodeLayout").show(ui, |ui| {
+            let start = ui.next_widget_position().to_vec2();
             let (response, paint) = ui.allocate_painter(
                 self.max - self.min,
                 egui::Sense {
@@ -238,6 +279,19 @@ impl NodeLayout {
             self.commands
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
+            for (task_id, region) in self.sense_regions.iter() {
+                let senses = ui.allocate_rect(
+                    offset_rect(*region, start),
+                    egui::Sense {
+                        click: true,
+                        drag: false,
+                        focusable: false,
+                    },
+                );
+                if senses.clicked() {
+                    actions.push(SummaryAction::OpenEditor(*task_id));
+                }
+            }
         });
     }
 }

@@ -41,7 +41,12 @@ impl KanbanDocumentLayout {
             x.force_update();
         }
     }
-    pub fn update_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
+    pub fn update_cache(
+        &mut self,
+        document: &KanbanDocument,
+        sort: &ItemSort,
+        style: &egui::Style,
+    ) {
         match self {
             KanbanDocumentLayout::Queue(x) => {
                 x.update(document);
@@ -59,7 +64,7 @@ impl KanbanDocumentLayout {
                 tree.update(document, *sort);
             }
             KanbanDocumentLayout::NodeLayout(nl) => {
-                nl.update(document);
+                nl.update(document, style);
             }
         }
     }
