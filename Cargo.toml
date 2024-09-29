@@ -2,6 +2,16 @@
 name = "kanbanrs"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/epsilon-phase/kanbanrs/"
+authors = ["Violet White"]
+description = "A basic kanban task manager written with egui"
+homepage = "https://github.com/epsilon-phase/kanbanrs/"
+
+[package.metadata.wix]
+upgrade-guid = "08F7518F-464F-44FF-A58D-1E48F52F59DA"
+path-guid = "1E655838-3829-48A6-9F58-DCA6D556746F"
+license = false
+eula = false
 
 [dependencies]
 eframe = "0.29.0"
@@ -24,3 +34,28 @@ opt-level = "s"
 lto = true
 panic = "abort"
 codegen-units = 1
+
+# The profile that 'cargo dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
+
+# Config for 'cargo dist'
+[workspace.metadata.dist]
+# The preferred cargo-dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.22.1"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell", "powershell", "homebrew", "msi"]
+# Target platforms to build apps for (Rust target-triple syntax)
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    # "x86_64-pc-windows-msvc", # This doesn't work because of XDG lmao
+]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Whether to install an updater program
+install-updater = false
