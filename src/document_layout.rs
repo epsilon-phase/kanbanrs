@@ -6,6 +6,7 @@ pub enum KanbanDocumentLayout {
     Search(kanban::search::SearchState),
     Focused(kanban::focused_layout::Focus),
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
+    NodeLayout(kanban::node_layout::NodeLayout),
 }
 impl PartialEq for KanbanDocumentLayout {
     fn eq(&self, other: &Self) -> bool {
@@ -16,6 +17,9 @@ impl PartialEq for KanbanDocumentLayout {
             KanbanDocumentLayout::Focused(_) => matches!(other, KanbanDocumentLayout::Focused(_)),
             KanbanDocumentLayout::TreeOutline(_) => {
                 matches!(other, KanbanDocumentLayout::TreeOutline(_))
+            }
+            KanbanDocumentLayout::NodeLayout(_) => {
+                matches!(other, KanbanDocumentLayout::NodeLayout(_))
             }
         }
     }
@@ -54,6 +58,9 @@ impl KanbanDocumentLayout {
             KanbanDocumentLayout::TreeOutline(tree) => {
                 tree.update(document, *sort);
             }
+            KanbanDocumentLayout::NodeLayout(nl) => {
+                nl.update(document);
+            }
         }
     }
 
@@ -83,6 +90,7 @@ impl From<&KanbanDocumentLayout> for String {
             KanbanDocumentLayout::Search(_) => "Search",
             KanbanDocumentLayout::Focused(_) => "Focus",
             KanbanDocumentLayout::TreeOutline(_) => "Tree outline",
+            KanbanDocumentLayout::NodeLayout(_) => "Node outline",
         }
         .into()
     }

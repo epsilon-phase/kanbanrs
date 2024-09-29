@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 pub mod category_editor;
 pub mod focused_layout;
+pub mod node_layout;
 pub mod priority_editor;
 pub mod sorting;
 pub mod tree_outline_layout;

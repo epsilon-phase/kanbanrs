@@ -15,6 +15,7 @@ serde_json = { version = "~1.0" }
 rfd = { version = "0.14.1" }
 xdg = "~2.5.0"
 nucleo-matcher = { version = "0.3.1" }
+layout-rs = "0.1.2"
 
 [profile.small_as_can_be]
 inherits = "release"

@@ -3,9 +3,9 @@ use chrono::Utc;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea};
 
 use kanban::{
-    category_editor::State, editor::EditorRequest, priority_editor::PriorityEditor,
-    queue_view::QueueState, search::SearchState, sorting::ItemSort,
-    tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
+    category_editor::State, editor::EditorRequest, node_layout::NodeLayout,
+    priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
+    sorting::ItemSort, tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
 };
 use std::{fs, io::Write, path::PathBuf};
 
@@ -216,6 +216,15 @@ impl eframe::App for KanbanRS {
                         {
                             self.layout_cache_needs_updating = true;
                         }
+                        ui.selectable_value(
+                            &mut self.current_layout,
+                            KanbanDocumentLayout::NodeLayout(NodeLayout::new()),
+                            "Node",
+                        )
+                        .clicked()
+                        .then(|| {
+                            self.layout_cache_needs_updating = true;
+                        })
                     });
                 if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 } else {
@@ -246,6 +255,8 @@ impl eframe::App for KanbanRS {
                     &mut self.summary_actions_pending,
                     &mut self.hovered_task,
                 )
+            } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
+                nl.show(&self.document, ui);
             } else {
                 self.layout_queue(ui);
             }

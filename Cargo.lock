@@ -1730,6 +1730,7 @@ dependencies = [
  "chrono",
  "eframe",
  "env_logger",
+ "layout-rs",
  "nucleo-matcher",
  "rfd",
  "serde",
@@ -1753,6 +1754,12 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "layout-rs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84deb28a3a6c839ca42a7341664f32281416d69e2f29deb85aec5cc0243fdea8"
 
 [[package]]
 name = "libc"

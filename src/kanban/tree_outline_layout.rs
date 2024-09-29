@@ -18,6 +18,7 @@ impl TreeOutline {
     }
     pub fn update(&mut self, document: &KanbanDocument, sort: ItemSort) {
         self.toplevel_items.clear();
+        self.cache.clear();
         let mut children_of_something: HashSet<KanbanId> = HashSet::new();
         document.get_tasks().for_each(|task| {
             children_of_something.extend(task.child_tasks.iter());
