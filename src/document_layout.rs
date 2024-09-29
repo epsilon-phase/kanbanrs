@@ -256,7 +256,7 @@ pub mod test {
             document.replace_task(&task);
         }
         let mut layout = KanbanDocumentLayout::Columnar([Vec::new(), vec![], vec![]]);
-        layout.update_cache(&document, &ItemSort::None);
+        layout.update_cache(&document, &ItemSort::None, &egui::Style::default());
         if let KanbanDocumentLayout::Columnar(cache) = layout {
             assert_eq!(cache[0].len(), 2);
             assert_eq!(cache[1].len(), 1);
