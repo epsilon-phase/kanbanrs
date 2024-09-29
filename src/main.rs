@@ -179,7 +179,8 @@ impl eframe::App for KanbanRS {
                 });
             });
             ui.horizontal(|ui| {
-                ComboBox::from_label("Layout")
+                ui.label(RichText::new("Layout"));
+                ComboBox::from_id_salt("Layout")
                     .selected_text(String::from(&self.current_layout))
                     .show_ui(ui, |ui| {
                         if ui

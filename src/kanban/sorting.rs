@@ -47,7 +47,8 @@ impl ItemSort {
     }
     pub fn combobox(&mut self, ui: &mut egui::Ui) -> bool {
         let mut needs_sorting = false;
-        ComboBox::new("SortingScheme", "Sort by")
+        ui.label("Sort by");
+        ComboBox::from_id_salt("SortingScheme")
             .selected_text(String::from(*self))
             .show_ui(ui, |ui| {
                 needs_sorting = [
