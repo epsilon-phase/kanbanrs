@@ -5,7 +5,7 @@ use egui::{Align2, Context, Pos2, Rect, Style};
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
-use layout::core::style::StyleAttr;
+use layout::core::style::{LineStyleKind, StyleAttr};
 use layout::std_shapes::render::get_shape_size;
 use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
@@ -96,6 +96,8 @@ pub struct NodeLayout {
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
+    focus: Option<KanbanId>,
+    exclude_completed: bool,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -104,6 +106,7 @@ impl NodeLayout {
             min: Pos2 { x: 0.0, y: 0.0 },
             max: Pos2::new(0.0, 0.0),
             sense_regions: Vec::new(),
+            ..Default::default()
         }
     }
 }
@@ -205,38 +208,30 @@ impl NodeLayout {
         let mut handles: HashMap<KanbanId, NodeHandle> = HashMap::new();
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::None;
-
-        for i in document.get_tasks() {
-            let id = i.id;
-            let shape = ShapeKind::new_box(&i.name);
-            let mut look0 = StyleAttr::simple();
-            if i.completed.is_some() {
-                look0.line_color = layout::core::color::Color::from_name("green").unwrap();
-            } else {
-                look0.line_color = layout::core::color::Color::from_name(
-                    &style.noninteractive().fg_stroke.color.to_hex(),
-                )
-                .unwrap();
+        if let Some(focused_id) = self.focus {
+            document.on_tree(focused_id, 0, |document, id, _depth| {
+                if self.exclude_completed && document.get_task(id).unwrap().completed.is_some() {
+                    return;
+                }
+                if handles.contains_key(&id) {
+                    return;
+                }
+                add_item_to_graph(document.get_task(id).unwrap(), style, &mut vg, &mut handles);
+            });
+        } else {
+            for i in document.get_tasks() {
+                if self.exclude_completed && i.completed.is_some() {
+                    continue;
+                }
+                add_item_to_graph(i, style, &mut vg, &mut handles);
             }
-            let sz = get_shape_size(
-                layout::core::base::Orientation::LeftToRight,
-                &shape,
-                15,
-                false,
-            );
-            let node = Element::create(
-                shape,
-                look0.clone(),
-                layout::core::base::Orientation::LeftToRight,
-                sz,
-            );
-            let handle = vg.add_node(node);
-            handles.insert(id, handle);
         }
-        for i in document.get_tasks() {
-            let id = i.id;
+        for id in handles.keys() {
+            let i = document.get_task(*id).unwrap();
             for c in i.child_tasks.iter() {
-                vg.add_edge(arrow.clone(), handles[&id], handles[c]);
+                if handles.contains_key(c) {
+                    vg.add_edge(arrow.clone(), handles[id], handles[c]);
+                }
             }
         }
         vg.do_it(false, false, false, self);
@@ -264,34 +259,82 @@ impl NodeLayout {
         document: &KanbanDocument,
         ui: &mut egui::Ui,
         actions: &mut Vec<SummaryAction>,
-    ) {
+    ) -> bool {
+        let mut needs_update = false;
+
+        ui.horizontal(|ui| {
+            needs_update |= ui
+                .checkbox(&mut self.exclude_completed, "Hide completed tasks")
+                .changed();
+            if self.focus.is_some() && ui.button("Clear focus").clicked() {
+                self.focus = None;
+                needs_update = true;
+            }
+        });
         ScrollArea::both().id_salt("NodeLayout").show(ui, |ui| {
-            let start = ui.next_widget_position().to_vec2();
             let (response, paint) = ui.allocate_painter(
-                self.max - self.min,
+                self.max.to_vec2() - self.min.to_vec2(),
                 egui::Sense {
                     click: false,
                     drag: false,
                     focusable: false,
                 },
             );
+            let start = response.rect.min;
 
             self.commands
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
             for (task_id, region) in self.sense_regions.iter() {
                 let senses = ui.allocate_rect(
-                    offset_rect(*region, start),
+                    offset_rect(*region, start.to_vec2()),
                     egui::Sense {
                         click: true,
                         drag: false,
                         focusable: false,
                     },
                 );
+                if senses.middle_clicked() {
+                    self.focus = Some(*task_id);
+                    actions.push(SummaryAction::FocusOn(*task_id));
+                }
                 if senses.clicked() {
                     actions.push(SummaryAction::OpenEditor(*task_id));
                 }
             }
         });
+        needs_update
     }
+}
+
+fn add_item_to_graph(
+    i: &KanbanItem,
+    style: &Style,
+    vg: &mut VisualGraph,
+    handles: &mut HashMap<i32, NodeHandle>,
+) {
+    let id = i.id;
+    let shape = ShapeKind::new_box(&i.name);
+    let mut look0 = StyleAttr::simple();
+    if i.completed.is_some() {
+        look0.line_color = layout::core::color::Color::from_name("green").unwrap();
+    } else {
+        look0.line_color =
+            layout::core::color::Color::from_name(&style.noninteractive().fg_stroke.color.to_hex())
+                .unwrap();
+    }
+    let sz = get_shape_size(
+        layout::core::base::Orientation::LeftToRight,
+        &shape,
+        15,
+        false,
+    );
+    let node = Element::create(
+        shape,
+        look0.clone(),
+        layout::core::base::Orientation::LeftToRight,
+        sz,
+    );
+    let handle = vg.add_node(node);
+    handles.insert(id, handle);
 }

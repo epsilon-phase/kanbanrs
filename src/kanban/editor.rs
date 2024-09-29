@@ -1,5 +1,5 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
-use eframe::egui::{self, ComboBox};
+use eframe::egui::{self, ComboBox, RichText};
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -54,7 +54,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
             }
             ui.horizontal(|ui| {
                 ui.label("Priority");
-                ComboBox::from_label("Priority")
+                ComboBox::from_id_salt("Priority")
                     .selected_text(match &state.item_copy.priority {
                         Some(x) => x,
                         None => "None",
@@ -127,7 +127,12 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                                     continue;
                                 }
                                 ui.horizontal_wrapped(|ui| {
-                                    if ui.link(document.tasks[child].name.clone()).clicked() {
+                                    let mut text =
+                                        RichText::new(document.tasks[child].name.clone());
+                                    if document.tasks[child].completed.is_some() {
+                                        text = text.strikethrough();
+                                    }
+                                    if ui.link(text).clicked() {
                                         open_task = Some(*child);
                                     }
                                     let button = ui.button("Remove");

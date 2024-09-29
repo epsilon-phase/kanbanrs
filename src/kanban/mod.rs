@@ -79,11 +79,17 @@ impl KanbanDocument {
     /**
     Create a new task and add it to the document, returning a mutable reference
     */
-    pub fn get_new_task(&mut self) -> &mut KanbanItem {
+    pub fn get_new_task_mut(&mut self) -> &mut KanbanItem {
         let new_task = KanbanItem::new(self);
         let new_task_id = new_task.id;
         self.tasks.insert(new_task_id, new_task);
         return self.tasks.get_mut(&new_task_id).unwrap();
+    }
+    pub fn get_new_task(&mut self) -> KanbanItem {
+        let new_task = KanbanItem::new(self);
+        let new_task_id = new_task.id;
+        self.tasks.insert(new_task_id, new_task);
+        return self.tasks.get(&new_task_id).unwrap().clone();
     }
     pub fn get_tasks(&'_ self) -> Values<'_, KanbanId, KanbanItem> {
         self.tasks.values()
@@ -602,9 +608,9 @@ pub mod tests {
     #[test]
     fn test_task_removal() {
         let mut document = KanbanDocument::new();
-        let mut a = document.get_new_task().clone();
-        document.get_new_task();
-        let c = document.get_new_task().clone();
+        let mut a = document.get_new_task_mut().clone();
+        document.get_new_task_mut();
+        let c = document.get_new_task_mut().clone();
         a.child_tasks.push(c.id);
         document.replace_task(&a);
         {
@@ -632,7 +638,7 @@ pub mod tests {
         let mut n = KanbanDocument::new();
         let mut ids = Vec::new();
         for _ in 0..number_of_tasks {
-            ids.push(n.get_new_task().id);
+            ids.push(n.get_new_task_mut().id);
         }
         for (index, child_set) in children.iter().enumerate() {
             let mut task = n.get_task(index as KanbanId).unwrap().clone();

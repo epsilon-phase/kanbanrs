@@ -241,7 +241,7 @@ impl eframe::App for KanbanRS {
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut self.task_name);
                 if ui.button("Add Task").clicked() {
-                    let thing = self.document.get_new_task();
+                    let thing = self.document.get_new_task_mut();
                     thing.name = self.task_name.clone();
                     self.layout_cache_needs_updating = true;
                     self.current_layout.inform_of_new_items();
@@ -263,7 +263,8 @@ impl eframe::App for KanbanRS {
                     &mut self.hovered_task,
                 )
             } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
-                nl.show(&self.document, ui, &mut self.summary_actions_pending);
+                self.layout_cache_needs_updating |=
+                    nl.show(&self.document, ui, &mut self.summary_actions_pending);
             } else {
                 self.layout_queue(ui);
             }
@@ -354,7 +355,7 @@ impl KanbanRS {
                 self.open_editors.push(editor);
             }
             SummaryAction::CreateChildOf(id) => {
-                let new_task = self.document.get_new_task().id;
+                let new_task = self.document.get_new_task_mut().id;
                 let mut task_copy = self.document.get_task(*id).unwrap().clone();
                 task_copy.child_tasks.push(new_task);
                 let editor = kanban::editor::state_from(self.document.get_task(new_task).unwrap());
@@ -376,6 +377,8 @@ impl KanbanRS {
             SummaryAction::FocusOn(id) => {
                 if let KanbanDocumentLayout::TreeOutline(t_o) = &mut self.current_layout {
                     t_o.set_focus(*id);
+                } else if matches!(self.current_layout, KanbanDocumentLayout::NodeLayout(_)) {
+                    //This shouldn't trigger a switch to the focused view
                 } else {
                     self.current_layout =
                         KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));

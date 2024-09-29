@@ -71,7 +71,7 @@ pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Orderin
         } else {
             Ordering::Greater
         }
-    } else if a.completed.is_some() {
+    } else if b.completed.is_some() {
         Ordering::Less
     } else {
         Ordering::Equal
@@ -83,4 +83,24 @@ pub fn sort_completed_last(document: &KanbanDocument, ids: &mut [KanbanId]) {
         let task_b = document.get_task(*b).unwrap();
         task_comparison_completed_last(task_a, task_b)
     })
+}
+#[cfg(test)]
+mod test {
+    use chrono::Utc;
+
+    use super::*;
+
+    #[test]
+    fn test_sort_completed_last() {
+        let mut document: KanbanDocument = KanbanDocument::new();
+        let mut a = document.get_new_task();
+        let b = document.get_new_task();
+        a.completed = Some(Utc::now());
+        document.replace_task(&a);
+        let mut thing = [a.id, b.id];
+        sort_completed_last(&document, &mut thing);
+        assert_eq!(task_comparison_completed_last(&a, &b), Ordering::Greater);
+        assert_eq!(task_comparison_completed_last(&b, &a), Ordering::Less);
+        assert_eq!(a.id, thing[1]);
+    }
 }

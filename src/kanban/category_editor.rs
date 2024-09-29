@@ -27,7 +27,7 @@ impl State {
             open: false,
             dummy_document: KanbanDocument::new(),
         };
-        let mut task = result.dummy_document.get_new_task().clone();
+        let mut task = result.dummy_document.get_new_task_mut().clone();
         task.category = Some("category".into());
         task.name = "Test".into();
         result.dummy_document.replace_task(&task);
