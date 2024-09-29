@@ -25,6 +25,15 @@
 * Categories
 * Category based styling - Allows styling the presentation of tasks based on what they are.
 * Sorting
+* Graphviz-like dependency visualization (Node layout)
+
+  View how the tasks relate to each other with a graphical display
+  with a lot of similarities to graphviz(This uses "layout-rs" which is
+  very similar but not identical)
+* Task tree outline
+
+  This is a more basic layout, indenting the tasks to the depth they
+  appear in a tasks's tree.
 
 # It might even do
 
