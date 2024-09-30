@@ -1,18 +1,14 @@
 use super::*;
 
-use egui::epaint::CubicBezierShape;
-use egui::{Align2, Context, Pos2, Rect, Style};
+use egui::{Pos2, Rect, Style};
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
-use layout::core::style::{LineStyleKind, StyleAttr};
+use layout::core::style::StyleAttr;
 use layout::std_shapes::render::get_shape_size;
 use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
 
-struct NodeLayoutCache {
-    rectangles: Vec<egui::Pos2>,
-}
 #[derive(PartialEq, Clone)]
 struct ArrowOptions {
     path: Vec<Pos2>,
@@ -23,7 +19,7 @@ struct ArrowOptions {
 
 #[derive(Clone, PartialEq)]
 enum DrawCommand {
-    Rect(Rect, Color32),
+    Rect(Rect, Color32, Option<Color32>),
     Line(Pos2, Pos2),
     Text(Pos2, String, f32),
     Arrow(ArrowOptions),
@@ -33,14 +29,17 @@ impl DrawCommand {
     pub fn operate_on(&self, paint: &egui::Painter, style: &egui::Style, painting_rectangle: Rect) {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
         match self {
-            DrawCommand::Rect(r, color) => {
+            DrawCommand::Rect(r, color, fill) => {
+                if fill.is_some() {
+                    println!("Fill Color: {}", fill.unwrap().to_hex());
+                }
                 let mut r = *r;
                 r.min += offset;
                 r.max += offset;
                 paint.rect(
                     r,
                     0.0,
-                    style.noninteractive().bg_fill,
+                    fill.unwrap_or(style.noninteractive().bg_fill),
                     egui::Stroke::new(style.noninteractive().bg_stroke.width, *color),
                 );
             }
@@ -79,16 +78,6 @@ impl DrawCommand {
             }
         }
     }
-    // pub fn bounding_box(&self) -> [Pos2; 2] {
-    //     match self {
-    //         DrawCommand::Arrow(ao) => {
-    //             let mut min = ao.path[0];
-    //         }
-    //         DrawCommand::Line(a, b) => {}
-    //         DrawCommand::Text(pos, str, size) => {}
-    //         DrawCommand::Circle(a, b) => {}
-    //     }
-    // }
 }
 #[derive(Clone, Default)]
 pub struct NodeLayout {
@@ -121,6 +110,13 @@ fn offset_rect(rect: Rect, pos: Vec2) -> Rect {
         min: rect.min + pos,
         max: rect.max + pos,
     }
+}
+fn from_color32(a: Color32) -> layout::core::color::Color {
+    let mut result: u32 = 0;
+    for i in a.to_srgba_unmultiplied().iter() {
+        result = result << 8 | (*i as u32);
+    }
+    layout::core::color::Color::new(result)
 }
 impl RenderBackend for NodeLayout {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
@@ -155,6 +151,8 @@ impl RenderBackend for NodeLayout {
                 max: end,
             },
             Color32::from_hex(&look.line_color.to_web_color()).unwrap(),
+            look.fill_color
+                .map(|fill| Color32::from_hex(&fill.to_web_color()).unwrap()),
         ));
     }
     fn draw_line(&mut self, start: Point, end: Point, look: &StyleAttr) {
@@ -171,10 +169,10 @@ impl RenderBackend for NodeLayout {
     fn draw_arrow(
         &mut self,
         path: &[(Point, Point)],
-        dashed: bool,
-        head: (bool, bool),
-        look: &StyleAttr,
-        text: &str,
+        _dashed: bool,
+        _head: (bool, bool),
+        _look: &StyleAttr,
+        _text: &str,
     ) {
         let mut buffer: Vec<Pos2> = Vec::new();
         // I don't feel like getting the SVG curves implemented here lmao
@@ -192,7 +190,7 @@ impl RenderBackend for NodeLayout {
             text: "".into(),
         }));
     }
-    fn create_clip(&mut self, xy: Point, size: Point, rounded_px: usize) -> ClipHandle {
+    fn create_clip(&mut self, xy: Point, _size: Point, _rounded_px: usize) -> ClipHandle {
         0
     }
     fn draw_circle(&mut self, xy: Point, size: Point, look: &StyleAttr) {
@@ -216,14 +214,20 @@ impl NodeLayout {
                 if handles.contains_key(&id) {
                     return;
                 }
-                add_item_to_graph(document.get_task(id).unwrap(), style, &mut vg, &mut handles);
+                add_item_to_graph(
+                    document.get_task(id).unwrap(),
+                    document,
+                    style,
+                    &mut vg,
+                    &mut handles,
+                );
             });
         } else {
             for i in document.get_tasks() {
                 if self.exclude_completed && i.completed.is_some() {
                     continue;
                 }
-                add_item_to_graph(i, style, &mut vg, &mut handles);
+                add_item_to_graph(i, document, style, &mut vg, &mut handles);
             }
         }
         for id in handles.keys() {
@@ -256,7 +260,7 @@ impl NodeLayout {
     }
     pub fn show(
         &mut self,
-        document: &KanbanDocument,
+        _document: &KanbanDocument,
         ui: &mut egui::Ui,
         actions: &mut Vec<SummaryAction>,
     ) -> bool {
@@ -309,6 +313,7 @@ impl NodeLayout {
 
 fn add_item_to_graph(
     i: &KanbanItem,
+    document: &KanbanDocument,
     style: &Style,
     vg: &mut VisualGraph,
     handles: &mut HashMap<i32, NodeHandle>,
@@ -316,12 +321,22 @@ fn add_item_to_graph(
     let id = i.id;
     let shape = ShapeKind::new_box(&i.name);
     let mut look0 = StyleAttr::simple();
-    if i.completed.is_some() {
+    look0.fill_color = None;
+    if let Some(category) = &i.category {
+        if let Some(style) = document.categories.get(category) {
+            if let Some(color) = &style.panel_stroke_color {
+                look0.line_color = from_color32(Color32::from_rgba_unmultiplied(
+                    color[0], color[1], color[2], color[3],
+                ));
+            }
+            look0.fill_color = style
+                .panel_fill
+                .map(|x| from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3])));
+        }
+    } else if i.completed.is_some() {
         look0.line_color = layout::core::color::Color::from_name("green").unwrap();
     } else {
-        look0.line_color =
-            layout::core::color::Color::from_name(&style.noninteractive().fg_stroke.color.to_hex())
-                .unwrap();
+        look0.line_color = from_color32(style.noninteractive().fg_stroke.color);
     }
     let sz = get_shape_size(
         layout::core::base::Orientation::LeftToRight,

@@ -35,7 +35,7 @@
   This is a more basic layout, indenting the tasks to the depth they
   appear in a tasks's tree.
 
-# It might even do
+# It might do
 
 * Some semblance of being accessible.
 
@@ -44,10 +44,5 @@
 
 # Upcoming features
 
-* Category view, because focusing on a single category is nice sometimes.
-
-* Tree view
-
-  Show the entire dependency graph of your tasks. This is at least 20% "because I could and it sounded cool"
 * Some sort of preferences
-* Priorities
+* Slightly more accessible node layout(fingers crossed)

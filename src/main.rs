@@ -18,6 +18,7 @@ struct KanbanRS {
     open_editors: Vec<kanban::editor::State>,
     save_file_name: Option<PathBuf>,
     current_layout: KanbanDocumentLayout,
+    #[cfg(unix)]
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
     close_application: bool,
@@ -37,6 +38,7 @@ impl Default for KanbanRS {
             open_editors: Vec::new(),
             save_file_name: None,
             current_layout: KanbanDocumentLayout::default(),
+            #[cfg(unix)]
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
             hovered_task: None,
             close_application: false,
@@ -421,8 +423,31 @@ impl KanbanRS {
 }
 
 impl KanbanRS {
+    fn get_recents_file(&self) -> Option<PathBuf> {
+        if cfg!(unix) {
+            self.base_dirs.find_state_file("recent")
+        } else if fs::exists("~/Application Data/Roaming/kanbanrs/recents").unwrap() {
+            Some(PathBuf::from("~/Application Data/Roaming/kanbanrs/recents"))
+        } else {
+            None
+        }
+    }
+
+    fn place_recents_file(&self) -> Result<PathBuf, std::io::Error> {
+        if cfg!(unix) {
+            self.base_dirs.place_state_file("recent")
+        } else {
+            if !fs::exists("~/Application Data/Roaming/kanbanrs/").unwrap() {
+                fs::create_dir("~/Application Data/Roaming/kanbanrs").unwrap();
+            }
+            if !fs::exists("~/Application Data/Roaming/kanbanrs/recent").unwrap() {
+                fs::File::create("~/Application Data/Roaming/kanbanrs/recent")?;
+            }
+            Ok("~/Application Data/Roaming/kanbanrs/recent".into())
+        }
+    }
     pub fn read_recents(&self) -> Vec<PathBuf> {
-        let recents_file = self.base_dirs.find_state_file("recent");
+        let recents_file = self.get_recents_file();
         if recents_file.is_none() {
             return Vec::new();
         }
@@ -436,9 +461,8 @@ impl KanbanRS {
     }
     pub fn write_recents(&self) {
         let recents_file = self
-            .base_dirs
-            .place_state_file("recent")
-            .expect("Could not create state file");
+            .place_recents_file()
+            .expect("Could not create recents file");
         if !std::fs::exists(&recents_file).unwrap() {
             if let Err(x) = std::fs::File::create(&recents_file) {
                 println!("Failed to open file with error '{}'", x);

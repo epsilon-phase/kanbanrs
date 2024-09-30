@@ -473,7 +473,7 @@ pub mod search {
 
     use super::KanbanId;
 
-    #[derive(Clone)]
+    #[derive(Clone, Default)]
     pub struct SearchState {
         pub matched_ids: Vec<i32>,
         pub search_prompt: String,
@@ -710,7 +710,7 @@ impl KanbanCategoryStyle {
             );
         }
         if let Some(this_text_color) = self.text_color {
-            *text_color = Color32::from_rgba_unmultiplied(
+            *text_color = Color32::from_rgba_premultiplied(
                 this_text_color[0],
                 this_text_color[1],
                 this_text_color[2],
