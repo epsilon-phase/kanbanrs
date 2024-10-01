@@ -93,13 +93,21 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                         Some(x) => &document.get_task(x).unwrap().name,
                     })
                     .show_ui(ui, |ui| {
+                        let mut task: Vec<&KanbanItem> = document
+                            .get_tasks()
+                            .filter(|x| document.can_add_as_child(&state.item_copy, x))
+                            .collect();
+                        let c = super::sorting::ItemSort::Id;
+                        task.sort_by(|a, b| c.cmp_by(a, b));
+                        task.reverse();
+                        task.sort_by(|a, b| super::sorting::task_comparison_completed_last(a, b));
                         ui.selectable_value(&mut state.selected_child, None, "None");
-                        for i in document.get_tasks().filter(|x| {
-                            document.can_add_as_child(&state.item_copy, x)
-                                && x.id != state.item_copy.id
-                                && document.tasks.contains_key(&x.id)
-                        }) {
-                            ui.selectable_value(&mut state.selected_child, Some(i.id), &i.name);
+                        for i in task.drain(..) {
+                            let mut style = RichText::new(&i.name);
+                            if i.completed.is_some() {
+                                style = style.strikethrough();
+                            }
+                            ui.selectable_value(&mut state.selected_child, Some(i.id), style);
                         }
                     });
                 if let Some(x) = state.selected_child {

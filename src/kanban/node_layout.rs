@@ -60,8 +60,8 @@ impl DrawCommand {
             }
             DrawCommand::Arrow(ao) => {
                 for i in 1..ao.path.len() {
-                    let prev = ao.path[i - 1] + offset;
-                    let current = ao.path[i] + offset;
+                    let _prev = ao.path[i - 1] + offset;
+                    let _current = ao.path[i] + offset;
                     paint.line_segment(
                         [ao.path[i - 1] + offset, ao.path[i] + offset],
                         style.noninteractive().fg_stroke,
@@ -127,23 +127,11 @@ impl RenderBackend for NodeLayout {
             x: xy.x as f32,
             y: xy.y as f32,
         };
-        if self.min.x > start.x {
-            self.min.x = start.x;
-        }
-        if self.min.y > start.y {
-            self.min.y = start.y;
-        }
 
         let end = Pos2 {
             x: start.x + size.x as f32,
             y: start.y + size.y as f32,
         };
-        if self.max.y < end.y {
-            self.max.y = end.y;
-        }
-        if self.max.x < end.x {
-            self.max.x = end.x;
-        }
 
         self.commands.push(DrawCommand::Rect(
             Rect {
@@ -155,7 +143,7 @@ impl RenderBackend for NodeLayout {
                 .map(|fill| Color32::from_hex(&fill.to_web_color()).unwrap()),
         ));
     }
-    fn draw_line(&mut self, start: Point, end: Point, look: &StyleAttr) {
+    fn draw_line(&mut self, start: Point, end: Point, _look: &StyleAttr) {
         self.commands
             .push(DrawCommand::Line(from_point(start), from_point(end)));
     }
@@ -190,16 +178,18 @@ impl RenderBackend for NodeLayout {
             text: "".into(),
         }));
     }
-    fn create_clip(&mut self, xy: Point, _size: Point, _rounded_px: usize) -> ClipHandle {
+    fn create_clip(&mut self, _xy: Point, _size: Point, _rounded_px: usize) -> ClipHandle {
         0
     }
-    fn draw_circle(&mut self, xy: Point, size: Point, look: &StyleAttr) {
+    fn draw_circle(&mut self, xy: Point, size: Point, _look: &StyleAttr) {
         self.commands
             .push(DrawCommand::Circle(from_point(xy), from_point(size)));
     }
 }
 impl NodeLayout {
     pub fn update(&mut self, document: &KanbanDocument, style: &egui::Style) {
+        self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
+        self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         self.commands.clear();
         let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
 
@@ -207,21 +197,34 @@ impl NodeLayout {
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::None;
         if let Some(focused_id) = self.focus {
-            document.on_tree(focused_id, 0, |document, id, _depth| {
-                if self.exclude_completed && document.get_task(id).unwrap().completed.is_some() {
-                    return;
+            for i in document.get_tasks().filter(|x| {
+                let is_focused = x.id == focused_id;
+                let is_related = document.get_relation(focused_id, x.id) != TaskRelation::Unrelated;
+                let is_completed = x.completed.is_some();
+
+                if is_focused {
+                    true
+                } else {
+                    is_related && !(self.exclude_completed && is_completed)
                 }
-                if handles.contains_key(&id) {
-                    return;
-                }
-                add_item_to_graph(
-                    document.get_task(id).unwrap(),
-                    document,
-                    style,
-                    &mut vg,
-                    &mut handles,
-                );
-            });
+            }) {
+                add_item_to_graph(i, document, style, &mut vg, &mut handles);
+            }
+            // document.on_tree(focused_id, 0, |document, id, _depth| {
+            //     if self.exclude_completed && document.get_task(id).unwrap().completed.is_some() {
+            //         return;
+            //     }
+            //     if handles.contains_key(&id) {
+            //         return;
+            //     }
+            //     add_item_to_graph(
+            //         document.get_task(id).unwrap(),
+            //         document,
+            //         style,
+            //         &mut vg,
+            //         &mut handles,
+            //     );
+            // });
         } else {
             for i in document.get_tasks() {
                 if self.exclude_completed && i.completed.is_some() {
@@ -238,6 +241,9 @@ impl NodeLayout {
                 }
             }
         }
+        if handles.is_empty() {
+            return;
+        }
         vg.do_it(false, false, false, self);
         self.sense_regions.clear();
         for (task_id, node_handle) in handles.iter() {
@@ -246,6 +252,10 @@ impl NodeLayout {
             let start_y = element.pos.top(false) as f32;
             let end_x = element.pos.right(false) as f32;
             let end_y = element.pos.bottom(false) as f32;
+            self.max.x = self.max.x.max(end_x + 50.);
+            self.max.y = self.max.y.max(end_y + 90.);
+            self.min.x = self.min.x.min(start_x);
+            self.min.y = self.min.y.min(start_y);
             self.sense_regions.push((
                 *task_id,
                 Rect::from_min_max(
@@ -265,7 +275,6 @@ impl NodeLayout {
         actions: &mut Vec<SummaryAction>,
     ) -> bool {
         let mut needs_update = false;
-
         ui.horizontal(|ui| {
             needs_update |= ui
                 .checkbox(&mut self.exclude_completed, "Hide completed tasks")
@@ -276,6 +285,9 @@ impl NodeLayout {
             }
         });
         ScrollArea::both().id_salt("NodeLayout").show(ui, |ui| {
+            if !self.min.is_finite() || !self.max.is_finite() {
+                return;
+            }
             let (response, paint) = ui.allocate_painter(
                 self.max.to_vec2() - self.min.to_vec2(),
                 egui::Sense {
@@ -290,14 +302,20 @@ impl NodeLayout {
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
             for (task_id, region) in self.sense_regions.iter() {
-                let senses = ui.allocate_rect(
-                    offset_rect(*region, start.to_vec2()),
-                    egui::Sense {
-                        click: true,
-                        drag: false,
-                        focusable: false,
-                    },
-                );
+                let task = _document.get_task(*task_id).unwrap();
+                let mut thing: Option<KanbanId> = None;
+                let senses = ui
+                    .allocate_rect(
+                        offset_rect(*region, start.to_vec2()),
+                        egui::Sense {
+                            click: true,
+                            drag: false,
+                            focusable: false,
+                        },
+                    )
+                    .on_hover_ui(|ui| {
+                        actions.push(task.summary(_document, &mut thing, ui));
+                    });
                 if senses.middle_clicked() {
                     self.focus = Some(*task_id);
                     actions.push(SummaryAction::FocusOn(*task_id));

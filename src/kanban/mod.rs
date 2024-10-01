@@ -31,7 +31,11 @@ impl KanbanDocument {
     pub fn new() -> Self {
         KanbanDocument {
             tasks: HashMap::new(),
-            priorities: HashMap::new(),
+            priorities: HashMap::from([
+                ("High".to_owned(), 10),
+                ("Medium".to_owned(), 5),
+                ("Low".to_owned(), 1),
+            ]),
             categories: HashMap::new(),
             next_id: RefCell::new(0),
         }
