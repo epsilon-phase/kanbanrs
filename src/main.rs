@@ -424,9 +424,10 @@ impl KanbanRS {
 
 impl KanbanRS {
     fn get_recents_file(&self) -> Option<PathBuf> {
-        if cfg!(unix) {
-            self.base_dirs.find_state_file("recent")
-        } else if fs::exists("~/Application Data/Roaming/kanbanrs/recents").unwrap() {
+        #[cfg(unix)]
+        return self.base_dirs.find_state_file("recent");
+        #[cfg(windows)]
+        if fs::exists("~/Application Data/Roaming/kanbanrs/recents").unwrap() {
             Some(PathBuf::from("~/Application Data/Roaming/kanbanrs/recents"))
         } else {
             None
@@ -434,9 +435,10 @@ impl KanbanRS {
     }
 
     fn place_recents_file(&self) -> Result<PathBuf, std::io::Error> {
-        if cfg!(unix) {
-            self.base_dirs.place_state_file("recent")
-        } else {
+        #[cfg(unix)]
+        return self.base_dirs.place_state_file("recent");
+        #[cfg(windows)]
+        {
             if !fs::exists("~/Application Data/Roaming/kanbanrs/").unwrap() {
                 fs::create_dir("~/Application Data/Roaming/kanbanrs").unwrap();
             }
