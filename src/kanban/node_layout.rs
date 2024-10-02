@@ -30,9 +30,6 @@ impl DrawCommand {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
         match self {
             DrawCommand::Rect(r, color, fill) => {
-                if fill.is_some() {
-                    println!("Fill Color: {}", fill.unwrap().to_hex());
-                }
                 let mut r = *r;
                 r.min += offset;
                 r.max += offset;

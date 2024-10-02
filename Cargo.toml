@@ -1,6 +1,6 @@
 [package]
 name = "kanbanrs"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 repository = "https://github.com/epsilon-phase/kanbanrs/"
 authors = ["Violet White"]
@@ -50,7 +50,7 @@ cargo-dist-version = "0.22.1"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["powershell", "homebrew", "msi"]
+installers = ["homebrew", "msi"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
