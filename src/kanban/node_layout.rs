@@ -333,13 +333,24 @@ impl NodeLayout {
                     self.dragged_item = None;
                 }
                 if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
+                    let paint = ui.painter();
                     ui.ctx().set_cursor_icon(
                         if _document.can_add_as_child(
                             _document.get_task(*dropped).unwrap(),
                             _document.get_task(*task_id).unwrap(),
                         ) {
+                            paint.rect_stroke(
+                                offset_rect(*region, start.to_vec2()),
+                                0.0,
+                                Stroke::new(1.0, Color32::from_rgb(0, 255, 0)),
+                            );
                             egui::CursorIcon::PointingHand
                         } else {
+                            paint.rect_stroke(
+                                offset_rect(*region, start.to_vec2()),
+                                0.0,
+                                Stroke::new(1.0, Color32::from_rgb(255, 0, 0)),
+                            );
                             egui::CursorIcon::NoDrop
                         },
                     );
@@ -354,7 +365,6 @@ impl NodeLayout {
                 }
             }
         });
-        println!("I see u dragin {:?}", ui.ctx().output(|r| r.cursor_icon));
         needs_update
     }
     pub fn set_focus(&mut self, id: &KanbanId) {
