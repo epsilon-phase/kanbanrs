@@ -85,12 +85,18 @@ impl KanbanDocument {
             } else {
                 *val
             };
-            for i in start..KanbanId::MAX {
-                if !self.tasks.contains_key(&i) {
-                    return i;
+            if self.tasks.contains_key(&(start + 1)) {
+                let mut result = start;
+                for i in start..KanbanId::MAX {
+                    if !self.tasks.contains_key(&i) {
+                        result = i;
+                        break;
+                    }
                 }
+                result
+            } else {
+                start + 1
             }
-            panic!("Could not find new id");
         })
     }
     /**
@@ -667,8 +673,8 @@ pub mod tests {
         for _ in 0..number_of_tasks {
             ids.push(n.get_new_task_mut().id);
         }
-        for (index, child_set) in children.iter().enumerate() {
-            let mut task = n.get_task(index as KanbanId).unwrap().clone();
+        for (index, child_set) in ids.iter().zip(children.iter()) {
+            let mut task = n.get_task(*index).unwrap().clone();
             for child_id in child_set.iter() {
                 task.child_tasks.push(*child_id);
             }
