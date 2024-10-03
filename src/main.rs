@@ -298,8 +298,8 @@ impl eframe::App for KanbanRS {
             while let Some(x) = self.summary_actions_pending.pop() {
                 self.handle_summary_action(&x);
             }
-            while let Some(x) = self.editor_requests_pending.pop() {
-                self.handle_editor_request(&x);
+            while let Some(mut x) = self.editor_requests_pending.pop() {
+                self.handle_editor_request(&mut x);
             }
             if self.category_editor.open {
                 ui.ctx().show_viewport_immediate(
@@ -354,10 +354,12 @@ impl KanbanRS {
                 self.open_editors.push(editor);
             }
             SummaryAction::CreateChildOf(id) => {
-                let new_task = self.document.get_new_task_mut().id;
+                let mut new_task = self.document.get_new_task();
                 let mut task_copy = self.document.get_task(*id).unwrap().clone();
-                task_copy.child_tasks.push(new_task);
-                let editor = kanban::editor::state_from(self.document.get_task(new_task).unwrap());
+                new_task.inherit(&task_copy, &self.document);
+                self.document.replace_task(&new_task);
+                task_copy.child_tasks.push(new_task.id);
+                let editor = kanban::editor::state_from(&new_task);
                 self.document.replace_task(&task_copy);
                 self.open_editors.push(editor);
                 self.layout_cache_needs_updating = true;
@@ -400,9 +402,10 @@ impl KanbanRS {
             }
         }
     }
-    fn handle_editor_request(&mut self, request: &EditorRequest) {
+    fn handle_editor_request(&mut self, request: &mut EditorRequest) {
         match request {
-            kanban::editor::EditorRequest::NewItem(new_task) => {
+            kanban::editor::EditorRequest::NewItem(parent, new_task) => {
+                new_task.inherit(parent, &self.document);
                 self.document.replace_task(new_task);
                 self.open_editors.push(kanban::editor::state_from(new_task));
 

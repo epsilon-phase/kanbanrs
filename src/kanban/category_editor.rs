@@ -70,6 +70,11 @@ impl State {
             });
         });
         ui.group(|ui| {
+
+            ui.checkbox(
+                &mut self.style.children_inherit_category,
+                "Children inherit category",
+            ).on_hover_text("When enabled, newly created children will be populated with the category of their parent.");
             // Outline color
             ui.group(|ui| {
                 ui.label("Outline color");

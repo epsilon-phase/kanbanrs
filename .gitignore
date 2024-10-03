@@ -1,1 +1,3 @@
 /target
+# This will never be something we want in the repo
+massif.out.*

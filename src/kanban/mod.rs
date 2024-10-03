@@ -88,6 +88,8 @@ impl KanbanDocument {
 
             if self.tasks.contains_key(&(start + 1)) {
                 // If this ever trips, well, congrats on completing billions of tasks? I guess.
+                // Assuming this is running at 60 fps, this should take over 1800 hours of adding
+                // tasks every single frame.
                 (start..KanbanId::MAX)
                     .find(|x| !self.tasks.contains_key(x))
                     .unwrap()
@@ -278,6 +280,17 @@ impl KanbanItem {
             tags: Vec::new(),
             priority: None,
             child_tasks: Vec::new(),
+        }
+    }
+    pub fn inherit(&mut self, parent: &KanbanItem, document: &KanbanDocument) {
+        if parent.category.is_none() {
+            return;
+        }
+        let category = parent.category.as_ref().unwrap();
+        if let Some(style) = document.categories.get(category) {
+            if style.children_inherit_category {
+                self.category = parent.category.clone();
+            }
         }
     }
     pub fn get_completed_time_string(&self) -> Option<String> {
@@ -679,6 +692,46 @@ pub mod tests {
         }
         n
     }
+    #[test]
+    fn test_inheritance() {
+        let mut document = KanbanDocument::new();
+        document.categories.insert(
+            "test_true".to_owned(),
+            KanbanCategoryStyle {
+                children_inherit_category: true,
+                ..Default::default()
+            },
+        );
+        document.categories.insert(
+            "test_false".to_owned(),
+            KanbanCategoryStyle {
+                children_inherit_category: false,
+                ..Default::default()
+            },
+        );
+        {
+            let a_id: KanbanId;
+            {
+                let task_a = document.get_new_task_mut();
+                task_a.category = Some("test_true".to_owned());
+                a_id = task_a.id;
+            };
+            {
+                let mut task_b = document.get_new_task();
+                task_b.inherit(document.get_task(a_id).unwrap(), &document);
+                assert_eq!(task_b.category, Some("test_true".to_owned()));
+            }
+        }
+        // It should of course, not apply on categories with the inheritance set to false
+        {
+            let mut task_a = document.get_new_task();
+            task_a.category = Some("test_false".to_owned());
+            document.replace_task(&task_a);
+            let mut task_b = document.get_new_task();
+            task_b.inherit(&task_a, &document);
+            assert_eq!(task_b.category, None);
+        }
+    }
     mod queue_state_tests {
         use queue_view::QueueState;
 
@@ -717,6 +770,8 @@ pub struct KanbanCategoryStyle {
     pub panel_stroke_color: Option<[u8; 4]>,
     pub panel_fill: Option<[u8; 4]>,
     pub text_color: Option<[u8; 4]>,
+    #[serde(default)]
+    pub children_inherit_category: bool,
 }
 impl KanbanCategoryStyle {
     pub fn apply_to(

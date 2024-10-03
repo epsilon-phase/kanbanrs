@@ -1,5 +1,5 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
-use eframe::egui::{self, ComboBox, RichText};
+use eframe::egui::{self, Button, ComboBox, RichText};
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -22,7 +22,7 @@ pub fn state_from(item: &KanbanItem) -> State {
 }
 pub enum EditorRequest {
     NoRequest,
-    NewItem(KanbanItem),
+    NewItem(KanbanItem, KanbanItem),
     OpenItem(KanbanItem),
     DeleteItem(KanbanItem),
     UpdateItem(KanbanItem),
@@ -76,21 +76,25 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 columns[1]
                     .text_edit_singleline(&mut state.category)
                     .on_hover_text("Enter a category Name");
-                ComboBox::new("Category", "Category")
-                    .selected_text(&state.category)
-                    .show_ui(&mut columns[0], |ui| {
-                        ui.selectable_value(&mut state.category, "".to_owned(), "None");
-                        for i in document.categories.keys() {
-                            ui.selectable_value(&mut state.category, i.clone(), i.clone());
-                        }
-                    });
+                columns[0].horizontal(|ui| {
+                    ui.label("Category");
+                    ComboBox::from_id_salt("Category")
+                        .selected_text(&state.category)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut state.category, "".to_owned(), "None");
+                            for i in document.categories.keys() {
+                                ui.selectable_value(&mut state.category, i.clone(), i.clone());
+                            }
+                        })
+                });
             });
 
             ui.horizontal(|ui| {
                 if ui.button("Add new child").clicked {
                     create_child = true;
                 }
-                ComboBox::from_label("Select Child to add")
+                ui.label("Select Child to add");
+                ComboBox::from_id_salt("Select Child to add")
                     .selected_text(match state.selected_child {
                         None => "None",
                         Some(x) => &document.get_task(x).unwrap().name,
@@ -113,12 +117,14 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                             ui.selectable_value(&mut state.selected_child, Some(i.id), style);
                         }
                     });
-                if let Some(x) = state.selected_child {
-                    let button = ui.button("Add Child");
-                    if button.clicked() {
-                        state.item_copy.child_tasks.push(x);
-                    }
-                }
+                ui.add_enabled(state.selected_child.is_some(), Button::new("Add Child"))
+                    .clicked()
+                    .then(|| {
+                        state
+                            .item_copy
+                            .child_tasks
+                            .push(state.selected_child.unwrap());
+                    });
             });
             ui.columns(2, |columns| {
                 {
@@ -131,7 +137,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                         // bottom half-off the screen, which I don't care for.
                         .max_height(ui.available_height() / 2.0)
                         .max_width(ui.available_width())
-                        .id_salt("child tasks")
+                        .id_salt(format!("child tasks {}", state.item_copy.id))
                         .show(ui, |ui| {
                             for child in state.item_copy.child_tasks.iter() {
                                 if !document.tasks.contains_key(child) {
@@ -232,7 +238,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
     if create_child {
         let new_child = KanbanItem::new(document);
         state.item_copy.child_tasks.push(new_child.id);
-        return EditorRequest::NewItem(new_child);
+        return EditorRequest::NewItem(state.item_copy.clone(), new_child);
     }
     if let Some(task_to_edit) = open_task {
         return EditorRequest::OpenItem(document.get_task(task_to_edit).cloned().unwrap());

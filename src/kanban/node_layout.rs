@@ -1,8 +1,6 @@
-use std::sync::Arc;
-
 use super::*;
 
-use egui::{InnerResponse, Pos2, Rect, Style};
+use egui::{Pos2, Rect, Style};
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
@@ -89,7 +87,6 @@ pub struct NodeLayout {
     focus: Option<KanbanId>,
     exclude_completed: bool,
     dragged_item: Option<KanbanId>,
-    drag_start_position: Option<Pos2>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -307,9 +304,7 @@ impl NodeLayout {
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
 
             for (task_id, region) in self.sense_regions.iter() {
-                let task = _document.get_task(*task_id).unwrap();
-                let mut thing: Option<KanbanId> = None;
-                let mut senses = ui.allocate_rect(
+                let senses = ui.allocate_rect(
                     offset_rect(*region, start.to_vec2()),
                     egui::Sense {
                         click: true,
