@@ -87,6 +87,7 @@ pub struct NodeLayout {
     focus: Option<KanbanId>,
     exclude_completed: bool,
     dragged_item: Option<KanbanId>,
+    collapsed: Vec<KanbanId>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -188,6 +189,11 @@ impl RenderBackend for NodeLayout {
     }
 }
 impl NodeLayout {
+    fn is_collapsed(&self, document: &KanbanDocument, item: &KanbanItem) -> bool {
+        self.collapsed
+            .iter()
+            .any(|parent_id| item.is_child_of(document.get_task(*parent_id).unwrap(), document))
+    }
     pub fn update(&mut self, document: &KanbanDocument, style: &egui::Style) {
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
@@ -200,7 +206,8 @@ impl NodeLayout {
         if let Some(focused_id) = self.focus {
             for i in document.get_tasks().filter(|x| {
                 let is_focused = x.id == focused_id;
-                let is_related = document.get_relation(focused_id, x.id) != TaskRelation::Unrelated;
+                let relationship = document.get_relation(focused_id, x.id);
+                let is_related = relationship != TaskRelation::Unrelated;
                 let is_completed = x.completed.is_some();
 
                 if is_focused {
@@ -209,6 +216,9 @@ impl NodeLayout {
                     is_related && !(self.exclude_completed && is_completed)
                 }
             }) {
+                if self.is_collapsed(document, i) {
+                    continue;
+                }
                 add_item_to_graph(i, document, style, &mut vg, &mut handles);
             }
             // document.on_tree(focused_id, 0, |document, id, _depth| {
@@ -229,6 +239,9 @@ impl NodeLayout {
         } else {
             for i in document.get_tasks() {
                 if self.exclude_completed && i.completed.is_some() {
+                    continue;
+                }
+                if self.is_collapsed(document, i) {
                     continue;
                 }
                 add_item_to_graph(i, document, style, &mut vg, &mut handles);
@@ -320,6 +333,14 @@ impl NodeLayout {
                 }
                 if senses.clicked() {
                     actions.push(SummaryAction::OpenEditor(*task_id));
+                }
+                if senses.secondary_clicked() {
+                    if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
+                        self.collapsed.remove(index);
+                    } else {
+                        self.collapsed.push(*task_id);
+                    }
+                    needs_update = true;
                 }
                 if senses.drag_started() {
                     self.dragged_item = Some(*task_id);
