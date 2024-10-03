@@ -85,15 +85,12 @@ impl KanbanDocument {
             } else {
                 *val
             };
+
             if self.tasks.contains_key(&(start + 1)) {
-                let mut result = start;
-                for i in start..KanbanId::MAX {
-                    if !self.tasks.contains_key(&i) {
-                        result = i;
-                        break;
-                    }
-                }
-                result
+                // If this ever trips, well, congrats on completing billions of tasks? I guess.
+                (start..KanbanId::MAX)
+                    .find(|x| !self.tasks.contains_key(x))
+                    .unwrap()
             } else {
                 start + 1
             }
