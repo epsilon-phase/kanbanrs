@@ -1,5 +1,6 @@
 use super::*;
 
+use egui::epaint::CubicBezierShape;
 use egui::{Pos2, Rect, Style};
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
@@ -58,13 +59,30 @@ impl DrawCommand {
                 paint.line_segment([*a + offset, *b + offset], style.noninteractive().fg_stroke);
             }
             DrawCommand::Arrow(ao) => {
-                for i in 1..ao.path.len() {
-                    let _prev = ao.path[i - 1] + offset;
-                    let _current = ao.path[i] + offset;
-                    paint.line_segment(
-                        [ao.path[i - 1] + offset, ao.path[i] + offset],
+                let mut points: [Pos2; 4] = Default::default();
+                for (index, i) in points.iter_mut().enumerate() {
+                    *i = ao.path[index] + offset;
+                }
+                let shape = CubicBezierShape::from_points_stroke(
+                    points,
+                    false,
+                    Color32::TRANSPARENT,
+                    style.noninteractive().fg_stroke,
+                );
+
+                paint.add(shape);
+                for i in (3..ao.path.len() - 2).step_by(2) {
+                    let start = ao.path[i] + offset;
+                    let control =
+                        ao.path[i] - (ao.path[i - 1].to_vec2() - (ao.path[i].to_vec2())) + offset;
+                    let exit = ao.path[i + 1] + offset;
+                    let end = ao.path[i + 2] + offset;
+                    paint.add(CubicBezierShape::from_points_stroke(
+                        [start, control, exit, end],
+                        false,
+                        Color32::TRANSPARENT,
                         style.noninteractive().fg_stroke,
-                    );
+                    ));
                 }
             }
             DrawCommand::Circle(center, size) => {

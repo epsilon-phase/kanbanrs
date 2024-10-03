@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
-
 pub mod category_editor;
 pub mod focused_layout;
 pub mod node_layout;

@@ -1,3 +1,7 @@
+# v0.2.2
+
+## UI Improvements
+* The node layout now uses bezier curves. layout-rs emits.
 
 # v0.2.1
 
