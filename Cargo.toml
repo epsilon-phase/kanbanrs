@@ -6,6 +6,7 @@ repository = "https://github.com/epsilon-phase/kanbanrs/"
 authors = ["Violet White"]
 description = "A basic kanban task manager written with egui"
 homepage = "https://github.com/epsilon-phase/kanbanrs/"
+license = 'MIT'
 
 [package.metadata.wix]
 upgrade-guid = "08F7518F-464F-44FF-A58D-1E48F52F59DA"
