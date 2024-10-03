@@ -73,10 +73,13 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
             ui.heading("Description");
             ui.text_edit_multiline(&mut state.item_copy.description);
             ui.columns(2, |columns| {
-                columns[1].text_edit_singleline(&mut state.category);
+                columns[1]
+                    .text_edit_singleline(&mut state.category)
+                    .on_hover_text("Enter a category Name");
                 ComboBox::new("Category", "Category")
                     .selected_text(&state.category)
                     .show_ui(&mut columns[0], |ui| {
+                        ui.selectable_value(&mut state.category, "".to_owned(), "None");
                         for i in document.categories.keys() {
                             ui.selectable_value(&mut state.category, i.clone(), i.clone());
                         }

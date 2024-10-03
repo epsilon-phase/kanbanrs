@@ -30,8 +30,8 @@ struct KanbanRS {
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
 }
-impl Default for KanbanRS {
-    fn default() -> Self {
+impl KanbanRS {
+    fn new() -> Self {
         KanbanRS {
             document: KanbanDocument::default(),
             task_name: String::new(),
@@ -58,11 +58,8 @@ fn main() {
         viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
         ..Default::default()
     };
-    if let Err(x) = eframe::run_native(
-        "KanbanRS",
-        options,
-        Box::new(|_cc| Ok(Box::<KanbanRS>::default())),
-    ) {
+    let app = KanbanRS::new();
+    if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
         println!("{}", x);
     }
 }
@@ -284,7 +281,7 @@ impl eframe::App for KanbanRS {
             for editor in self.open_editors.iter_mut() {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of(editor.item_copy.id),
-                    egui::ViewportBuilder::default(),
+                    egui::ViewportBuilder::default().with_window_type(egui::X11WindowType::Dialog),
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
                             let request = kanban::editor::editor(ui, &self.document, editor);
@@ -379,13 +376,27 @@ impl KanbanRS {
             SummaryAction::FocusOn(id) => {
                 if let KanbanDocumentLayout::TreeOutline(t_o) = &mut self.current_layout {
                     t_o.set_focus(*id);
-                } else if matches!(self.current_layout, KanbanDocumentLayout::NodeLayout(_)) {
+                } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
+                    nl.set_focus(id);
                     //This shouldn't trigger a switch to the focused view
                 } else {
                     self.current_layout =
                         KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));
                 }
                 self.layout_cache_needs_updating = true;
+            }
+            SummaryAction::AddChildTo(parent, child) => {
+                if self.document.can_add_as_child(
+                    self.document.get_task(*parent).unwrap(),
+                    self.document.get_task(*child).unwrap(),
+                ) {
+                    self.document
+                        .get_task_mut(*parent)
+                        .unwrap()
+                        .child_tasks
+                        .push(*child);
+                    self.layout_cache_needs_updating = true;
+                }
             }
         }
     }

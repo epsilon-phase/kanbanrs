@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use super::*;
 
-use egui::{Pos2, Rect, Style};
+use egui::{InnerResponse, Pos2, Rect, Style};
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
@@ -19,8 +21,10 @@ struct ArrowOptions {
 
 #[derive(Clone, PartialEq)]
 enum DrawCommand {
-    Rect(Rect, Color32, Option<Color32>),
+    Rect(Rect, Color32, Option<Color32>, f32),
     Line(Pos2, Pos2),
+    // There would ideally be a text color here, however I don't think layout-rs has
+    // a suitable field for this in the styleattr struct.
     Text(Pos2, String, f32),
     Arrow(ArrowOptions),
     Circle(Pos2, Pos2),
@@ -29,7 +33,7 @@ impl DrawCommand {
     pub fn operate_on(&self, paint: &egui::Painter, style: &egui::Style, painting_rectangle: Rect) {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
         match self {
-            DrawCommand::Rect(r, color, fill) => {
+            DrawCommand::Rect(r, color, fill, stroke_width) => {
                 let mut r = *r;
                 r.min += offset;
                 r.max += offset;
@@ -37,7 +41,7 @@ impl DrawCommand {
                     r,
                     0.0,
                     fill.unwrap_or(style.noninteractive().bg_fill),
-                    egui::Stroke::new(style.noninteractive().bg_stroke.width, *color),
+                    egui::Stroke::new(*stroke_width, *color),
                 );
             }
             DrawCommand::Text(pos, str, size) => {
@@ -84,6 +88,8 @@ pub struct NodeLayout {
     sense_regions: Vec<(KanbanId, Rect)>,
     focus: Option<KanbanId>,
     exclude_completed: bool,
+    dragged_item: Option<KanbanId>,
+    drag_start_position: Option<Pos2>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -138,6 +144,7 @@ impl RenderBackend for NodeLayout {
             Color32::from_hex(&look.line_color.to_web_color()).unwrap(),
             look.fill_color
                 .map(|fill| Color32::from_hex(&fill.to_web_color()).unwrap()),
+            look.line_width as f32,
         ));
     }
     fn draw_line(&mut self, start: Point, end: Point, _look: &StyleAttr) {
@@ -298,21 +305,20 @@ impl NodeLayout {
             self.commands
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
+
             for (task_id, region) in self.sense_regions.iter() {
                 let task = _document.get_task(*task_id).unwrap();
                 let mut thing: Option<KanbanId> = None;
-                let senses = ui
-                    .allocate_rect(
-                        offset_rect(*region, start.to_vec2()),
-                        egui::Sense {
-                            click: true,
-                            drag: false,
-                            focusable: false,
-                        },
-                    )
-                    .on_hover_ui(|ui| {
-                        actions.push(task.summary(_document, &mut thing, ui));
-                    });
+                let mut senses = ui.allocate_rect(
+                    offset_rect(*region, start.to_vec2()),
+                    egui::Sense {
+                        click: true,
+                        drag: true,
+                        focusable: false,
+                    },
+                );
+                senses.dnd_set_drag_payload(*task_id);
+
                 if senses.middle_clicked() {
                     self.focus = Some(*task_id);
                     actions.push(SummaryAction::FocusOn(*task_id));
@@ -320,9 +326,39 @@ impl NodeLayout {
                 if senses.clicked() {
                     actions.push(SummaryAction::OpenEditor(*task_id));
                 }
+                if senses.drag_started() {
+                    self.dragged_item = Some(*task_id);
+                }
+                if senses.drag_stopped() {
+                    self.dragged_item = None;
+                }
+                if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
+                    ui.ctx().set_cursor_icon(
+                        if _document.can_add_as_child(
+                            _document.get_task(*dropped).unwrap(),
+                            _document.get_task(*task_id).unwrap(),
+                        ) {
+                            egui::CursorIcon::PointingHand
+                        } else {
+                            egui::CursorIcon::NoDrop
+                        },
+                    );
+                }
+                if let Some(x) = senses.dnd_release_payload::<i32>().clone() {
+                    if _document.can_add_as_child(
+                        _document.get_task(*x).unwrap(),
+                        _document.get_task(*task_id).unwrap(),
+                    ) {
+                        actions.push(SummaryAction::AddChildTo(*x, *task_id));
+                    }
+                }
             }
         });
+        println!("I see u dragin {:?}", ui.ctx().output(|r| r.cursor_icon));
         needs_update
+    }
+    pub fn set_focus(&mut self, id: &KanbanId) {
+        self.focus = Some(*id);
     }
 }
 
@@ -334,31 +370,42 @@ fn add_item_to_graph(
     handles: &mut HashMap<i32, NodeHandle>,
 ) {
     let id = i.id;
-    let shape = ShapeKind::new_box(&i.name);
+    let mut text = i.name.clone();
+
     let mut look0 = StyleAttr::simple();
     look0.fill_color = None;
+    look0.line_width = style.noninteractive().bg_stroke.width as usize;
     if let Some(category) = &i.category {
-        if let Some(style) = document.categories.get(category) {
-            if let Some(color) = &style.panel_stroke_color {
+        if let Some(this_style) = document.categories.get(category) {
+            if let Some(color) = &this_style.panel_stroke_color {
                 look0.line_color = from_color32(Color32::from_rgba_unmultiplied(
                     color[0], color[1], color[2], color[3],
                 ));
             }
-            look0.fill_color = style
+            look0.fill_color = this_style
                 .panel_fill
                 .map(|x| from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3])));
+            look0.line_width = this_style
+                .panel_stroke_width
+                .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
+                    x as usize
+                });
         }
-    } else if i.completed.is_some() {
-        look0.line_color = layout::core::color::Color::from_name("green").unwrap();
     } else {
         look0.line_color = from_color32(style.noninteractive().fg_stroke.color);
     }
-    let sz = get_shape_size(
+    if i.completed.is_some() {
+        text += " (Completed)";
+        // look0.line_color = layout::core::color::Color::from_name("green").unwrap();
+    }
+    let shape = ShapeKind::new_box(&text);
+    let mut sz = get_shape_size(
         layout::core::base::Orientation::LeftToRight,
         &shape,
         15,
         false,
     );
+    sz.x *= 0.7;
     let node = Element::create(
         shape,
         look0.clone(),

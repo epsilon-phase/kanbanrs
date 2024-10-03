@@ -170,7 +170,7 @@ impl KanbanDocument {
         }
         0
     }
-    /// Operate on the whole of the tree.
+    /// Operate on the whole of the tree down from this point
     ///
     /// This will visit the same nodes multiple times; try not to worry too much.
     ///
@@ -191,6 +191,15 @@ impl KanbanDocument {
                 stack.push((*child, depth + 1));
             }
         }
+    }
+    pub fn parents_of(&'_ self, id: KanbanId) -> Vec<&'_ KanbanItem> {
+        self.tasks
+            .values()
+            .filter(|possible_parent| possible_parent.child_tasks.contains(&id))
+            .collect()
+    }
+    pub fn get_task_mut(&mut self, id: KanbanId) -> Option<&mut KanbanItem> {
+        self.tasks.get_mut(&id)
     }
 }
 /// Category functions
@@ -325,6 +334,7 @@ pub enum SummaryAction {
     CreateChildOf(KanbanId),
     MarkCompleted(KanbanId),
     FocusOn(KanbanId),
+    AddChildTo(KanbanId, KanbanId),
 }
 impl KanbanItem {
     pub fn summary(
