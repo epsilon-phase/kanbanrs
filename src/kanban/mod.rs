@@ -78,7 +78,20 @@ impl KanbanDocument {
         !found
     }
     pub fn get_next_id(&self) -> KanbanId {
-        self.next_id.replace_with(|val| (*val) + 1)
+        self.next_id.replace_with(|val| {
+            let start = if *val == KanbanId::MAX {
+                println!("I'm at the highest!");
+                KanbanId::MIN
+            } else {
+                *val
+            };
+            for i in start..KanbanId::MAX {
+                if !self.tasks.contains_key(&i) {
+                    return i;
+                }
+            }
+            panic!("Could not find new id");
+        })
     }
     /**
     Create a new task and add it to the document, returning a mutable reference
@@ -446,7 +459,7 @@ impl KanbanItem {
                     ui.label(RichText::new(thing).color(status_color).strong());
                 });
                 ScrollArea::vertical()
-                    .id_salt(4000000 + self.id)
+                    .id_salt(format!("Summary for item {}", self.id))
                     .max_height(100.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
                 if ui.min_size().y < 200. {

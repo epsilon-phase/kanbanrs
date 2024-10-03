@@ -151,7 +151,7 @@ impl eframe::App for KanbanRS {
                     ui.menu_button("Recently Used", |ui| {
                         for i in self.read_recents() {
                             let s: String = String::from(i.to_str().unwrap());
-                            if ui.button(&s).clicked() {
+                            if fs::exists(&s).is_ok_and(|x| x) && ui.button(&s).clicked() {
                                 self.open_file(&i);
                                 ui.close_menu();
                                 self.layout_cache_needs_updating = true;
