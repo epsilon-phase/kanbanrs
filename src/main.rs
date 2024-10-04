@@ -1,6 +1,6 @@
 mod kanban;
 use chrono::Utc;
-use eframe::egui::{self, ComboBox, RichText, ScrollArea};
+use eframe::egui::{self, ComboBox, RichText, ScrollArea, Vec2};
 
 use kanban::{
     category_editor::State, editor::EditorRequest, node_layout::NodeLayout,
@@ -29,6 +29,7 @@ struct KanbanRS {
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
+    modified_since_last_saved: bool,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -48,6 +49,7 @@ impl KanbanRS {
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
+            modified_since_last_saved: false,
         }
     }
 }
@@ -66,7 +68,39 @@ fn main() {
 impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.close_application {
-            return;
+            let mut confirmed = false;
+            println!("Needs saving? {}", self.modified_since_last_saved);
+            if self.modified_since_last_saved {
+                ctx.show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("Save confirmation"),
+                    egui::ViewportBuilder::default()
+                        .with_inner_size(Vec2::new(300., 100.))
+                        .with_window_type(egui::X11WindowType::Dialog)
+                        .with_always_on_top(),
+                    |ctx, _class| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.label("You may lose information if you don't save, do you want to?");
+                            if ui.button("Save").clicked() {
+                                self.save_file(false);
+                                confirmed = true;
+                            }
+                            if ui.button("Don't save").clicked() {
+                                confirmed = true;
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.close_application = false;
+                            }
+                        });
+                    },
+                );
+            } else {
+                confirmed = true;
+            }
+            println!("Confirmed exit? {}", confirmed);
+            if confirmed {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                return;
+            }
         }
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(
@@ -163,7 +197,6 @@ impl eframe::App for KanbanRS {
                     }
                     if ui.button("Quit").clicked() {
                         self.close_application = true;
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                 });
                 ui.menu_button("Edit", |ui| {
@@ -243,6 +276,7 @@ impl eframe::App for KanbanRS {
                     let thing = self.document.get_new_task_mut();
                     thing.name = self.task_name.clone();
                     self.layout_cache_needs_updating = true;
+                    self.modified_since_last_saved = true;
                     self.current_layout.inform_of_new_items();
                 }
             });
@@ -275,6 +309,7 @@ impl eframe::App for KanbanRS {
                     if !editor.cancelled {
                         self.document.replace_task(&editor.item_copy);
                         self.layout_cache_needs_updating = true;
+                        self.modified_since_last_saved = true;
                     }
                 });
             self.open_editors.retain(|editor| editor.open);
@@ -312,9 +347,13 @@ impl eframe::App for KanbanRS {
                                 kanban::category_editor::EditorAction::CreateCategory(
                                     name,
                                     style,
-                                ) => self.document.replace_category_style(&name, style),
+                                ) => {
+                                    self.document.replace_category_style(&name, style);
+                                    self.modified_since_last_saved = true;
+                                }
                                 kanban::category_editor::EditorAction::ApplyStyle(name, style) => {
-                                    self.document.replace_category_style(&name, style)
+                                    self.document.replace_category_style(&name, style);
+                                    self.modified_since_last_saved = true;
                                 }
                                 kanban::category_editor::EditorAction::Nothing => (),
                             }
@@ -363,6 +402,7 @@ impl KanbanRS {
                 self.document.replace_task(&task_copy);
                 self.open_editors.push(editor);
                 self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
             SummaryAction::MarkCompleted(id) => {
@@ -398,6 +438,7 @@ impl KanbanRS {
                         .child_tasks
                         .push(*child);
                     self.layout_cache_needs_updating = true;
+                    self.modified_since_last_saved = true;
                 }
             }
         }
@@ -410,6 +451,7 @@ impl KanbanRS {
                 self.open_editors.push(kanban::editor::state_from(new_task));
 
                 self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
             // The main distinction between the two is that opening an
@@ -425,10 +467,12 @@ impl KanbanRS {
                     editor.item_copy.remove_child(to_delete);
                 }
                 self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
             kanban::editor::EditorRequest::UpdateItem(item) => {
                 self.document.replace_task(item);
+                self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
             _ => {}
@@ -559,6 +603,7 @@ impl KanbanRS {
         if let Err(x) = serde_json::to_writer(file.unwrap(), &self.document) {
             println!("Error on saving: {}", x);
         }
+        self.modified_since_last_saved = false;
         self.write_recents();
     }
 }

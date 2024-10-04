@@ -1,7 +1,8 @@
 # v0.2.2
 
 ## UI Improvements
-* The node layout now uses bezier curves. layout-rs emits.
+* The node layout now uses bezier curves, as layout-rs emits.
+* Add confirmation dialog when quitting without having saved.
 
 # v0.2.1
 

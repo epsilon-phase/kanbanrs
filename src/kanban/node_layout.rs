@@ -74,7 +74,7 @@ impl DrawCommand {
                 for i in (3..ao.path.len() - 2).step_by(2) {
                     let start = ao.path[i] + offset;
                     let control =
-                        ao.path[i] - (ao.path[i - 1].to_vec2() - (ao.path[i].to_vec2())) + offset;
+                        ao.path[i] - (ao.path[i - 1].to_vec2() - ao.path[i].to_vec2()) + offset;
                     let exit = ao.path[i + 1] + offset;
                     let end = ao.path[i + 2] + offset;
                     paint.add(CubicBezierShape::from_points_stroke(
