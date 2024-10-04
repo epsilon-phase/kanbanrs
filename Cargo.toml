@@ -26,6 +26,7 @@ serde_json = { version = "~1.0" }
 rfd = { version = "0.14.1" }
 nucleo-matcher = { version = "0.3.1" }
 layout-rs = "0.1.2"
+clap = { version = "4.5.19", features = ["derive"] }
 
 [target.'cfg(unix)'.dependencies]
 xdg = "~2.5.0"

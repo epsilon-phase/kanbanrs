@@ -1,13 +1,13 @@
 mod kanban;
 use chrono::Utc;
+use clap::*;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea, Vec2};
-
 use kanban::{
     category_editor::State, editor::EditorRequest, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
     sorting::ItemSort, tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
 };
-use std::{env::args, fs, io::Write, path::PathBuf};
+use std::{fs, io::Write, path::PathBuf};
 
 mod document_layout;
 use document_layout::*;
@@ -53,6 +53,38 @@ impl KanbanRS {
         }
     }
 }
+#[derive(clap::Parser, PartialEq, Eq, Clone, Copy, Debug, ValueEnum)]
+enum StartupLayout {
+    Node,
+    Column,
+    TreeOutline,
+    Queue,
+    Search,
+}
+impl std::fmt::Display for StartupLayout {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+impl From<StartupLayout> for KanbanDocumentLayout {
+    fn from(value: StartupLayout) -> Self {
+        match value {
+            StartupLayout::Column => {
+                KanbanDocumentLayout::Columnar([Vec::new(), Vec::new(), Vec::new()])
+            }
+            StartupLayout::Node => KanbanDocumentLayout::NodeLayout(NodeLayout::new()),
+            StartupLayout::Queue => KanbanDocumentLayout::Queue(QueueState::new()),
+            StartupLayout::Search => KanbanDocumentLayout::Search(SearchState::new()),
+            StartupLayout::TreeOutline => KanbanDocumentLayout::TreeOutline(TreeOutline::new()),
+        }
+    }
+}
+#[derive(clap::Parser)]
+struct KanbanArgs {
+    filename: Option<String>,
+    #[arg(short,long,value_enum,default_value_t=StartupLayout::Column)]
+    default_view: StartupLayout,
+}
 
 fn main() {
     env_logger::init();
@@ -60,12 +92,8 @@ fn main() {
         viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
         ..Default::default()
     };
-    let mut app = KanbanRS::new();
-    if let Some(filename) = args().skip(1).next() {
-        if fs::exists(&filename).unwrap_or(false) {
-            app.open_file(&PathBuf::from(filename.as_str()));
-        }
-    }
+    let args = KanbanArgs::parse();
+    let app = KanbanRS::from_args(args);
 
     if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
         println!("{}", x);
@@ -390,6 +418,14 @@ impl eframe::App for KanbanRS {
 }
 
 impl KanbanRS {
+    fn from_args(args: KanbanArgs) -> Self {
+        let mut result = KanbanRS::new();
+        if let Some(filename) = args.filename {
+            result.open_file(&PathBuf::from(filename));
+        }
+        result.current_layout = args.default_view.into();
+        result
+    }
     fn handle_summary_action(&mut self, action: &SummaryAction) {
         match action {
             SummaryAction::NoAction => (),

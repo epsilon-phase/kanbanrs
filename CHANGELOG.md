@@ -1,5 +1,9 @@
 # v0.2.2
 
+## Features
+* Accepts a filename to open from the command line arguments.
+* Accept a layout to open to from the command line arguments.
+
 ## UI Improvements
 * The node layout now uses bezier curves, as layout-rs emits.
 * Add confirmation dialog when quitting without having saved.
