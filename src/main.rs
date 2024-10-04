@@ -7,7 +7,7 @@ use kanban::{
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
     sorting::ItemSort, tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
 };
-use std::{fs, io::Write, path::PathBuf};
+use std::{env::args, fs, io::Write, path::PathBuf};
 
 mod document_layout;
 use document_layout::*;
@@ -60,7 +60,13 @@ fn main() {
         viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
         ..Default::default()
     };
-    let app = KanbanRS::new();
+    let mut app = KanbanRS::new();
+    if let Some(filename) = args().skip(1).next() {
+        if fs::exists(&filename).unwrap_or(false) {
+            app.open_file(&PathBuf::from(filename.as_str()));
+        }
+    }
+
     if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
         println!("{}", x);
     }
