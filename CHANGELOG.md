@@ -7,6 +7,8 @@
 ## UI Improvements
 * The node layout now uses bezier curves, as layout-rs emits.
 * Add confirmation dialog when quitting without having saved.
+* Dragging and dropping now has a grace period where it will not
+  add the node as a child to the current
 
 # v0.2.1
 

@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+use std::time::Instant;
+
 use super::*;
 
 use egui::epaint::CubicBezierShape;
@@ -10,7 +13,7 @@ use layout::std_shapes::render::get_shape_size;
 use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Eq)]
 struct ArrowOptions {
     path: Vec<Pos2>,
     dashed: bool,
@@ -20,14 +23,36 @@ struct ArrowOptions {
 
 #[derive(Clone, PartialEq)]
 enum DrawCommand {
-    Rect(Rect, Color32, Option<Color32>, f32),
-    Line(Pos2, Pos2),
     // There would ideally be a text color here, however I don't think layout-rs has
     // a suitable field for this in the styleattr struct.
     Text(Pos2, String, f32),
-    Arrow(ArrowOptions),
+    Rect(Rect, Color32, Option<Color32>, f32),
     Circle(Pos2, Pos2),
+    Arrow(ArrowOptions),
+
+    Line(Pos2, Pos2),
 }
+impl PartialOrd for DrawCommand {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        use DrawCommand::*;
+        Some(match (self, &other) {
+            (Text(_, _, _), Text(_, _, _)) => Ordering::Equal,
+            (_, Text(_, _, _)) => Ordering::Less,
+            (Text(_, _, _), _) => Ordering::Greater,
+            (Rect(_, _, _, _), Rect(_, _, _, _)) => Ordering::Equal,
+            (Rect(_, _, _, _), _) => Ordering::Greater,
+            (Circle(_, _), Circle(_, _)) => Ordering::Equal,
+            (Circle(_, _), _) => Ordering::Greater,
+            (_, Circle(_, _)) => Ordering::Less,
+            (_, Rect(_, _, _, _)) => Ordering::Less,
+            (Arrow(_), Arrow(_)) => Ordering::Equal,
+            (Arrow(_), _) => Ordering::Less,
+            (_, Arrow(_)) => Ordering::Greater,
+            (Line(_, _), Line(_, _)) => Ordering::Equal,
+        })
+    }
+}
+
 impl DrawCommand {
     pub fn operate_on(&self, paint: &egui::Painter, style: &egui::Style, painting_rectangle: Rect) {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
@@ -84,6 +109,22 @@ impl DrawCommand {
                         style.noninteractive().fg_stroke,
                     ));
                 }
+                if ao.head.1 {
+                    paint.circle(
+                        *ao.path.last().unwrap() + offset,
+                        style.noninteractive().fg_stroke.width * 3.,
+                        Color32::TRANSPARENT,
+                        style.noninteractive().fg_stroke,
+                    );
+                }
+                if ao.head.0 {
+                    paint.circle(
+                        *ao.path.first().unwrap() + offset,
+                        style.noninteractive().fg_stroke.width * 3.,
+                        Color32::TRANSPARENT,
+                        style.noninteractive().fg_stroke,
+                    );
+                }
             }
             DrawCommand::Circle(center, size) => {
                 paint.circle(
@@ -106,6 +147,7 @@ pub struct NodeLayout {
     exclude_completed: bool,
     dragged_item: Option<KanbanId>,
     collapsed: Vec<KanbanId>,
+    drag_linger: Option<std::time::Instant>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -194,7 +236,7 @@ impl RenderBackend for NodeLayout {
         self.commands.push(DrawCommand::Arrow(ArrowOptions {
             path: buffer,
             dashed: false,
-            head: (false, false),
+            head: _head,
             text: "".into(),
         }));
     }
@@ -220,7 +262,7 @@ impl NodeLayout {
 
         let mut handles: HashMap<KanbanId, NodeHandle> = HashMap::new();
         let mut arrow = Arrow::simple("");
-        arrow.end = LineEndKind::None;
+        arrow.end = LineEndKind::Arrow;
         if let Some(focused_id) = self.focus {
             for i in document.get_tasks().filter(|x| {
                 let is_focused = x.id == focused_id;
@@ -239,21 +281,6 @@ impl NodeLayout {
                 }
                 add_item_to_graph(i, document, style, &mut vg, &mut handles);
             }
-            // document.on_tree(focused_id, 0, |document, id, _depth| {
-            //     if self.exclude_completed && document.get_task(id).unwrap().completed.is_some() {
-            //         return;
-            //     }
-            //     if handles.contains_key(&id) {
-            //         return;
-            //     }
-            //     add_item_to_graph(
-            //         document.get_task(id).unwrap(),
-            //         document,
-            //         style,
-            //         &mut vg,
-            //         &mut handles,
-            //     );
-            // });
         } else {
             for i in document.get_tasks() {
                 if self.exclude_completed && i.completed.is_some() {
@@ -277,6 +304,7 @@ impl NodeLayout {
             return;
         }
         vg.do_it(false, false, false, self);
+        self.commands.sort_by(|a, b| a.partial_cmp(b).unwrap());
         self.sense_regions.clear();
         for (task_id, node_handle) in handles.iter() {
             let element = vg.element(*node_handle);
@@ -333,7 +361,7 @@ impl NodeLayout {
             self.commands
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
-
+            let mut hovered = false;
             for (task_id, region) in self.sense_regions.iter() {
                 let senses = ui.allocate_rect(
                     offset_rect(*region, start.to_vec2()),
@@ -366,8 +394,20 @@ impl NodeLayout {
                 if senses.drag_stopped() {
                     self.dragged_item = None;
                 }
+                let current = Instant::now();
                 if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
                     let paint = ui.painter();
+
+                    if self.drag_linger.is_none() {
+                        self.drag_linger = Some(current);
+                    }
+                    hovered = true;
+                    let stroke_width = if self.drag_linger.unwrap().elapsed().as_secs_f32() > 1.0 {
+                        println!("I'm ready!");
+                        5.
+                    } else {
+                        1.
+                    };
                     ui.ctx().set_cursor_icon(
                         if _document.can_add_as_child(
                             _document.get_task(*dropped).unwrap(),
@@ -376,14 +416,14 @@ impl NodeLayout {
                             paint.rect_stroke(
                                 offset_rect(*region, start.to_vec2()),
                                 0.0,
-                                Stroke::new(1.0, Color32::from_rgb(0, 255, 0)),
+                                Stroke::new(stroke_width, Color32::from_rgb(0, 255, 0)),
                             );
                             egui::CursorIcon::PointingHand
                         } else {
                             paint.rect_stroke(
                                 offset_rect(*region, start.to_vec2()),
                                 0.0,
-                                Stroke::new(1.0, Color32::from_rgb(255, 0, 0)),
+                                Stroke::new(stroke_width, Color32::from_rgb(255, 0, 0)),
                             );
                             egui::CursorIcon::NoDrop
                         },
@@ -393,10 +433,16 @@ impl NodeLayout {
                     if _document.can_add_as_child(
                         _document.get_task(*x).unwrap(),
                         _document.get_task(*task_id).unwrap(),
-                    ) {
+                    ) && self
+                        .drag_linger
+                        .map_or(false, |x| x.elapsed().as_secs_f32() > 1.0)
+                    {
                         actions.push(SummaryAction::AddChildTo(*x, *task_id));
                     }
                 }
+            }
+            if !hovered {
+                self.drag_linger = None;
             }
         });
         needs_update
