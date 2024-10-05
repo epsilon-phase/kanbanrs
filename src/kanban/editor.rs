@@ -20,6 +20,7 @@ pub fn state_from(item: &KanbanItem) -> State {
         category: item.category.as_ref().unwrap_or(&String::new()).clone(),
     }
 }
+#[derive(Clone, Debug)]
 pub enum EditorRequest {
     NoRequest,
     NewItem(KanbanItem, KanbanItem),
@@ -222,6 +223,13 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     // May be more efficient to avoid copying this in full and just populate a
                     // dummy task with only the id set
                     delete_task = Some(state.item_copy.clone());
+                }
+                if accept_button
+                    .union(delete_button)
+                    .union(cancel_button)
+                    .clicked()
+                {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 if ui.button("Apply").clicked() {
                     update_task = true;

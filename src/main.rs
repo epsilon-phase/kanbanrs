@@ -7,15 +7,20 @@ use kanban::{
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
     sorting::ItemSort, tree_outline_layout::TreeOutline, KanbanDocument, SummaryAction,
 };
-use std::{fs, io::Write, path::PathBuf};
+use std::{
+    fs,
+    io::Write,
+    path::PathBuf,
+    sync::{mpsc, Arc, RwLock},
+};
 
 mod document_layout;
 use document_layout::*;
 
 struct KanbanRS {
-    document: KanbanDocument,
+    document: Arc<RwLock<KanbanDocument>>,
     task_name: String,
-    open_editors: Vec<kanban::editor::State>,
+    open_editors: Vec<Arc<RwLock<kanban::editor::State>>>,
     save_file_name: Option<PathBuf>,
     current_layout: KanbanDocumentLayout,
     #[cfg(unix)]
@@ -30,11 +35,14 @@ struct KanbanRS {
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
     modified_since_last_saved: bool,
+    editor_rx: std::sync::mpsc::Receiver<EditorRequest>,
+    editor_tx: std::sync::mpsc::Sender<EditorRequest>,
 }
 impl KanbanRS {
     fn new() -> Self {
+        let (tx, rx) = mpsc::channel();
         KanbanRS {
-            document: KanbanDocument::default(),
+            document: Arc::new(RwLock::new(KanbanDocument::default())),
             task_name: String::new(),
             open_editors: Vec::new(),
             save_file_name: None,
@@ -50,6 +58,8 @@ impl KanbanRS {
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
             modified_since_last_saved: false,
+            editor_rx: rx,
+            editor_tx: tx,
         }
     }
 }
@@ -138,12 +148,12 @@ impl eframe::App for KanbanRS {
         }
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(
-                &self.document,
+                &self.document.read().unwrap(),
                 &self.sorting_type,
                 ctx.style().as_ref(),
             );
             self.current_layout
-                .sort_cache(&self.document, &self.sorting_type);
+                .sort_cache(&self.document.read().unwrap(), &self.sorting_type);
             self.layout_cache_needs_updating = false;
         }
         ctx.input_mut(|i| {
@@ -210,7 +220,7 @@ impl eframe::App for KanbanRS {
                             self.open_file(&filename);
                         }
                         self.current_layout.update_cache(
-                            &self.document,
+                            &self.document.read().unwrap(),
                             &self.sorting_type,
                             ui.style(),
                         );
@@ -307,7 +317,8 @@ impl eframe::App for KanbanRS {
             ui.horizontal(|ui| {
                 ui.text_edit_singleline(&mut self.task_name);
                 if ui.button("Add Task").clicked() {
-                    let thing = self.document.get_new_task_mut();
+                    let mut document = self.document.write().unwrap();
+                    let thing = document.get_new_task_mut();
                     thing.name = self.task_name.clone();
                     self.layout_cache_needs_updating = true;
                     self.modified_since_last_saved = true;
@@ -325,68 +336,97 @@ impl eframe::App for KanbanRS {
             } else if let KanbanDocumentLayout::TreeOutline(tr) = &self.current_layout {
                 tr.show(
                     ui,
-                    &self.document,
+                    &self.document.read().unwrap(),
                     &mut self.summary_actions_pending,
                     &mut self.hovered_task,
                 )
             } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
-                self.layout_cache_needs_updating |=
-                    nl.show(&self.document, ui, &mut self.summary_actions_pending);
+                self.layout_cache_needs_updating |= nl.show(
+                    &self.document.read().unwrap(),
+                    ui,
+                    &mut self.summary_actions_pending,
+                );
             } else {
                 self.layout_queue(ui);
             }
 
             self.open_editors
                 .iter()
-                .filter(|editor| !editor.open)
+                .filter(|editor| !editor.read().unwrap().open)
                 .for_each(|editor| {
-                    if !editor.cancelled {
-                        self.document.replace_task(&editor.item_copy);
+                    if !editor.read().unwrap().cancelled {
+                        self.document
+                            .write()
+                            .as_mut()
+                            .unwrap()
+                            .replace_task(&editor.read().unwrap().item_copy);
                         self.layout_cache_needs_updating = true;
                         self.modified_since_last_saved = true;
                     }
                 });
-            self.open_editors.retain(|editor| editor.open);
+            self.open_editors
+                .retain(|editor| editor.read().unwrap().open);
             for editor in self.open_editors.iter_mut() {
-                ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of(editor.item_copy.id),
+                let viewport_id = ui.ctx().viewport_id();
+                let document = self.document.clone();
+                let tx = self.editor_tx.clone();
+                let editor = editor.clone();
+                ui.ctx().show_viewport_deferred(
+                    egui::ViewportId::from_hash_of(editor.read().map(|x| x.item_copy.id).unwrap()),
                     egui::ViewportBuilder::default().with_window_type(egui::X11WindowType::Dialog),
-                    |ctx, _class| {
+                    move |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            let request = kanban::editor::editor(ui, &self.document, editor);
-                            self.editor_requests_pending.push(request);
+                            let request = kanban::editor::editor(
+                                ui,
+                                &document.read().unwrap(),
+                                editor.write().as_mut().unwrap(),
+                            );
+                            if !matches!(request, EditorRequest::NoRequest) {
+                                println! {"{:?}",request}
+                                tx.send(request).unwrap();
+                                println!("Sent?");
+                                // If we don't do this then it won't open a new editor when the
+                                // add child button is clicked
+                                ctx.request_repaint_of(viewport_id);
+                            }
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
-                            editor.open = false;
+                            editor.write().as_mut().unwrap().open = false;
                         }
                     },
-                )
+                );
             }
 
             // I would prefer this in an iterator or a for loop, but, I am simply not brain enough tonight
             while let Some(x) = self.summary_actions_pending.pop() {
                 self.handle_summary_action(&x);
             }
-            while let Some(mut x) = self.editor_requests_pending.pop() {
-                self.handle_editor_request(&mut x);
-            }
+
             if self.category_editor.open {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of("Category Editor"),
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            let action = self.category_editor.show(ui, &self.document);
+                            let action = self
+                                .category_editor
+                                .show(ui, &self.document.read().unwrap());
                             match action {
                                 kanban::category_editor::EditorAction::CreateCategory(
                                     name,
                                     style,
                                 ) => {
-                                    self.document.replace_category_style(&name, style);
+                                    self.document
+                                        .write()
+                                        .unwrap()
+                                        .replace_category_style(&name, style);
                                     self.modified_since_last_saved = true;
                                 }
                                 kanban::category_editor::EditorAction::ApplyStyle(name, style) => {
-                                    self.document.replace_category_style(&name, style);
+                                    self.document
+                                        .write()
+                                        .unwrap()
+                                        .replace_category_style(&name, style);
                                     self.modified_since_last_saved = true;
                                 }
                                 kanban::category_editor::EditorAction::Nothing => (),
@@ -398,14 +438,19 @@ impl eframe::App for KanbanRS {
                     },
                 );
             }
+            while let Ok(mut x) = self.editor_rx.try_recv() {
+                println!("Received");
+                self.handle_editor_request(&mut x);
+            }
             if self.priority_editor.open {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of("Category Editor"),
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            self.layout_cache_needs_updating |=
-                                self.priority_editor.show(&mut self.document, ui);
+                            self.layout_cache_needs_updating |= self
+                                .priority_editor
+                                .show(self.document.write().as_mut().unwrap(), ui);
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
                             self.priority_editor.open = false;
@@ -430,32 +475,38 @@ impl KanbanRS {
         match action {
             SummaryAction::NoAction => (),
             SummaryAction::OpenEditor(id) => {
-                let mut editor = kanban::editor::state_from(self.document.get_task(*id).unwrap());
+                let mut editor = kanban::editor::state_from(
+                    self.document.read().unwrap().get_task(*id).unwrap(),
+                );
                 editor.open = true;
-                self.open_editors.push(editor);
+                self.open_editors.push(Arc::new(RwLock::new(editor)));
             }
             SummaryAction::CreateChildOf(id) => {
-                let mut new_task = self.document.get_new_task();
-                let mut task_copy = self.document.get_task(*id).unwrap().clone();
-                new_task.inherit(&task_copy, &self.document);
-                self.document.replace_task(&new_task);
-                task_copy.child_tasks.push(new_task.id);
-                let editor = kanban::editor::state_from(&new_task);
-                self.document.replace_task(&task_copy);
-                self.open_editors.push(editor);
+                if let Ok(ref mut document) = self.document.write() {
+                    let mut new_task = document.get_new_task();
+                    let mut task_copy = document.get_task(*id).unwrap().clone();
+                    new_task.inherit(&task_copy, document);
+                    document.replace_task(&new_task);
+                    task_copy.child_tasks.push(new_task.id);
+                    let editor = kanban::editor::state_from(&new_task);
+                    document.replace_task(&task_copy);
+                    self.open_editors.push(Arc::new(RwLock::new(editor)));
+                }
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
             SummaryAction::MarkCompleted(id) => {
-                let mut task = self.document.get_task(*id).unwrap().clone();
-                let new = match task.completed {
-                    Some(_) => None,
-                    None => Some(Utc::now()),
-                };
-                task.completed = new;
-                self.document.replace_task(&task);
-                self.layout_cache_needs_updating = true;
+                if let Ok(ref mut document) = self.document.write() {
+                    let mut task = document.get_task(*id).unwrap().clone();
+                    let new = match task.completed {
+                        Some(_) => None,
+                        None => Some(Utc::now()),
+                    };
+                    task.completed = new;
+                    document.replace_task(&task);
+                    self.layout_cache_needs_updating = true;
+                }
             }
             SummaryAction::FocusOn(id) => {
                 if let KanbanDocumentLayout::TreeOutline(t_o) = &mut self.current_layout {
@@ -470,17 +521,19 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
             }
             SummaryAction::AddChildTo(parent, child) => {
-                if self.document.can_add_as_child(
-                    self.document.get_task(*parent).unwrap(),
-                    self.document.get_task(*child).unwrap(),
-                ) {
-                    self.document
-                        .get_task_mut(*parent)
-                        .unwrap()
-                        .child_tasks
-                        .push(*child);
-                    self.layout_cache_needs_updating = true;
-                    self.modified_since_last_saved = true;
+                if let Ok(ref mut document) = self.document.write() {
+                    if document.can_add_as_child(
+                        document.get_task(*parent).unwrap(),
+                        document.get_task(*child).unwrap(),
+                    ) {
+                        document
+                            .get_task_mut(*parent)
+                            .unwrap()
+                            .child_tasks
+                            .push(*child);
+                        self.layout_cache_needs_updating = true;
+                        self.modified_since_last_saved = true;
+                    }
                 }
             }
         }
@@ -488,9 +541,11 @@ impl KanbanRS {
     fn handle_editor_request(&mut self, request: &mut EditorRequest) {
         match request {
             kanban::editor::EditorRequest::NewItem(parent, new_task) => {
-                new_task.inherit(parent, &self.document);
-                self.document.replace_task(new_task);
-                self.open_editors.push(kanban::editor::state_from(new_task));
+                let mut document = self.document.write().unwrap();
+                new_task.inherit(parent, &document);
+                document.replace_task(new_task);
+                self.open_editors
+                    .push(Arc::new(RwLock::new(kanban::editor::state_from(new_task))));
 
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
@@ -501,19 +556,30 @@ impl KanbanRS {
             // document.
             kanban::editor::EditorRequest::OpenItem(item_to_open) => {
                 self.open_editors
-                    .push(kanban::editor::state_from(item_to_open));
+                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
+                        item_to_open,
+                    ))));
             }
             kanban::editor::EditorRequest::DeleteItem(to_delete) => {
-                self.document.remove_task(to_delete);
-                for editor in self.open_editors.iter_mut() {
-                    editor.item_copy.remove_child(to_delete);
+                println!("I am destroying a task!");
+                let mut document = self.document.write().unwrap();
+                document.remove_task(to_delete);
+                for editor in self.open_editors.iter() {
+                    editor
+                        .write()
+                        .as_mut()
+                        .unwrap()
+                        .item_copy
+                        .remove_child(to_delete);
                 }
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
             kanban::editor::EditorRequest::UpdateItem(item) => {
-                self.document.replace_task(item);
+                if let Ok(ref mut document) = self.document.write() {
+                    document.replace_task(item);
+                }
                 self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
@@ -595,7 +661,7 @@ impl KanbanRS {
     }
     fn open_file(&mut self, path: &PathBuf) {
         let file = fs::File::open(path).unwrap();
-        self.document = serde_json::from_reader(file).unwrap();
+        *self.document.write().unwrap() = serde_json::from_reader(file).unwrap();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
     }
@@ -609,7 +675,7 @@ impl KanbanRS {
         let file = fs::File::create(filename.as_ref().unwrap());
         if let Ok(mut file) = file {
             writeln!(&mut file, "Digraph G{{").unwrap();
-            for i in self.document.get_tasks() {
+            for i in self.document.read().unwrap().get_tasks() {
                 writeln!(
                     &mut file,
                     " {} [label=\"{}\"];",
@@ -642,7 +708,8 @@ impl KanbanRS {
             self.save_file_name = filename;
         }
         let file = fs::File::create(self.save_file_name.as_ref().unwrap());
-        if let Err(x) = serde_json::to_writer(file.unwrap(), &self.document) {
+        if let Err(x) = serde_json::to_writer(file.unwrap(), &self.document.read().unwrap().clone())
+        {
             println!("Error on saving: {}", x);
         }
         self.modified_since_last_saved = false;

@@ -1,3 +1,20 @@
+# v0.2.3
+
+## Features
+
+## UI Improvements
+* Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
+  repainting the entire interface whenever an editor needs repainting.
+
+## Bugs
+
+## Refactoring
+* Use `show_viewport_deferred`
+  * Hold the KanbanDocument with an `Arc<RwLock>`
+  * Hold the editor state with an `Arc<RwLock>`
+* Implement clone for KanbanDocument
+* Communicate with task editors using mpsc
+
 # v0.2.2
 
 ## Features
@@ -7,8 +24,8 @@
 ## UI Improvements
 * The node layout now uses bezier curves, as layout-rs emits.
 * Add confirmation dialog when quitting without having saved.
-* Dragging and dropping now has a grace period where it will not
-  add the node as a child to the current
+* Dragging and dropping now has a grace period where it will not add
+  the dropped-onto element into the children of the dragged element
 
 # v0.2.1
 

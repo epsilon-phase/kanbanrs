@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicI32;
+use std::sync::RwLock;
 pub mod category_editor;
 pub mod focused_layout;
 pub mod node_layout;
@@ -24,7 +26,20 @@ pub struct KanbanDocument {
     tasks: HashMap<KanbanId, KanbanItem>,
     priorities: HashMap<String, i32>,
     categories: HashMap<String, KanbanCategoryStyle>,
-    next_id: RefCell<KanbanId>,
+    next_id: RwLock<KanbanId>,
+}
+impl Clone for KanbanDocument {
+    fn clone(&self) -> Self {
+        let mut r = Self::new();
+        r.clone_from(self);
+        r
+    }
+    fn clone_from(&mut self, source: &Self) {
+        self.tasks = source.tasks.clone();
+        self.categories = source.categories.clone();
+        self.priorities = source.priorities.clone();
+        *self.next_id.write().unwrap() = self.next_id.read().unwrap().clone();
+    }
 }
 impl KanbanDocument {
     pub fn new() -> Self {
@@ -36,7 +51,7 @@ impl KanbanDocument {
                 ("Low".to_owned(), 1),
             ]),
             categories: HashMap::new(),
-            next_id: RefCell::new(0),
+            next_id: RwLock::new(0),
         }
     }
     /** Determine if the child can be added to the parent's dependency list without
@@ -77,25 +92,25 @@ impl KanbanDocument {
         !found
     }
     pub fn get_next_id(&self) -> KanbanId {
-        self.next_id.replace_with(|val| {
-            let start = if *val == KanbanId::MAX {
-                println!("I'm at the highest!");
-                KanbanId::MIN
-            } else {
-                *val
-            };
+        let next = self.next_id.read().unwrap().clone();
+        let start = if next == KanbanId::MAX {
+            println!("I'm at the highest!");
+            KanbanId::MIN
+        } else {
+            next
+        };
 
-            if self.tasks.contains_key(&(start + 1)) {
-                // If this ever trips, well, congrats on completing billions of tasks? I guess.
-                // Assuming this is running at 60 fps, this should take over 1800 hours of adding
-                // tasks every single frame.
-                (start..KanbanId::MAX)
-                    .find(|x| !self.tasks.contains_key(x))
-                    .unwrap()
-            } else {
-                start + 1
-            }
-        })
+        if self.tasks.contains_key(&(start + 1)) {
+            // If this ever trips, well, congrats on completing billions of tasks? I guess.
+            // Assuming this is running at 60 fps, this should take over 1800 hours of adding
+            // tasks every single frame.
+            *self.next_id.write().unwrap() = (start..KanbanId::MAX)
+                .find(|x| !self.tasks.contains_key(x))
+                .unwrap();
+        } else {
+            *self.next_id.write().unwrap() = start + 1;
+        }
+        next
     }
     /**
     Create a new task and add it to the document, returning a mutable reference
@@ -257,7 +272,7 @@ pub enum TaskRelation {
     ChildOf,
     ParentOf,
 }
-#[derive(Default, Clone, Serialize, Deserialize)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct KanbanItem {
     pub id: KanbanId,
     pub name: String,
