@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+
 use std::time::Instant;
 
 use super::*;
@@ -403,25 +404,29 @@ impl NodeLayout {
                     }
                     if self.drag_linger.is_none() {
                         self.drag_linger = Some(current);
-                    }
-                    if self.drag_linger.unwrap().elapsed().as_secs_f32()
-                        < DRAG_AND_DROP_HYSTERISIS_SECS
-                    {
-                        ui.ctx().request_repaint_after_secs(
-                            (DRAG_AND_DROP_HYSTERISIS_SECS
-                                - self.drag_linger.unwrap().elapsed().as_secs_f32())
-                            .min(0.016),
+                        ui.ctx().clear_animations();
+                        ui.ctx().animate_value_with_time(
+                            egui::Id::new("stroke"),
+                            0.0,
+                            DRAG_AND_DROP_HYSTERISIS_SECS,
+                        );
+                        ui.ctx().animate_value_with_time(
+                            egui::Id::new("roundness"),
+                            0.0,
+                            DRAG_AND_DROP_HYSTERISIS_SECS,
                         );
                     }
+                    let drag_stroke = ui.ctx().animate_value_with_time(
+                        egui::Id::new("stroke"),
+                        5.,
+                        DRAG_AND_DROP_HYSTERISIS_SECS,
+                    );
+                    let drag_roundness = ui.ctx().animate_value_with_time(
+                        egui::Id::new("roundness"),
+                        3.0,
+                        DRAG_AND_DROP_HYSTERISIS_SECS,
+                    );
                     hovered = true;
-                    let elapsed = self.drag_linger.unwrap().elapsed().as_secs_f32();
-                    let (stroke_width, roundness) = if elapsed > DRAG_AND_DROP_HYSTERISIS_SECS {
-                        println!("I'm ready!");
-                        (5., 3.)
-                    } else {
-                        let t = (elapsed / DRAG_AND_DROP_HYSTERISIS_SECS).min(1.0);
-                        (1. + 4. * t, 3. * t)
-                    };
                     ui.ctx().set_cursor_icon(
                         if _document.can_add_as_child(
                             _document.get_task(*dropped).unwrap(),
@@ -429,15 +434,15 @@ impl NodeLayout {
                         ) {
                             paint.rect_stroke(
                                 offset_rect(*region, start.to_vec2()),
-                                roundness,
-                                Stroke::new(stroke_width, Color32::from_rgb(0, 255, 0)),
+                                drag_roundness,
+                                Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
                             );
                             egui::CursorIcon::PointingHand
                         } else {
                             paint.rect_stroke(
                                 offset_rect(*region, start.to_vec2()),
-                                roundness,
-                                Stroke::new(stroke_width, Color32::from_rgb(255, 0, 0)),
+                                drag_roundness,
+                                Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
                             );
                             egui::CursorIcon::NoDrop
                         },
