@@ -79,9 +79,19 @@ pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Orderin
 }
 pub fn sort_completed_last(document: &KanbanDocument, ids: &mut [KanbanId]) {
     ids.sort_by(|a, b| {
-        let task_a = document.get_task(*a).unwrap();
-        let task_b = document.get_task(*b).unwrap();
-        task_comparison_completed_last(task_a, task_b)
+        let task_a = document.get_task(*a);
+        let task_b = document.get_task(*b);
+        if let Some(task_a) = task_a {
+            if let Some(task_b) = task_b {
+                task_comparison_completed_last(task_a, task_b)
+            } else {
+                Ordering::Less
+            }
+        } else if task_b.is_some() {
+            Ordering::Greater
+        } else {
+            Ordering::Equal
+        }
     })
 }
 #[cfg(test)]
