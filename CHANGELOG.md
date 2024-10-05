@@ -5,6 +5,8 @@
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
   repainting the entire interface whenever an editor needs repainting.
+* The grace period before adding a child to a task in the node layout is indicated by the growth
+  of the rectangle drawn around the task in question.
 
 ## Bugs
 
