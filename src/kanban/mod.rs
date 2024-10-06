@@ -2,10 +2,8 @@ use chrono::prelude::*;
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicI32;
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod focused_layout;
@@ -40,7 +38,7 @@ impl Clone for KanbanDocument {
         self.tasks = source.tasks.clone();
         self.categories = source.categories.clone();
         self.priorities = source.priorities.clone();
-        *self.next_id.write() = source.next_id.read().clone();
+        *self.next_id.write() = *source.next_id.read();
     }
 }
 impl KanbanDocument {
@@ -94,7 +92,7 @@ impl KanbanDocument {
         !found
     }
     pub fn get_next_id(&self) -> KanbanId {
-        let next = self.next_id.read().clone();
+        let next = *self.next_id.read();
         let start = if next == KanbanId::MAX {
             println!("I'm at the highest!");
             KanbanId::MIN
@@ -258,11 +256,10 @@ impl KanbanDocument {
     }
 }
 
-/// Layout helper functions. Very simple. Might be better moved elsewhere at some point
 impl KanbanDocument {
     //! Produce a vertical layout scrolling downwards.
     //!
-    //! self the document, you silly goose
+    //! * `self` - the document, you silly goose
     pub fn layout_id_list<I>(
         &self,
         ui: &mut egui::Ui,
@@ -313,6 +310,12 @@ impl KanbanItem {
             child_tasks: Vec::new(),
         }
     }
+
+    /// Apply the category from the parent as specified in the category's preferences.
+    ///
+    /// * `self` - The item in to inherit
+    /// * `parent` - The parent
+    /// * `document` - The document
     pub fn inherit(&mut self, parent: &KanbanItem, document: &KanbanDocument) {
         if parent.category.is_none() {
             return;
@@ -701,7 +704,7 @@ pub mod tests {
         let mut a = document.get_new_task_mut().clone();
         document.get_new_task_mut();
         let c = document.get_new_task_mut().clone();
-        a.child_tasks.push(c.id);
+        a.add_child(&c);
         document.replace_task(&a);
         {
             let copy = document.get_task(a.id);

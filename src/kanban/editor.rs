@@ -214,7 +214,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
     }
     if create_child {
         let new_child = KanbanItem::new(document);
-        state.item_copy.child_tasks.push(new_child.id);
+        state.item_copy.add_child(&new_child);
         return EditorRequest::NewItem(state.item_copy.clone(), new_child);
     }
     if let Some(task_to_edit) = open_task {

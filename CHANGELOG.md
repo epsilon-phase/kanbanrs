@@ -3,7 +3,7 @@
 ## Features
 * Add a view of parent tasks to the editor. This should make getting an idea of the structure easier
   without switching layouts.
-
+* Add an undo stack
 
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
@@ -21,6 +21,7 @@
   * Hold the editor state with an `Arc<RwLock>`
 * Implement clone for KanbanDocument
 * Communicate with task editors using mpsc
+* Use parking_lot for rwlocks since apparently it's a lot faster.
 
 # v0.2.2
 

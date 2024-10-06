@@ -4,16 +4,10 @@ use circular_buffer::CircularBuffer;
 use clap::*;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea, Vec2};
 use kanban::{
-    category_editor::State,
-    editor::EditorRequest,
-    node_layout::NodeLayout,
-    priority_editor::PriorityEditor,
-    queue_view::QueueState,
-    search::SearchState,
-    sorting::ItemSort,
-    tree_outline_layout::TreeOutline,
-    undo::{CreationEvent, DeletionEvent},
-    KanbanDocument, SummaryAction,
+    category_editor::State, editor::EditorRequest, node_layout::NodeLayout,
+    priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
+    sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, KanbanDocument,
+    SummaryAction,
 };
 use parking_lot::RwLock;
 use std::{
@@ -39,7 +33,6 @@ struct KanbanRS {
     layout_cache_needs_updating: bool,
     // Both of these might merit renaming at some point
     summary_actions_pending: Vec<SummaryAction>,
-    editor_requests_pending: Vec<EditorRequest>,
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
@@ -63,7 +56,6 @@ impl KanbanRS {
             close_application: false,
             layout_cache_needs_updating: true,
             summary_actions_pending: Vec::new(),
-            editor_requests_pending: Vec::new(),
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
@@ -492,7 +484,7 @@ impl KanbanRS {
                 let mut task_copy = document.get_task(*id).unwrap().clone();
                 new_task.inherit(&task_copy, &document);
                 self.undo_buffer.push_back(document.replace_task(&new_task));
-                task_copy.child_tasks.push(new_task.id);
+                task_copy.add_child(&new_task);
                 let editor = kanban::editor::state_from(&new_task);
                 self.undo_buffer
                     .push_back(document.replace_task(&task_copy));
