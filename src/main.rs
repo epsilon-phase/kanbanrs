@@ -358,19 +358,19 @@ impl eframe::App for KanbanRS {
             } else {
                 self.layout_queue(ui);
             }
-
+            let mut undo_items: Vec<kanban::undo::UndoItem> = Vec::new();
             self.open_editors
                 .iter()
                 .filter(|editor| !editor.read().open)
                 .for_each(|editor| {
                     if !editor.read().cancelled {
-                        self.undo_buffer.push_back(
-                            self.document.write().replace_task(&editor.read().item_copy),
-                        );
+                        let undo = self.document.write().replace_task(&editor.read().item_copy);
+                        undo_items.push(undo);
                         self.layout_cache_needs_updating = true;
                         self.modified_since_last_saved = true;
                     }
                 });
+            undo_items.drain(..).for_each(|x| self.record_undo(x));
             self.open_editors.retain(|editor| editor.read().open);
             for editor in self.open_editors.iter_mut() {
                 let viewport_id = ui.ctx().viewport_id();
@@ -479,15 +479,19 @@ impl KanbanRS {
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
             }
             SummaryAction::CreateChildOf(id) => {
-                let mut document = self.document.write();
-                let mut new_task = document.get_new_task();
-                let mut task_copy = document.get_task(*id).unwrap().clone();
-                new_task.inherit(&task_copy, &document);
-                self.undo_buffer.push_back(document.replace_task(&new_task));
+                let (child_creation, new_task, mut task_copy) = {
+                    let mut document = self.document.write();
+                    let mut new_task = document.get_new_task();
+                    let task_copy = document.get_task(*id).unwrap().clone();
+                    new_task.inherit(&task_copy, &document);
+                    (document.replace_task(&new_task), new_task, task_copy)
+                };
+
                 task_copy.add_child(&new_task);
                 let editor = kanban::editor::state_from(&new_task);
                 self.undo_buffer
-                    .push_back(document.replace_task(&task_copy));
+                    .push_back(self.document.write().replace_task(&task_copy));
+                self.record_undo(child_creation);
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
 
                 self.layout_cache_needs_updating = true;
@@ -495,14 +499,20 @@ impl KanbanRS {
                 self.current_layout.inform_of_new_items();
             }
             SummaryAction::MarkCompleted(id) => {
-                let mut document = self.document.write();
-                let mut task = document.get_task(*id).unwrap().clone();
-                let new = match task.completed {
-                    Some(_) => None,
-                    None => Some(Utc::now()),
+                let (new, mut task) = {
+                    let document = self.document.read();
+                    let task = document.get_task(*id).unwrap().clone();
+                    (
+                        match task.completed {
+                            Some(_) => None,
+                            None => Some(Utc::now()),
+                        },
+                        task,
+                    )
                 };
                 task.completed = new;
-                self.undo_buffer.push_back(document.replace_task(&task));
+                let undo = self.document.write().replace_task(&task);
+                self.record_undo(undo);
                 self.layout_cache_needs_updating = true;
             }
             SummaryAction::FocusOn(id) => {
@@ -518,26 +528,35 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
             }
             SummaryAction::AddChildTo(parent, child) => {
-                let mut document = self.document.write();
-                if document.can_add_as_child(
-                    document.get_task(*parent).unwrap(),
-                    document.get_task(*child).unwrap(),
-                ) {
-                    let mut task = document.get_task(*parent).unwrap().clone();
-                    task.child_tasks.push(*child);
-                    self.undo_buffer.push_back(document.replace_task(&task));
-                    self.layout_cache_needs_updating = true;
-                    self.modified_since_last_saved = true;
+                let undoitem = {
+                    let mut document = self.document.write();
+                    if document.can_add_as_child(
+                        document.get_task(*parent).unwrap(),
+                        document.get_task(*child).unwrap(),
+                    ) {
+                        let mut task = document.get_task(*parent).unwrap().clone();
+                        task.child_tasks.push(*child);
+                        Some(document.replace_task(&task))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(item) = undoitem {
+                    self.record_undo(item);
                 }
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
             }
         }
     }
     fn handle_editor_request(&mut self, request: &mut EditorRequest) {
         match request {
             kanban::editor::EditorRequest::NewItem(parent, new_task) => {
-                let mut document = self.document.write();
-                new_task.inherit(parent, &document);
-                self.undo_buffer.push_back(document.replace_task(new_task));
+                self.record_undo({
+                    let mut document = self.document.write();
+                    new_task.inherit(parent, &document);
+                    document.replace_task(new_task)
+                });
                 self.open_editors
                     .push(Arc::new(RwLock::new(kanban::editor::state_from(new_task))));
 
@@ -555,9 +574,8 @@ impl KanbanRS {
                     ))));
             }
             kanban::editor::EditorRequest::DeleteItem(to_delete) => {
-                let mut document = self.document.write();
-
-                self.undo_buffer.push_back(document.remove_task(to_delete));
+                let undo = self.document.write().remove_task(to_delete);
+                self.record_undo(undo);
                 for editor in self.open_editors.iter() {
                     editor.write().item_copy.remove_child(to_delete);
                 }
@@ -566,8 +584,8 @@ impl KanbanRS {
                 self.current_layout.inform_of_new_items();
             }
             kanban::editor::EditorRequest::UpdateItem(item) => {
-                let mut document = self.document.write();
-                self.undo_buffer.push_back(document.replace_task(item));
+                let undo = self.document.write().replace_task(item);
+                self.record_undo(undo);
                 self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
@@ -577,6 +595,18 @@ impl KanbanRS {
 }
 
 impl KanbanRS {
+    #[inline]
+    fn record_undo(&mut self, item: kanban::undo::UndoItem) {
+        if let Some(i) = self.undo_buffer.back_mut() {
+            if let Some(combined) = i.merge(&item) {
+                *i = combined;
+            } else {
+                self.undo_buffer.push_back(item);
+            }
+        } else {
+            self.undo_buffer.push_back(item);
+        }
+    }
     fn get_recents_file(&self) -> Option<PathBuf> {
         #[cfg(unix)]
         return self.base_dirs.find_state_file("recent");

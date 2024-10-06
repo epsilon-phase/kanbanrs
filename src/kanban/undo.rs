@@ -50,4 +50,18 @@ impl UndoItem {
             UndoItem::Modification(me) => me.undo(document),
         }
     }
+    pub fn merge(&self, other: &Self) -> Option<Self> {
+        match self {
+            UndoItem::Create(ce) => match other {
+                UndoItem::Modification(me) if ce.new_task.id == me.former_item.id => {
+                    Some(UndoItem::Create(CreationEvent {
+                        new_task: me.former_item.clone(),
+                        parent_id: ce.parent_id,
+                    }))
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
 }
