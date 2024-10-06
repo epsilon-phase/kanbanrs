@@ -707,10 +707,20 @@ impl KanbanRS {
             }
             self.save_file_name = filename;
         }
-        let file = fs::File::create(self.save_file_name.as_ref().unwrap());
-        if let Err(x) = serde_json::to_writer(file.unwrap(), &self.document.read().unwrap().clone())
+        // I lost some work on this due to a deadlock caused by locking the document.next_id
+        // field while trying to write to it, instead of the source object.
+        //
+        // This should prevent that
+        let mut tmp_path = self.save_file_name.clone().unwrap();
+        tmp_path.set_extension("kan.bak");
+        let file = fs::File::create(&tmp_path);
+        if let Err(x) =
+            serde_json::to_writer(file.unwrap(), &self.document.try_read().unwrap().clone())
         {
             println!("Error on saving: {}", x);
+        }
+        if let Err(x) = fs::rename(&tmp_path, self.save_file_name.as_ref().unwrap()) {
+            println!("Error! {}", x);
         }
         self.modified_since_last_saved = false;
         self.write_recents();

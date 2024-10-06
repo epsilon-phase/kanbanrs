@@ -8,7 +8,7 @@ pub struct State {
     selected_child: Option<KanbanId>,
     new_tag: String,
     category: String,
-    // priority: String,
+    is_on_child_view: bool,
 }
 pub fn state_from(item: &KanbanItem) -> State {
     State {
@@ -18,6 +18,7 @@ pub fn state_from(item: &KanbanItem) -> State {
         selected_child: None,
         new_tag: "".into(),
         category: item.category.as_ref().unwrap_or(&String::new()).clone(),
+        is_on_child_view: true,
     }
 }
 #[derive(Clone, Debug)]
@@ -128,41 +129,10 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     });
             });
             ui.columns(2, |columns| {
-                {
-                    let ui = &mut columns[0];
-                    ui.set_max_width(ui.available_width());
-                    ui.label("Child tasks");
-                    let mut removed_task: Option<KanbanId> = None;
-                    egui::ScrollArea::vertical()
-                        // Without the .max_height it seems to force the button cluster at the
-                        // bottom half-off the screen, which I don't care for.
-                        .max_height(ui.available_height() / 2.0)
-                        .max_width(ui.available_width())
-                        .id_salt(format!("child tasks {}", state.item_copy.id))
-                        .show(ui, |ui| {
-                            for child in state.item_copy.child_tasks.iter() {
-                                if !document.tasks.contains_key(child) {
-                                    continue;
-                                }
-                                ui.horizontal_wrapped(|ui| {
-                                    let mut text =
-                                        RichText::new(document.tasks[child].name.clone());
-                                    if document.tasks[child].completed.is_some() {
-                                        text = text.strikethrough();
-                                    }
-                                    if ui.link(text).clicked() {
-                                        open_task = Some(*child);
-                                    }
-                                    let button = ui.button("Remove");
-                                    if button.clicked {
-                                        removed_task = Some(*child);
-                                    }
-                                });
-                            }
-                            if let Some(id) = removed_task {
-                                state.item_copy.child_tasks.retain(|x| *x != id);
-                            }
-                        });
+                if state.is_on_child_view {
+                    show_children(&mut columns[0], state, document, &mut open_task);
+                } else {
+                    show_parents(&mut columns[0], state, document, &mut open_task);
                 }
                 {
                     let ui = &mut columns[1];
@@ -252,4 +222,76 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
         return EditorRequest::OpenItem(document.get_task(task_to_edit).cloned().unwrap());
     }
     EditorRequest::NoRequest
+}
+
+fn show_children(
+    ui: &mut egui::Ui,
+    state: &mut State,
+    document: &KanbanDocument,
+    open_task: &mut Option<i32>,
+) {
+    ui.set_max_width(ui.available_width());
+    ui.label("Child tasks");
+    let mut removed_task: Option<KanbanId> = None;
+    egui::ScrollArea::vertical()
+        // Without the .max_height it seems to force the button cluster at the
+        // bottom half-off the screen, which I don't care for.
+        .max_height(ui.available_height() / 2.0)
+        .max_width(ui.available_width())
+        .id_salt(format!("child tasks {}", state.item_copy.id))
+        .show(ui, |ui| {
+            for child in state.item_copy.child_tasks.iter() {
+                if !document.tasks.contains_key(child) {
+                    continue;
+                }
+                ui.horizontal_wrapped(|ui| {
+                    let mut text = RichText::new(document.tasks[child].name.clone());
+                    if document.tasks[child].completed.is_some() {
+                        text = text.strikethrough();
+                    }
+                    if ui.link(text).clicked() {
+                        *open_task = Some(*child);
+                    }
+                    let button = ui.button("Remove");
+                    if button.clicked {
+                        removed_task = Some(*child);
+                    }
+                });
+            }
+            if let Some(id) = removed_task {
+                state.item_copy.child_tasks.retain(|x| *x != id);
+            }
+        });
+}
+fn show_parents(
+    ui: &mut egui::Ui,
+    state: &mut State,
+    document: &KanbanDocument,
+    open_task: &mut Option<i32>,
+) {
+    ui.set_max_width(ui.available_width());
+    ui.label("Parent tasks");
+    let parents: Vec<&KanbanItem> = document
+        .get_tasks()
+        .filter(|x| x.child_tasks.contains(&state.item_copy.id))
+        .collect();
+    egui::ScrollArea::vertical()
+        // Without the .max_height it seems to force the button cluster at the
+        // bottom half-off the screen, which I don't care for.
+        .max_height(ui.available_height() / 2.0)
+        .max_width(ui.available_width())
+        .id_salt(format!("parent tasks {}", state.item_copy.id))
+        .show(ui, |ui| {
+            for &parent in parents.iter() {
+                ui.horizontal_wrapped(|ui| {
+                    let mut text = RichText::new(parent.name.clone());
+                    if parent.completed.is_some() {
+                        text = text.strikethrough();
+                    }
+                    if ui.link(text).clicked() {
+                        *open_task = Some(parent.id);
+                    }
+                });
+            }
+        });
 }

@@ -38,7 +38,7 @@ impl Clone for KanbanDocument {
         self.tasks = source.tasks.clone();
         self.categories = source.categories.clone();
         self.priorities = source.priorities.clone();
-        *self.next_id.write().unwrap() = self.next_id.read().unwrap().clone();
+        *self.next_id.write().unwrap() = source.next_id.read().unwrap().clone();
     }
 }
 impl KanbanDocument {

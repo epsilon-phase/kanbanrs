@@ -9,6 +9,8 @@
   of the rectangle drawn around the task in question.
 
 ## Bugs
+* Now saving creates a temporary file and then renames it to the correct file once it's been completely
+  written
 
 ## Refactoring
 * Use `show_viewport_deferred`
