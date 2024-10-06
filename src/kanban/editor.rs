@@ -129,6 +129,10 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     });
             });
             ui.columns(2, |columns| {
+                columns[0].horizontal(|ui| {
+                    ui.radio_value(&mut state.is_on_child_view, true, "Children");
+                    ui.radio_value(&mut state.is_on_child_view, false, "Parents");
+                });
                 if state.is_on_child_view {
                     show_children(&mut columns[0], state, document, &mut open_task);
                 } else {

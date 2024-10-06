@@ -1,6 +1,9 @@
 # v0.2.3
 
 ## Features
+* Add a view of parent tasks to the editor. This should make getting an idea of the structure easier
+  without switching layouts.
+
 
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
