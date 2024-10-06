@@ -180,11 +180,6 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     } else {
                         state.item_copy.category = None;
                     }
-                    // if !state.priority.is_empty() {
-                    //     state.item_copy.priority = Some(state.priority.clone());
-                    // } else {
-                    //     state.item_copy.priority = None;
-                    // }
                     state.open = false;
                 }
                 if cancel_button.clicked() {

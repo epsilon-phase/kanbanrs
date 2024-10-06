@@ -1,17 +1,19 @@
 use chrono::prelude::*;
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::hash_map::{Values, ValuesMut};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicI32;
-use std::sync::RwLock;
+use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod focused_layout;
 pub mod node_layout;
 pub mod priority_editor;
 pub mod sorting;
 pub mod tree_outline_layout;
+pub mod undo;
 
 pub type KanbanId = i32;
 
@@ -38,7 +40,7 @@ impl Clone for KanbanDocument {
         self.tasks = source.tasks.clone();
         self.categories = source.categories.clone();
         self.priorities = source.priorities.clone();
-        *self.next_id.write().unwrap() = source.next_id.read().unwrap().clone();
+        *self.next_id.write() = source.next_id.read().clone();
     }
 }
 impl KanbanDocument {
@@ -92,7 +94,7 @@ impl KanbanDocument {
         !found
     }
     pub fn get_next_id(&self) -> KanbanId {
-        let next = self.next_id.read().unwrap().clone();
+        let next = self.next_id.read().clone();
         let start = if next == KanbanId::MAX {
             println!("I'm at the highest!");
             KanbanId::MIN
@@ -104,11 +106,11 @@ impl KanbanDocument {
             // If this ever trips, well, congrats on completing billions of tasks? I guess.
             // Assuming this is running at 60 fps, this should take over 1800 hours of adding
             // tasks every single frame.
-            *self.next_id.write().unwrap() = (start..KanbanId::MAX)
+            *self.next_id.write() = (start..KanbanId::MAX)
                 .find(|x| !self.tasks.contains_key(x))
                 .unwrap();
         } else {
-            *self.next_id.write().unwrap() = start + 1;
+            *self.next_id.write() = start + 1;
         }
         next
     }
@@ -149,8 +151,15 @@ impl KanbanDocument {
             }
         }
     }
-    pub fn replace_task(&mut self, item: &KanbanItem) {
-        self.tasks.insert(item.id, item.clone());
+    pub fn replace_task(&mut self, item: &KanbanItem) -> UndoItem {
+        let result = if let Some(old) = self.tasks.insert(item.id, item.clone()) {
+            UndoItem::Modification(undo::ModificationEvent { former_item: old })
+        } else {
+            UndoItem::Create(undo::CreationEvent {
+                parent_id: None,
+                new_task: item.clone(),
+            })
+        };
         if item.category.is_some()
             && !self
                 .categories
@@ -161,6 +170,7 @@ impl KanbanDocument {
                 KanbanCategoryStyle::default(),
             );
         }
+        result
     }
     pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
         let mut i: Vec<(&'a String, &'a i32)> = self.priorities.iter().collect();
@@ -170,11 +180,18 @@ impl KanbanDocument {
     pub fn get_task(&self, id: KanbanId) -> Option<&KanbanItem> {
         self.tasks.get(&id)
     }
-    pub fn remove_task(&mut self, item: &KanbanItem) {
+    pub fn remove_task(&mut self, item: &KanbanItem) -> undo::UndoItem {
+        let mut result = Vec::new();
         for i in self.tasks.values_mut() {
-            i.remove_child(item);
+            if i.remove_child(item) {
+                result.push(i.id)
+            }
         }
         self.tasks.remove(&item.id);
+        undo::UndoItem::Delete(DeletionEvent {
+            parent_ids: result,
+            former_item: item.clone(),
+        })
     }
     pub fn get_relation(&self, target: KanbanId, other: KanbanId) -> TaskRelation {
         let task_a = self.get_task(target).unwrap();
@@ -307,6 +324,11 @@ impl KanbanItem {
             }
         }
     }
+    pub fn add_child(&mut self, child: &Self) {
+        if !self.child_tasks.contains(&child.id) {
+            self.child_tasks.push(child.id);
+        }
+    }
     pub fn get_completed_time_string(&self) -> Option<String> {
         if let Some(completion_time) = self.completed {
             let current_time = Utc::now();
@@ -337,8 +359,19 @@ impl KanbanItem {
             None
         }
     }
-    pub fn remove_child(&mut self, other: &Self) {
-        self.child_tasks.retain(|x| *x != other.id);
+    // Remove a child from the task, returning true if it was present
+    pub fn remove_child(&mut self, other: &Self) -> bool {
+        let mut found = false;
+        self.child_tasks.retain(|x| {
+            let t = *x == other.id;
+            if t {
+                found = true;
+                false
+            } else {
+                true
+            }
+        });
+        found
     }
 
     pub fn matches(&self, other: &str) -> bool {

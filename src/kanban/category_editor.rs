@@ -46,6 +46,7 @@ impl State {
             }
             ui.columns(2, |columns| {
                 columns[0].horizontal(|ui| {
+                    ui.set_max_width(ui.available_width() / 2.);
                     ui.text_edit_singleline(&mut self.new_category_name);
 
                     if ui.button("Add new Category").clicked() {

@@ -114,7 +114,7 @@ impl KanbanRS {
                 egui::ScrollArea::vertical()
                     .id_salt("ReadyScrollarea")
                     .show_rows(&mut columns[0], 200., cache[0].len(), |ui, range| {
-                        self.document.read().unwrap().layout_id_list(
+                        self.document.read().layout_id_list(
                             ui,
                             &cache[0],
                             range,
@@ -127,7 +127,7 @@ impl KanbanRS {
                 egui::ScrollArea::vertical()
                     .id_salt("BlockedScrollArea")
                     .show_rows(&mut columns[1], 200., cache[1].len(), |ui, range| {
-                        self.document.read().unwrap().layout_id_list(
+                        self.document.read().layout_id_list(
                             ui,
                             &cache[1],
                             range,
@@ -139,7 +139,7 @@ impl KanbanRS {
                 egui::ScrollArea::vertical()
                     .id_salt("CompletedScrollArea")
                     .show_rows(&mut columns[2], 200., cache[2].len(), |ui, range| {
-                        self.document.read().unwrap().layout_id_list(
+                        self.document.read().layout_id_list(
                             ui,
                             &cache[2],
                             range,
@@ -158,7 +158,7 @@ impl KanbanRS {
                 200.0,
                 qs.cached_ready.len(),
                 |ui, range| {
-                    self.document.read().unwrap().layout_id_list(
+                    self.document.read().layout_id_list(
                         ui,
                         &qs.cached_ready,
                         range,
@@ -170,7 +170,7 @@ impl KanbanRS {
         }
     }
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
-        let doc = self.document.read().unwrap();
+        let doc = self.document.read();
         if let KanbanDocumentLayout::Search(search_state) = &mut self.current_layout {
             ui.horizontal(|ui| {
                 let label = ui.label("Search");
@@ -201,7 +201,7 @@ impl KanbanRS {
                 columns[2].label(RichText::new("Parent tasks").heading());
                 columns[1].label(RichText::new("Focused Task").heading());
                 if let Some(target) = focus.cares_about {
-                    let doc = self.document.read().unwrap();
+                    let doc = self.document.read();
                     let task = doc.get_task(target).unwrap();
                     self.summary_actions_pending.push(task.summary(
                         &doc,
@@ -215,7 +215,7 @@ impl KanbanRS {
                     200.0,
                     focus.children.len(),
                     |ui, range| {
-                        self.document.read().unwrap().layout_id_list(
+                        self.document.read().layout_id_list(
                             ui,
                             &focus.children,
                             range,
@@ -229,7 +229,7 @@ impl KanbanRS {
                     200.0,
                     focus.ancestors.len(),
                     |ui, range| {
-                        self.document.read().unwrap().layout_id_list(
+                        self.document.read().layout_id_list(
                             ui,
                             &focus.ancestors,
                             range,

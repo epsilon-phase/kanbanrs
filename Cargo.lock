@@ -769,6 +769,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "circular-buffer"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b67261db007b5f4cf8cba393c1a5c511a5cc072339ce16e12aeba1d7b9b77946"
+
+[[package]]
 name = "clap"
 version = "4.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1845,11 +1851,13 @@ name = "kanbanrs"
 version = "0.2.3"
 dependencies = [
  "chrono",
+ "circular-buffer",
  "clap",
  "eframe",
  "env_logger",
  "layout-rs",
  "nucleo-matcher",
+ "parking_lot",
  "rfd",
  "serde",
  "serde_json",
@@ -1932,6 +1940,7 @@ checksum = "07af8b9cdd281b7915f413fa73f29ebd5d55d0d3f0155584dade1ff18cea1b17"
 dependencies = [
  "autocfg",
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
