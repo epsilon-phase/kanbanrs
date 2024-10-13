@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 
+use std::ops::{Index, IndexMut};
 use std::time::Instant;
 
 use super::*;
@@ -261,7 +262,7 @@ impl NodeLayout {
         self.commands.clear();
         let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
 
-        let mut handles: HashMap<KanbanId, NodeHandle> = HashMap::new();
+        let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::Arrow;
         if let Some(focused_id) = self.focus {
@@ -395,6 +396,8 @@ impl NodeLayout {
                 if senses.drag_stopped() {
                     self.dragged_item = None;
                 }
+                /// The amount of time that must elapse until the dragged item can be dropped onto
+                /// the hovered item
                 const DRAG_AND_DROP_HYSTERISIS_SECS: f32 = 1.0;
                 let current = Instant::now();
                 if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
@@ -471,13 +474,15 @@ impl NodeLayout {
     }
 }
 
-fn add_item_to_graph(
+fn add_item_to_graph<G>(
     i: &KanbanItem,
     document: &KanbanDocument,
     style: &Style,
     vg: &mut VisualGraph,
-    handles: &mut HashMap<i32, NodeHandle>,
-) {
+    handles: &mut G, //&mut HashMap<i32, NodeHandle>,
+) where
+    G: Extend<(KanbanId, NodeHandle)>,
+{
     let id = i.id;
     let mut text = i.name.clone();
 
@@ -522,5 +527,5 @@ fn add_item_to_graph(
         sz,
     );
     let handle = vg.add_node(node);
-    handles.insert(id, handle);
+    handles.extend([(id, handle)].iter().cloned());
 }

@@ -37,7 +37,8 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
     // I'm kinda meh on this particular mechanic.
     // It is convenient, but it also changes things that you would not expect to be
     // changed simply by opening the editor.
-    super::sorting::sort_completed_last(document, &mut state.item_copy.child_tasks);
+    let mut copy: Vec<KanbanId> = state.item_copy.child_tasks.iter().copied().collect();
+    super::sorting::sort_completed_last(document, &mut copy);
     ui.vertical(|ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {
@@ -125,7 +126,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                         state
                             .item_copy
                             .child_tasks
-                            .push(state.selected_child.unwrap());
+                            .insert(state.selected_child.unwrap());
                     });
             });
             ui.columns(2, |columns| {
@@ -134,7 +135,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     ui.radio_value(&mut state.is_on_child_view, false, "Parents");
                 });
                 if state.is_on_child_view {
-                    show_children(&mut columns[0], state, document, &mut open_task);
+                    show_children(&mut columns[0], state, document, &mut open_task, &copy);
                 } else {
                     show_parents(&mut columns[0], state, document, &mut open_task);
                 }
@@ -228,6 +229,7 @@ fn show_children(
     state: &mut State,
     document: &KanbanDocument,
     open_task: &mut Option<i32>,
+    task_vec: &[KanbanId],
 ) {
     ui.set_max_width(ui.available_width());
     ui.label("Child tasks");
@@ -239,7 +241,7 @@ fn show_children(
         .max_width(ui.available_width())
         .id_salt(format!("child tasks {}", state.item_copy.id))
         .show(ui, |ui| {
-            for child in state.item_copy.child_tasks.iter() {
+            for child in task_vec.iter() {
                 if !document.tasks.contains_key(child) {
                     continue;
                 }

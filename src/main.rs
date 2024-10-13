@@ -535,7 +535,7 @@ impl KanbanRS {
                         document.get_task(*child).unwrap(),
                     ) {
                         let mut task = document.get_task(*parent).unwrap().clone();
-                        task.child_tasks.push(*child);
+                        task.child_tasks.insert(*child);
                         Some(document.replace_task(&task))
                     } else {
                         None

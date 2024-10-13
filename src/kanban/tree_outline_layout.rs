@@ -6,6 +6,8 @@ use super::*;
 #[derive(Default, Clone)]
 pub struct TreeOutline {
     toplevel_items: Vec<KanbanId>,
+    /// Vector of associations between a kanban item id and the indentation level for that
+    /// particular occurance
     cache: Vec<(KanbanId, u32)>,
     // If this is set then it should only display the tree from this node onwards.
     focused_id: Option<KanbanId>,

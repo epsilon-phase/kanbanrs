@@ -2,8 +2,8 @@ use chrono::prelude::*;
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::{Values, ValuesMut};
-use std::collections::HashMap;
+use std::collections::btree_map::{Values, ValuesMut};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod focused_layout;
@@ -23,7 +23,7 @@ pub enum Status {
 }
 #[derive(Default, Serialize, Deserialize)]
 pub struct KanbanDocument {
-    tasks: HashMap<KanbanId, KanbanItem>,
+    tasks: BTreeMap<KanbanId, KanbanItem>,
     priorities: HashMap<String, i32>,
     categories: HashMap<String, KanbanCategoryStyle>,
     next_id: RwLock<KanbanId>,
@@ -44,7 +44,7 @@ impl Clone for KanbanDocument {
 impl KanbanDocument {
     pub fn new() -> Self {
         KanbanDocument {
-            tasks: HashMap::new(),
+            tasks: BTreeMap::new(),
             priorities: HashMap::from([
                 ("High".to_owned(), 10),
                 ("Medium".to_owned(), 5),
@@ -260,16 +260,18 @@ impl KanbanDocument {
     //! Produce a vertical layout scrolling downwards.
     //!
     //! * `self` - the document, you silly goose
-    pub fn layout_id_list<I>(
+    //! * `ui` - The ui to apply this list into
+    //! * `range` - the range of indices to render
+    //! * `hovered_task` - The task being hovered over by the user, may be set here
+    //! * `event_collector` - The list of actions being collected.
+    pub fn layout_id_list(
         &self,
         ui: &mut egui::Ui,
-        ids: &I,
+        ids: &[KanbanId],
         range: std::ops::Range<usize>,
         hovered_task: &mut Option<i32>,
         event_collector: &mut Vec<SummaryAction>,
-    ) where
-        I: std::ops::Index<usize, Output = i32>,
-    {
+    ) {
         ui.vertical_centered_justified(|ui| {
             for row in range.clone() {
                 let item_id = ids[row];
@@ -295,7 +297,7 @@ pub struct KanbanItem {
     pub category: Option<String>,
     pub priority: Option<String>,
     pub tags: Vec<String>,
-    pub child_tasks: Vec<KanbanId>,
+    pub child_tasks: BTreeSet<KanbanId>,
 }
 impl KanbanItem {
     pub fn new(document: &KanbanDocument) -> Self {
@@ -307,7 +309,7 @@ impl KanbanItem {
             category: None,
             tags: Vec::new(),
             priority: None,
-            child_tasks: Vec::new(),
+            child_tasks: BTreeSet::new(),
         }
     }
 
@@ -329,7 +331,7 @@ impl KanbanItem {
     }
     pub fn add_child(&mut self, child: &Self) {
         if !self.child_tasks.contains(&child.id) {
-            self.child_tasks.push(child.id);
+            self.child_tasks.insert(child.id);
         }
     }
     pub fn get_completed_time_string(&self) -> Option<String> {
@@ -526,11 +528,11 @@ impl KanbanItem {
                 });
                 ScrollArea::vertical()
                     .id_salt(format!("Summary for item {}", self.id))
-                    .max_height(100.0)
+                    // .max_height(100.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
-                if ui.min_size().y < 200. {
-                    ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));
-                }
+                // if ui.min_size().y < 200. {
+                //     ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));
+                // }
             });
         });
         action
@@ -694,7 +696,7 @@ pub mod tests {
             .get_mut(&a_id)
             .unwrap()
             .child_tasks
-            .push(b_id);
+            .insert(b_id);
         assert!(!document.can_add_as_child(&document.tasks[&b_id], &document.tasks[&a_id]));
         assert!(document.can_add_as_child(&document.tasks[&c_id], &document.tasks[&a_id]));
     }
@@ -736,7 +738,7 @@ pub mod tests {
         for (index, child_set) in ids.iter().zip(children.iter()) {
             let mut task = n.get_task(*index).unwrap().clone();
             for child_id in child_set.iter() {
-                task.child_tasks.push(*child_id);
+                task.child_tasks.insert(*child_id);
             }
             n.replace_task(&task);
         }
