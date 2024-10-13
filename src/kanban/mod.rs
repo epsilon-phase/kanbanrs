@@ -416,6 +416,7 @@ pub enum SummaryAction {
     MarkCompleted(KanbanId),
     FocusOn(KanbanId),
     AddChildTo(KanbanId, KanbanId),
+    UpdateLayout,
 }
 impl KanbanItem {
     pub fn summary(
@@ -528,7 +529,7 @@ impl KanbanItem {
                 });
                 ScrollArea::vertical()
                     .id_salt(format!("Summary for item {}", self.id))
-                    // .max_height(100.0)
+                    .max_height(100.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
                 // if ui.min_size().y < 200. {
                 //     ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));

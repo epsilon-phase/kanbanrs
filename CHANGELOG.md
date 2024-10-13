@@ -10,8 +10,11 @@
   repainting the entire interface whenever an editor needs repainting.
 * The grace period before adding a child to a task in the node layout is indicated by the growth
   of the rectangle drawn around the task in question.
-* Layouts should have more predictable node orderings(not to say sensible node orderings). This may
-  have some performance impact if you are a very heavy user, I guess?
+* Layouts should have more predictable node orderings(not to say sensible). This may
+  have some performance impact if you are a very heavy user.
+* Tree Outline layout
+  * The Tree outline layout now sorts items more holistically.
+  * The Tree outline layout now attempts to account correctly for average item size.
 
 ## Bugs
 * Now saving creates a temporary file and then renames it to the correct file once it's been completely
@@ -27,6 +30,8 @@
 * `child_tasks` in the `KanbanItem` is now ordered internally by the task ids rather than
   being arbitrarily ordered
 * The `tasks` field in `KanbanDocument` now uses a BTreeMap for consistent ordering.
+* The `SummaryAction` enum now includes a command to explicitly indicate that a relayout
+  is necessary
 
 # v0.2.2
 

@@ -345,7 +345,7 @@ impl eframe::App for KanbanRS {
                 self.layout_search(ui);
             } else if let KanbanDocumentLayout::Focused(_) = self.current_layout {
                 self.layout_focused(ui);
-            } else if let KanbanDocumentLayout::TreeOutline(tr) = &self.current_layout {
+            } else if let KanbanDocumentLayout::TreeOutline(tr) = &mut self.current_layout {
                 tr.show(
                     ui,
                     &self.document.read(),
@@ -546,6 +546,9 @@ impl KanbanRS {
                 }
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
+            }
+            SummaryAction::UpdateLayout => {
+                self.layout_cache_needs_updating = true;
             }
         }
     }
