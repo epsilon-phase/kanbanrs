@@ -72,7 +72,7 @@ impl KanbanDocumentLayout {
                 tree.update(document, *sort, filter);
             }
             KanbanDocumentLayout::NodeLayout(nl) => {
-                nl.update(document, style);
+                nl.update(document, style, filter);
             }
         }
     }

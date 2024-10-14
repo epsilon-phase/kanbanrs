@@ -15,6 +15,11 @@
 * Tree Outline layout
   * The Tree outline layout now sorts items more holistically.
   * The Tree outline layout now attempts to account correctly for average item size.
+* In-layout Filtering
+  * Columnar layout
+  * TreeOutline Layout
+  * Node Layout
+* Lighten the shade of red used for the status text
 
 ## Bugs
 * Now saving creates a temporary file and then renames it to the correct file once it's been completely

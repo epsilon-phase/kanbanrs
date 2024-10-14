@@ -7,6 +7,7 @@ use super::*;
 
 use egui::epaint::CubicBezierShape;
 use egui::{Pos2, Rect, Style};
+use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
@@ -256,7 +257,12 @@ impl NodeLayout {
             .iter()
             .any(|parent_id| item.is_child_of(document.get_task(*parent_id).unwrap(), document))
     }
-    pub fn update(&mut self, document: &KanbanDocument, style: &egui::Style) {
+    pub fn update(
+        &mut self,
+        document: &KanbanDocument,
+        style: &egui::Style,
+        filter: &KanbanFilter,
+    ) {
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         self.commands.clear();
@@ -286,6 +292,9 @@ impl NodeLayout {
         } else {
             for i in document.get_tasks() {
                 if self.exclude_completed && i.completed.is_some() {
+                    continue;
+                }
+                if !filter.matches(i, document) {
                     continue;
                 }
                 if self.is_collapsed(document, i) {
@@ -374,7 +383,11 @@ impl NodeLayout {
                     },
                 );
                 senses.dnd_set_drag_payload(*task_id);
-
+                let senses = senses.on_hover_ui(|ui| {
+                    let task = _document.get_task(*task_id).unwrap();
+                    let mut nothing: Option<KanbanId> = None;
+                    actions.push(task.summary(_document, &mut nothing, ui));
+                });
                 if senses.middle_clicked() {
                     self.focus = Some(*task_id);
                     actions.push(SummaryAction::FocusOn(*task_id));

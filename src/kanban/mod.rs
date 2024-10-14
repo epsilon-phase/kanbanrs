@@ -483,7 +483,7 @@ impl KanbanItem {
         }
         match document.task_status(&self.id) {
             Status::Blocked => {
-                status_color = Color32::from_rgba_unmultiplied(150, 0, 0, 255);
+                status_color = Color32::from_rgba_unmultiplied(200, 0, 0, 255);
                 style.window_fill = Color32::from_rgba_unmultiplied(75, 0, 0, 255);
             }
             Status::Ready => {
@@ -542,7 +542,7 @@ impl KanbanItem {
                         action = SummaryAction::FocusOn(self.id);
                     }
                 });
-                ui.menu_button("...", |ui| {
+                ui.horizontal_wrapped(|ui| {
                     let button = ui.button("Edit");
                     if button.clicked() {
                         action = SummaryAction::OpenEditor(self.id);
