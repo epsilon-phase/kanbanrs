@@ -6,6 +6,7 @@ use eframe::egui::{self, ComboBox};
 pub enum ItemSort {
     None,
     Id,
+    Newest,
     Name,
     Category,
     Completed,
@@ -15,6 +16,7 @@ impl From<ItemSort> for String {
         match value {
             ItemSort::None => "None",
             ItemSort::Id => "Creation Order",
+            ItemSort::Newest => "Newest first",
             ItemSort::Name => "Name",
             ItemSort::Category => "Category",
             ItemSort::Completed => "Completed",
@@ -27,6 +29,7 @@ impl ItemSort {
         match self {
             Self::None => Ordering::Equal,
             Self::Id => a.id.cmp(&b.id),
+            Self::Newest => b.id.cmp(&a.id),
             Self::Name => a.name.cmp(&b.name),
             Self::Category => a.category.cmp(&b.category),
             Self::Completed => a.completed.cmp(&b.completed),
@@ -36,6 +39,10 @@ impl ItemSort {
         match self {
             Self::None => (),
             Self::Id => ids.sort_by_key(|x| document.get_task(*x).as_ref().unwrap().id),
+            Self::Newest => {
+                ids.sort_by_key(|x| document.get_task(*x).unwrap().id);
+                ids.reverse()
+            }
             Self::Name => ids.sort_by_key(|x| &document.get_task(*x).as_ref().unwrap().name),
             Self::Category => {
                 ids.sort_by_key(|x| &document.get_task(*x).as_ref().unwrap().category)
@@ -54,6 +61,7 @@ impl ItemSort {
                 needs_sorting = [
                     ui.selectable_value(self, Self::None, "None"),
                     ui.selectable_value(self, Self::Id, "Creation order"),
+                    ui.selectable_value(self, Self::Newest, "Newest First"),
                     ui.selectable_value(self, Self::Name, "Name"),
                     ui.selectable_value(self, Self::Category, "Category"),
                     ui.selectable_value(self, Self::Completed, "Completed"),

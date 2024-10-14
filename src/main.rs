@@ -385,9 +385,12 @@ impl eframe::App for KanbanRS {
                 let tx = self.editor_tx.clone();
                 let editor = editor.clone();
                 let id = editor.read().item_copy.id;
+                let window_title = format!("Editing '{}'", editor.read().item_copy.name);
                 ui.ctx().show_viewport_deferred(
                     egui::ViewportId::from_hash_of(id),
-                    egui::ViewportBuilder::default().with_window_type(egui::X11WindowType::Dialog),
+                    egui::ViewportBuilder::default()
+                        .with_window_type(egui::X11WindowType::Dialog)
+                        .with_title(&window_title),
                     move |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
                             let request = kanban::editor::editor(

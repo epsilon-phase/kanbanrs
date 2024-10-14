@@ -4,6 +4,8 @@
 * Add a view of parent tasks to the editor. This should make getting an idea of the structure easier
   without switching layouts.
 * Add an undo stack
+* Expand sorting types
+  * Sort by newest tasks first.
 
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
@@ -23,6 +25,12 @@
   * Completion Status
   * Full-text presence
   * Category match
+* Improve the editor
+  * Change Editor layout
+    * Move the add child/ select child to add button cluster to the same column as
+      the child task listing.
+      * Hide them when it is set to view the parents of the task
+  * Mark task name in the editor's window title
 * Lighten the shade of red used for the status text
 
 ## Bugs

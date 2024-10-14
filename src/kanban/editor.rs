@@ -43,7 +43,13 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Name");
-                ui.text_edit_singleline(&mut state.item_copy.name);
+                if ui.text_edit_singleline(&mut state.item_copy.name).changed() {
+                    ui.ctx()
+                        .send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                            "Editing '{}'",
+                            state.item_copy.name
+                        )))
+                }
             });
             if state.item_copy.completed.is_some() {
                 if ui
@@ -92,49 +98,55 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 });
             });
 
-            ui.horizontal(|ui| {
-                if ui.button("Add new child").clicked {
-                    create_child = true;
-                }
-                ui.label("Select Child to add");
-                ComboBox::from_id_salt("Select Child to add")
-                    .selected_text(match state.selected_child {
-                        None => "None",
-                        Some(x) => &document.get_task(x).unwrap().name,
-                    })
-                    .show_ui(ui, |ui| {
-                        let mut task: Vec<&KanbanItem> = document
-                            .get_tasks()
-                            .filter(|x| document.can_add_as_child(&state.item_copy, x))
-                            .collect();
-                        let c = super::sorting::ItemSort::Id;
-                        task.sort_by(|a, b| c.cmp_by(a, b));
-                        task.reverse();
-                        task.sort_by(|a, b| super::sorting::task_comparison_completed_last(a, b));
-                        ui.selectable_value(&mut state.selected_child, None, "None");
-                        for i in task.drain(..) {
-                            let mut style = RichText::new(&i.name);
-                            if i.completed.is_some() {
-                                style = style.strikethrough();
-                            }
-                            ui.selectable_value(&mut state.selected_child, Some(i.id), style);
-                        }
-                    });
-                ui.add_enabled(state.selected_child.is_some(), Button::new("Add Child"))
-                    .clicked()
-                    .then(|| {
-                        state
-                            .item_copy
-                            .child_tasks
-                            .insert(state.selected_child.unwrap());
-                    });
-            });
             ui.columns(2, |columns| {
                 columns[0].horizontal(|ui| {
                     ui.radio_value(&mut state.is_on_child_view, true, "Children");
                     ui.radio_value(&mut state.is_on_child_view, false, "Parents");
                 });
                 if state.is_on_child_view {
+                    columns[0].horizontal(|ui| {
+                        if ui.button("Add new child").clicked {
+                            create_child = true;
+                        }
+                        ui.label("Select Child to add");
+                        ComboBox::from_id_salt("Select Child to add")
+                            .selected_text(match state.selected_child {
+                                None => "None",
+                                Some(x) => &document.get_task(x).unwrap().name[..12],
+                            })
+                            .show_ui(ui, |ui| {
+                                let mut task: Vec<&KanbanItem> = document
+                                    .get_tasks()
+                                    .filter(|x| document.can_add_as_child(&state.item_copy, x))
+                                    .collect();
+                                let c = super::sorting::ItemSort::Id;
+                                task.sort_by(|a, b| c.cmp_by(a, b));
+                                task.reverse();
+                                task.sort_by(|a, b| {
+                                    super::sorting::task_comparison_completed_last(a, b)
+                                });
+                                ui.selectable_value(&mut state.selected_child, None, "None");
+                                for i in task.drain(..) {
+                                    let mut style = RichText::new(&i.name);
+                                    if i.completed.is_some() {
+                                        style = style.strikethrough();
+                                    }
+                                    ui.selectable_value(
+                                        &mut state.selected_child,
+                                        Some(i.id),
+                                        style,
+                                    );
+                                }
+                            });
+                        ui.add_enabled(state.selected_child.is_some(), Button::new("Add Child"))
+                            .clicked()
+                            .then(|| {
+                                state
+                                    .item_copy
+                                    .child_tasks
+                                    .insert(state.selected_child.unwrap());
+                            });
+                    });
                     show_children(&mut columns[0], state, document, &mut open_task, &copy);
                 } else {
                     show_parents(&mut columns[0], state, document, &mut open_task);
@@ -232,6 +244,7 @@ fn show_children(
     task_vec: &[KanbanId],
 ) {
     ui.set_max_width(ui.available_width());
+
     ui.label("Child tasks");
     let mut removed_task: Option<KanbanId> = None;
     egui::ScrollArea::vertical()

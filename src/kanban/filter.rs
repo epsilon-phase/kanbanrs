@@ -48,11 +48,9 @@ impl KanbanFilter {
                     ui.selectable_value(self, Self::CompletionStatus(false), "Uncompleted");
                 })
                 .response;
+            // I need to report this to egui as this seems as if it shouldn't be necessary
             if *self != previous {
                 box_response.mark_changed();
-            }
-            if box_response.changed() {
-                println!("Combobox says we've got a filter change");
             }
             let mut text_response: Option<Response> = None;
             match self {
