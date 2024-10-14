@@ -19,6 +19,10 @@
   * Columnar layout
   * TreeOutline Layout
   * Node Layout
+* Filter Features
+  * Completion Status
+  * Full-text presence
+  * Category match
 * Lighten the shade of red used for the status text
 
 ## Bugs

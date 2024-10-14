@@ -1,12 +1,13 @@
 use egui::{ComboBox, Ui};
 
 use super::*;
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub enum KanbanFilter {
     None,
     ContainsString(String),
     MatchesCategory(String),
     RelatedTo(KanbanId),
+    CompletionStatus(bool),
 }
 
 impl Default for KanbanFilter {
@@ -21,12 +22,15 @@ impl KanbanFilter {
             Self::ContainsString(_) => "Contains string",
             Self::MatchesCategory(_) => "Matches Category",
             Self::RelatedTo(_) => "Related To",
+            Self::CompletionStatus(true) => "Completed",
+            Self::CompletionStatus(false) => "Uncompleted",
         }
     }
     pub fn show_ui(&mut self, ui: &mut Ui, document: &KanbanDocument) -> egui::Response {
         let mut response: Option<Response> = None;
         ui.horizontal_wrapped(|ui| {
-            let box_response = ComboBox::new("Filter Select", "Select filter type")
+            let previous = self.clone();
+            let mut box_response = ComboBox::new("Filter Select", "Select filter type")
                 .selected_text(self.option_name())
                 .show_ui(ui, |ui| {
                     ui.selectable_value(self, Self::None, "None");
@@ -40,8 +44,16 @@ impl KanbanFilter {
                         Self::MatchesCategory("".to_owned()),
                         "Matches Category",
                     );
+                    ui.selectable_value(self, Self::CompletionStatus(true), "Completed");
+                    ui.selectable_value(self, Self::CompletionStatus(false), "Uncompleted");
                 })
                 .response;
+            if *self != previous {
+                box_response.mark_changed();
+            }
+            if box_response.changed() {
+                println!("Combobox says we've got a filter change");
+            }
             let mut text_response: Option<Response> = None;
             match self {
                 Self::ContainsString(ref mut str) => {
@@ -73,6 +85,13 @@ impl KanbanFilter {
                 .as_ref()
                 .is_some_and(|x| x.eq(category.as_str())),
             Self::RelatedTo(id) => document.get_relation(*id, item.id) != TaskRelation::Unrelated,
+            Self::CompletionStatus(completion_status) => {
+                if *completion_status {
+                    item.completed.is_some()
+                } else {
+                    item.completed.is_none()
+                }
+            }
         }
     }
 }
@@ -103,7 +122,7 @@ mod test {
     }
     #[test]
     fn test_contains_string() {
-        let mut document = get_test_document();
+        let document = get_test_document();
         let tag_test = TEST_TAG.to_owned();
         let category_test = TEST_CATEGORY.to_owned();
         let name_test = "Name".to_owned();

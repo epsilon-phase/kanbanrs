@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 
-use std::ops::{Index, IndexMut};
 use std::time::Instant;
 
 use super::*;

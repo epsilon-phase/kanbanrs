@@ -2,7 +2,7 @@ mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
 use clap::*;
-use eframe::egui::{self, ComboBox, RichText, ScrollArea, Vec2};
+use eframe::egui::{self, ComboBox, RichText, Vec2};
 use kanban::{
     category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,

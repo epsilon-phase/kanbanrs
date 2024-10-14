@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    default,
-};
+use std::collections::{HashSet, VecDeque};
 
 use filter::KanbanFilter;
 use sorting::ItemSort;
@@ -29,7 +26,7 @@ impl TreeOutline {
             ..Default::default()
         }
     }
-    fn bfs(&mut self, document: &KanbanDocument, sort: ItemSort, filter: &KanbanFilter) {
+    fn dfs(&mut self, document: &KanbanDocument, sort: ItemSort, filter: &KanbanFilter) {
         self.cache.clear();
         let mut queue: VecDeque<(KanbanId, Depth)> = VecDeque::new();
         let mut buffer: Vec<(KanbanId, Depth)> =
@@ -41,7 +38,7 @@ impl TreeOutline {
             )
         });
         queue.extend(buffer.drain(..));
-        while let Some((current_id, depth)) = queue.pop_front() {
+        while let Some((current_id, depth)) = queue.pop_back() {
             if self.exclude_completed && document.get_task(current_id).unwrap().completed.is_some()
             {
                 continue;
@@ -55,8 +52,8 @@ impl TreeOutline {
             buffer.extend(item.child_tasks.iter().map(|x| (*x, depth + 1)));
             buffer.sort_by(|(a, _), (b, _)| {
                 sort.cmp_by(
-                    document.get_task(*a).unwrap(),
                     document.get_task(*b).unwrap(),
+                    document.get_task(*a).unwrap(),
                 )
             });
             queue.extend(buffer.drain(..));
@@ -77,7 +74,7 @@ impl TreeOutline {
             .filter(|x| !children_of_something.contains(&x.id))
             .map(|key| key.id)
             .collect();
-        self.bfs(document, sort, filter);
+        self.dfs(document, sort, filter);
         println!("Found {} toplevel items", self.toplevel_items.len());
     }
     pub fn set_focus(&mut self, id: KanbanId) {
