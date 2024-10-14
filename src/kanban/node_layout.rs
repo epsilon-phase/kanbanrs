@@ -8,12 +8,13 @@ use egui::epaint::CubicBezierShape;
 use egui::{Pos2, Rect, Style};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
-use layout::core::format::{ClipHandle, RenderBackend};
+use layout::core::format::{ClipHandle, RenderBackend, Renderable};
 use layout::core::geometry::Point;
 use layout::core::style::StyleAttr;
 use layout::std_shapes::render::get_shape_size;
 use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
+use sorting::ItemSort;
 
 #[derive(PartialEq, Clone, Eq)]
 struct ArrowOptions {
@@ -114,7 +115,7 @@ impl DrawCommand {
                 if ao.head.1 {
                     paint.circle(
                         *ao.path.last().unwrap() + offset,
-                        style.noninteractive().fg_stroke.width * 3.,
+                        style.noninteractive().fg_stroke.width * 3. + 5.,
                         Color32::TRANSPARENT,
                         style.noninteractive().fg_stroke,
                     );
@@ -145,6 +146,7 @@ pub struct NodeLayout {
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
+    edges: HashMap<(KanbanId, KanbanId), Vec<Pos2>>,
     focus: Option<KanbanId>,
     exclude_completed: bool,
     dragged_item: Option<KanbanId>,
@@ -250,6 +252,9 @@ impl RenderBackend for NodeLayout {
             .push(DrawCommand::Circle(from_point(xy), from_point(size)));
     }
 }
+
+impl NodeLayout {}
+
 impl NodeLayout {
     fn is_collapsed(&self, document: &KanbanDocument, item: &KanbanItem) -> bool {
         self.collapsed
@@ -261,12 +266,12 @@ impl NodeLayout {
         document: &KanbanDocument,
         style: &egui::Style,
         filter: &KanbanFilter,
+        sort: &ItemSort,
     ) {
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         self.commands.clear();
         let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
-
         let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::Arrow;
@@ -304,7 +309,9 @@ impl NodeLayout {
         }
         for id in handles.keys() {
             let i = document.get_task(*id).unwrap();
-            for c in i.child_tasks.iter() {
+            let mut tasks: Vec<KanbanId> = i.child_tasks.iter().copied().collect();
+            sort.sort_by(&mut tasks, document);
+            for c in tasks.iter() {
                 if handles.contains_key(c) {
                     vg.add_edge(arrow.clone(), handles[id], handles[c]);
                 }

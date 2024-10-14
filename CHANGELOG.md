@@ -6,6 +6,9 @@
 * Add an undo stack
 * Expand sorting types
   * Sort by newest tasks first.
+* Sort tasks in the node layout.
+
+  There may be unusual semantics exposed here
 
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
