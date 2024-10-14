@@ -6,6 +6,7 @@ use std::collections::btree_map::{Values, ValuesMut};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
+pub mod filter;
 pub mod focused_layout;
 pub mod node_layout;
 pub mod priority_editor;
@@ -192,6 +193,9 @@ impl KanbanDocument {
         })
     }
     pub fn get_relation(&self, target: KanbanId, other: KanbanId) -> TaskRelation {
+        if target == other {
+            return TaskRelation::TheItemItself;
+        }
         let task_a = self.get_task(target).unwrap();
         let task_b = self.get_task(other).unwrap();
         if task_a.is_child_of(task_b, self) {
@@ -255,7 +259,34 @@ impl KanbanDocument {
         self.categories.insert(name.into(), style);
     }
 }
+pub mod layout_cache {
+    use super::*;
+    use std::{borrow::Borrow, cell::RefCell};
+    thread_local! {
+        static AVERAGE_CACHE:RefCell<HashMap<egui::Id,(f64,f64)>>=RefCell::new(HashMap::new());
 
+    }
+    pub fn get_average_item_height(id: egui::Id) -> f64 {
+        let map = AVERAGE_CACHE.with(|x| x.borrow().get(&id).copied());
+        if let Some((height, count)) = map {
+            height / count
+        } else {
+            0.0
+        }
+    }
+    pub fn record_measurement(id: egui::Id, height: f64) {
+        AVERAGE_CACHE.with_borrow_mut(|x| {
+            let (cached_height, count) = x.entry(id).or_insert((50.0, 1.0));
+            let avg = *cached_height / *count;
+
+            if (height - avg).abs() / height > 0.2 {
+                *cached_height += height;
+                *count += 1.0;
+                println!("Average height for id '{}': {:.2}", id.value(), avg);
+            }
+        });
+    }
+}
 impl KanbanDocument {
     //! Produce a vertical layout scrolling downwards.
     //!
@@ -268,18 +299,30 @@ impl KanbanDocument {
         &self,
         ui: &mut egui::Ui,
         ids: &[KanbanId],
-        range: std::ops::Range<usize>,
         hovered_task: &mut Option<i32>,
         event_collector: &mut Vec<SummaryAction>,
-    ) {
-        ui.vertical_centered_justified(|ui| {
-            for row in range.clone() {
-                let item_id = ids[row];
-                let item = &self.tasks[&item_id];
-                let action = item.summary(self, hovered_task, ui);
-                event_collector.push(action);
-            }
-        });
+        id_salt: impl std::hash::Hash,
+    ) -> f64 {
+        let cache_key = egui::Id::new(&id_salt);
+        egui::ScrollArea::vertical().id_salt(id_salt).show_rows(
+            ui,
+            layout_cache::get_average_item_height(cache_key) as f32,
+            ids.len(),
+            |ui, range| {
+                ui.vertical_centered_justified(|ui| {
+                    for row in range.clone() {
+                        let start = ui.cursor().min.y;
+                        let item_id = ids[row];
+                        let item = &self.tasks[&item_id];
+                        let action = item.summary(self, hovered_task, ui);
+                        event_collector.push(action);
+                        let end = ui.cursor().min.y;
+                        layout_cache::record_measurement(cache_key, (end - start) as f64);
+                    }
+                });
+            },
+        );
+        layout_cache::get_average_item_height(cache_key)
     }
 }
 #[derive(PartialEq, Eq)]
@@ -287,6 +330,7 @@ pub enum TaskRelation {
     Unrelated,
     ChildOf,
     ParentOf,
+    TheItemItself,
 }
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct KanbanItem {
@@ -482,7 +526,9 @@ impl KanbanItem {
                     } else {
                         label = Some(ui.label(
                             match document.get_relation(self.id, hovered_task.unwrap()) {
-                                TaskRelation::Unrelated => self.name.clone(),
+                                TaskRelation::Unrelated | TaskRelation::TheItemItself => {
+                                    self.name.clone()
+                                }
                                 TaskRelation::ChildOf => format!("{}\nDependent on", self.name),
                                 TaskRelation::ParentOf => format!("{}\nParent task of", self.name),
                             },
@@ -496,13 +542,15 @@ impl KanbanItem {
                         action = SummaryAction::FocusOn(self.id);
                     }
                 });
-                ui.horizontal_wrapped(|ui| {
+                ui.menu_button("...", |ui| {
                     let button = ui.button("Edit");
                     if button.clicked() {
                         action = SummaryAction::OpenEditor(self.id);
+                        ui.close_menu();
                     }
                     if ui.button("Add Child").clicked() {
-                        action = SummaryAction::CreateChildOf(self.id)
+                        action = SummaryAction::CreateChildOf(self.id);
+                        ui.close_menu();
                     }
                     if ui
                         .button(if self.completed.is_some() {
@@ -513,9 +561,11 @@ impl KanbanItem {
                         .clicked()
                     {
                         action = SummaryAction::MarkCompleted(self.id);
+                        ui.close_menu();
                     }
                     if ui.button("focus").clicked() {
                         action = SummaryAction::FocusOn(self.id);
+                        ui.close_menu();
                     }
                 });
                 ui.horizontal(|ui| {
@@ -529,7 +579,7 @@ impl KanbanItem {
                 });
                 ScrollArea::vertical()
                     .id_salt(format!("Summary for item {}", self.id))
-                    .max_height(100.0)
+                    .max_height(50.0)
                     .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
                 // if ui.min_size().y < 200. {
                 //     ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));

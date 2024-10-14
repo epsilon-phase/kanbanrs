@@ -3,6 +3,7 @@ use std::{
     default,
 };
 
+use filter::KanbanFilter;
 use sorting::ItemSort;
 
 use super::*;
@@ -28,7 +29,7 @@ impl TreeOutline {
             ..Default::default()
         }
     }
-    fn bfs(&mut self, document: &KanbanDocument, sort: ItemSort) {
+    fn bfs(&mut self, document: &KanbanDocument, sort: ItemSort, filter: &KanbanFilter) {
         self.cache.clear();
         let mut queue: VecDeque<(KanbanId, Depth)> = VecDeque::new();
         let mut buffer: Vec<(KanbanId, Depth)> =
@@ -45,8 +46,12 @@ impl TreeOutline {
             {
                 continue;
             }
-            self.cache.push((current_id, depth));
             let item = document.get_task(current_id).unwrap();
+            if !filter.matches(item, document) {
+                continue;
+            }
+            self.cache.push((current_id, depth));
+
             buffer.extend(item.child_tasks.iter().map(|x| (*x, depth + 1)));
             buffer.sort_by(|(a, _), (b, _)| {
                 sort.cmp_by(
@@ -57,19 +62,22 @@ impl TreeOutline {
             queue.extend(buffer.drain(..));
         }
     }
-    pub fn update(&mut self, document: &KanbanDocument, sort: ItemSort) {
+    pub fn update(&mut self, document: &KanbanDocument, sort: ItemSort, filter: &KanbanFilter) {
         self.toplevel_items.clear();
         self.cache.clear();
         let mut children_of_something: HashSet<KanbanId> = HashSet::new();
-        document.get_tasks().for_each(|task| {
-            children_of_something.extend(task.child_tasks.iter());
-        });
+        document
+            .get_tasks()
+            .filter(|x| filter.matches(x, document))
+            .for_each(|task| {
+                children_of_something.extend(task.child_tasks.iter());
+            });
         self.toplevel_items = document
             .get_tasks()
             .filter(|x| !children_of_something.contains(&x.id))
             .map(|key| key.id)
             .collect();
-        self.bfs(document, sort);
+        self.bfs(document, sort, filter);
         println!("Found {} toplevel items", self.toplevel_items.len());
     }
     pub fn set_focus(&mut self, id: KanbanId) {

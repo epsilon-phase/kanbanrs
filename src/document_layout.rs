@@ -25,7 +25,11 @@ impl PartialEq for KanbanDocumentLayout {
     }
 }
 impl KanbanDocumentLayout {
-    fn update_columnar(columnar_cache: &mut [Vec<i32>; 3], document: &KanbanDocument) {
+    fn update_columnar(
+        columnar_cache: &mut [Vec<i32>; 3],
+        document: &KanbanDocument,
+        filter: &KanbanFilter,
+    ) {
         columnar_cache.iter_mut().for_each(|x| x.clear());
         for task in document.get_tasks() {
             let index = match document.task_status(&task.id) {
@@ -33,6 +37,9 @@ impl KanbanDocumentLayout {
                 kanban::Status::Blocked => 1,
                 kanban::Status::Completed => 2,
             };
+            if !filter.matches(task, document) {
+                continue;
+            }
             columnar_cache[index].push(task.id);
         }
     }
@@ -46,13 +53,14 @@ impl KanbanDocumentLayout {
         document: &KanbanDocument,
         sort: &ItemSort,
         style: &egui::Style,
+        filter: &KanbanFilter,
     ) {
         match self {
             KanbanDocumentLayout::Queue(x) => {
                 x.update(document);
             }
             KanbanDocumentLayout::Columnar(array) => {
-                KanbanDocumentLayout::update_columnar(array, document);
+                KanbanDocumentLayout::update_columnar(array, document, filter);
             }
             KanbanDocumentLayout::Search(search_state) => {
                 search_state.update(document);
@@ -61,7 +69,7 @@ impl KanbanDocumentLayout {
                 focus.update(document);
             }
             KanbanDocumentLayout::TreeOutline(tree) => {
-                tree.update(document, *sort);
+                tree.update(document, *sort, filter);
             }
             KanbanDocumentLayout::NodeLayout(nl) => {
                 nl.update(document, style);
@@ -111,62 +119,50 @@ impl KanbanRS {
         if let KanbanDocumentLayout::Columnar(cache) = &mut self.current_layout.clone() {
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());
-                egui::ScrollArea::vertical()
-                    .id_salt("ReadyScrollarea")
-                    .show_rows(&mut columns[0], 200., cache[0].len(), |ui, range| {
-                        self.document.read().layout_id_list(
-                            ui,
-                            &cache[0],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
 
+                self.document.read().layout_id_list(
+                    &mut columns[0],
+                    &cache[0],
+                    &mut self.hovered_task,
+                    &mut self.summary_actions_pending,
+                    "ReadyScrollArea",
+                );
                 columns[1].label(RichText::new("Blocked").heading());
-                egui::ScrollArea::vertical()
-                    .id_salt("BlockedScrollArea")
-                    .show_rows(&mut columns[1], 200., cache[1].len(), |ui, range| {
-                        self.document.read().layout_id_list(
-                            ui,
-                            &cache[1],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
+                self.document.read().layout_id_list(
+                    &mut columns[1],
+                    &cache[1],
+                    &mut self.hovered_task,
+                    &mut self.summary_actions_pending,
+                    "BlockedScrollArea",
+                );
                 columns[2].label(RichText::new("Completed").heading());
-                egui::ScrollArea::vertical()
-                    .id_salt("CompletedScrollArea")
-                    .show_rows(&mut columns[2], 200., cache[2].len(), |ui, range| {
-                        self.document.read().layout_id_list(
-                            ui,
-                            &cache[2],
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    });
+
+                self.document.read().layout_id_list(
+                    &mut columns[2],
+                    &cache[2],
+                    &mut self.hovered_task,
+                    &mut self.summary_actions_pending,
+                    "CompletedScrollArea",
+                );
             });
         }
     }
 
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {
         if let KanbanDocumentLayout::Queue(qs) = &mut self.current_layout {
-            ScrollArea::vertical().id_salt("Queue").show_rows(
+            // ScrollArea::vertical().id_salt("Queue").show_rows(
+            //     ui,
+            //     200.0,
+            //     qs.cached_ready.len(),
+            //     |ui, range| {
+            self.document.read().layout_id_list(
                 ui,
-                200.0,
-                qs.cached_ready.len(),
-                |ui, range| {
-                    self.document.read().layout_id_list(
-                        ui,
-                        &qs.cached_ready,
-                        range,
-                        &mut self.hovered_task,
-                        &mut self.summary_actions_pending,
-                    );
-                },
+                &qs.cached_ready,
+                &mut self.hovered_task,
+                &mut self.summary_actions_pending,
+                "Queue",
             );
+            // );
         }
     }
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
@@ -178,19 +174,13 @@ impl KanbanRS {
                     .labelled_by(label.id);
                 search_state.update(&doc);
             });
-            ScrollArea::vertical().id_salt("SearchArea").show_rows(
+
+            doc.layout_id_list(
                 ui,
-                200.0,
-                search_state.matched_ids.len(),
-                |ui, range| {
-                    doc.layout_id_list(
-                        ui,
-                        &search_state.matched_ids,
-                        range,
-                        &mut self.hovered_task,
-                        &mut self.summary_actions_pending,
-                    );
-                },
+                &search_state.matched_ids,
+                &mut self.hovered_task,
+                &mut self.summary_actions_pending,
+                "SearchArea",
             );
         }
     }
@@ -210,33 +200,20 @@ impl KanbanRS {
                     ));
                 }
 
-                ScrollArea::vertical().id_salt("ChildScroller").show_rows(
+                self.document.read().layout_id_list(
                     &mut columns[0],
-                    200.0,
-                    focus.children.len(),
-                    |ui, range| {
-                        self.document.read().layout_id_list(
-                            ui,
-                            &focus.children,
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    },
+                    &focus.children,
+                    &mut self.hovered_task,
+                    &mut self.summary_actions_pending,
+                    "ChildScroller",
                 );
-                ScrollArea::vertical().id_salt("ParentScroller").show_rows(
+
+                self.document.read().layout_id_list(
                     &mut columns[2],
-                    200.0,
-                    focus.ancestors.len(),
-                    |ui, range| {
-                        self.document.read().layout_id_list(
-                            ui,
-                            &focus.ancestors,
-                            range,
-                            &mut self.hovered_task,
-                            &mut self.summary_actions_pending,
-                        );
-                    },
+                    &focus.ancestors,
+                    &mut self.hovered_task,
+                    &mut self.summary_actions_pending,
+                    "ParentScroller",
                 );
             });
         }
@@ -258,7 +235,12 @@ pub mod test {
             document.replace_task(&task);
         }
         let mut layout = KanbanDocumentLayout::Columnar([Vec::new(), vec![], vec![]]);
-        layout.update_cache(&document, &ItemSort::None, &egui::Style::default());
+        layout.update_cache(
+            &document,
+            &ItemSort::None,
+            &egui::Style::default(),
+            &KanbanFilter::None,
+        );
         if let KanbanDocumentLayout::Columnar(cache) = layout {
             assert_eq!(cache[0].len(), 2);
             assert_eq!(cache[1].len(), 1);

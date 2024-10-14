@@ -4,7 +4,7 @@ use circular_buffer::CircularBuffer;
 use clap::*;
 use eframe::egui::{self, ComboBox, RichText, ScrollArea, Vec2};
 use kanban::{
-    category_editor::State, editor::EditorRequest, node_layout::NodeLayout,
+    category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
     sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, KanbanDocument,
     SummaryAction,
@@ -40,6 +40,7 @@ struct KanbanRS {
     editor_rx: std::sync::mpsc::Receiver<EditorRequest>,
     editor_tx: std::sync::mpsc::Sender<EditorRequest>,
     undo_buffer: CircularBuffer<35, kanban::undo::UndoItem>,
+    filter: kanban::filter::KanbanFilter,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -63,6 +64,7 @@ impl KanbanRS {
             editor_rx: rx,
             editor_tx: tx,
             undo_buffer: CircularBuffer::new(),
+            filter: KanbanFilter::None,
         }
     }
 }
@@ -152,6 +154,7 @@ impl eframe::App for KanbanRS {
                 &self.document.read(),
                 &self.sorting_type,
                 ctx.style().as_ref(),
+                &self.filter,
             );
             self.current_layout
                 .sort_cache(&self.document.read(), &self.sorting_type);
@@ -224,6 +227,7 @@ impl eframe::App for KanbanRS {
                             &self.document.read(),
                             &self.sorting_type,
                             ui.style(),
+                            &self.filter,
                         );
                         ui.close_menu();
                     }
@@ -319,6 +323,9 @@ impl eframe::App for KanbanRS {
                 if let KanbanDocumentLayout::Search(_) = self.current_layout {
                 } else {
                     self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
+                }
+                if self.filter.show_ui(ui, &self.document.read()).changed() {
+                    self.layout_cache_needs_updating |= true;
                 }
             });
             ui.horizontal(|ui| {
