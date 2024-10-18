@@ -16,7 +16,9 @@ eula = false
 
 [dependencies]
 eframe = "0.29.0"
-chrono = { version = "0.4.38", features = ["serde"] }
+# This can come back next release
+# chrono = { version = "0.4.38", features = ["serde"] }
+chrono = { git = "https://github.com/chronotope/chrono", features = ["serde"] }
 env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",
     "humantime",

@@ -2,8 +2,10 @@ use chrono::prelude::*;
 use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::collections::btree_map::{Values, ValuesMut};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use time_tracking::TimeRecords;
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod filter;
@@ -11,6 +13,7 @@ pub mod focused_layout;
 pub mod node_layout;
 pub mod priority_editor;
 pub mod sorting;
+pub mod time_tracking;
 pub mod tree_outline_layout;
 pub mod undo;
 
@@ -342,6 +345,8 @@ pub struct KanbanItem {
     pub priority: Option<String>,
     pub tags: Vec<String>,
     pub child_tasks: BTreeSet<KanbanId>,
+    #[serde(default)]
+    pub time_records: TimeRecords,
 }
 impl KanbanItem {
     pub fn new(document: &KanbanDocument) -> Self {
@@ -354,6 +359,7 @@ impl KanbanItem {
             tags: Vec::new(),
             priority: None,
             child_tasks: BTreeSet::new(),
+            time_records: Default::default(),
         }
     }
 

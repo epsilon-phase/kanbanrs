@@ -1,5 +1,5 @@
 use super::{KanbanDocument, KanbanId, KanbanItem};
-use eframe::egui::{self, Button, ComboBox, RichText};
+use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -9,6 +9,7 @@ pub struct State {
     new_tag: String,
     category: String,
     is_on_child_view: bool,
+    is_on_tag_view: bool,
 }
 pub fn state_from(item: &KanbanItem) -> State {
     State {
@@ -19,6 +20,7 @@ pub fn state_from(item: &KanbanItem) -> State {
         new_tag: "".into(),
         category: item.category.as_ref().unwrap_or(&String::new()).clone(),
         is_on_child_view: true,
+        is_on_tag_view: true,
     }
 }
 #[derive(Clone, Debug)]
@@ -153,34 +155,15 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                 }
                 {
                     let ui = &mut columns[1];
-                    ui.label("Tags");
-                    let mut removed_tag: Option<String> = None;
                     ui.horizontal(|ui| {
-                        ui.text_edit_singleline(&mut state.new_tag);
-                        if !state.item_copy.tags.contains(&state.new_tag)
-                            && ui.button("Add tag").clicked
-                        {
-                            state.item_copy.tags.push(state.new_tag.clone());
-                            state.new_tag.clear();
-                        }
+                        ui.radio_value(&mut state.is_on_tag_view, true, "Tags");
+                        ui.radio_value(&mut state.is_on_tag_view, false, "Time tracking");
                     });
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height() / 2.0)
-                        .max_width(ui.available_width())
-                        .id_salt("tags")
-                        .show(ui, |ui| {
-                            for tag in state.item_copy.tags.iter() {
-                                ui.horizontal(|ui| {
-                                    ui.label(tag);
-                                    if ui.button("X").clicked {
-                                        removed_tag = Some(tag.clone());
-                                    }
-                                });
-                            }
-                            if let Some(tag) = removed_tag {
-                                state.item_copy.tags.retain(|x| *x != tag);
-                            }
-                        });
+                    if state.is_on_tag_view {
+                        display_tags(ui, state);
+                    } else {
+                        show_time_records(ui, state)
+                    }
                 }
             });
             ui.horizontal(|ui| {
@@ -234,6 +217,35 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
         return EditorRequest::OpenItem(document.get_task(task_to_edit).cloned().unwrap());
     }
     EditorRequest::NoRequest
+}
+
+fn display_tags(ui: &mut egui::Ui, state: &mut State) {
+    ui.label("Tags");
+    let mut removed_tag: Option<String> = None;
+    ui.horizontal(|ui| {
+        ui.text_edit_singleline(&mut state.new_tag);
+        if !state.item_copy.tags.contains(&state.new_tag) && ui.button("Add tag").clicked {
+            state.item_copy.tags.push(state.new_tag.clone());
+            state.new_tag.clear();
+        }
+    });
+    egui::ScrollArea::vertical()
+        .max_height(ui.available_height() / 2.0)
+        .max_width(ui.available_width())
+        .id_salt("tags")
+        .show(ui, |ui| {
+            for tag in state.item_copy.tags.iter() {
+                ui.horizontal(|ui| {
+                    ui.label(tag);
+                    if ui.button("X").clicked {
+                        removed_tag = Some(tag.clone());
+                    }
+                });
+            }
+            if let Some(tag) = removed_tag {
+                state.item_copy.tags.retain(|x| *x != tag);
+            }
+        });
 }
 
 fn show_children(
@@ -308,4 +320,11 @@ fn show_parents(
                 });
             }
         });
+}
+
+fn show_time_records(ui: &mut egui::Ui, state: &mut State) {
+    state.item_copy.time_records.entry_ui(ui);
+    ScrollArea::vertical().show(ui, |ui| {
+        state.item_copy.time_records.produce_list(ui);
+    });
 }

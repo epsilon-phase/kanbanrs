@@ -275,38 +275,45 @@ impl NodeLayout {
         let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
         let mut arrow = Arrow::simple("");
         arrow.end = LineEndKind::Arrow;
-        if let Some(focused_id) = self.focus {
-            for i in document.get_tasks().filter(|x| {
-                let is_focused = x.id == focused_id;
-                let relationship = document.get_relation(focused_id, x.id);
-                let is_related = relationship != TaskRelation::Unrelated;
-                let is_completed = x.completed.is_some();
-
-                if is_focused {
-                    true
-                } else {
-                    is_related && !(self.exclude_completed && is_completed)
-                }
-            }) {
-                if self.is_collapsed(document, i) {
-                    continue;
-                }
-                add_item_to_graph(i, document, style, &mut vg, &mut handles);
-            }
+        let tasks: Vec<&KanbanItem> = if let Some(focused_id) = self.focus {
+            document
+                .get_tasks()
+                .filter(|x| {
+                    let is_focused = x.id == focused_id;
+                    let relationship = document.get_relation(focused_id, x.id);
+                    let is_related = relationship != TaskRelation::Unrelated;
+                    let is_completed = x.completed.is_some();
+                    let not_collapsed = !self.is_collapsed(document, x);
+                    if is_focused {
+                        true
+                    } else {
+                        is_related && !(self.exclude_completed && is_completed) && not_collapsed
+                    }
+                })
+                .collect()
         } else {
-            for i in document.get_tasks() {
-                if self.exclude_completed && i.completed.is_some() {
-                    continue;
-                }
-                if !filter.matches(i, document) {
-                    continue;
-                }
-                if self.is_collapsed(document, i) {
-                    continue;
-                }
-                add_item_to_graph(i, document, style, &mut vg, &mut handles);
-            }
-        }
+            document
+                .get_tasks()
+                .filter(|x| !(self.exclude_completed && x.completed.is_some()))
+                .filter(|x| filter.matches(x, document))
+                .filter(|x| !self.is_collapsed(document, x))
+                .collect()
+            // for i in document.get_tasks() {
+            //     if self.exclude_completed && i.completed.is_some() {
+            //         continue;
+            //     }
+            //     if !filter.matches(i, document) {
+            //         continue;
+            //     }
+            //     if self.is_collapsed(document, i) {
+            //         continue;
+            //     }
+            //     add_item_to_graph(i, document, style, &mut vg, &mut handles);
+            // }
+        };
+        tasks
+            .iter()
+            .for_each(|x| add_item_to_graph(x, document, style, &mut vg, &mut handles));
         for id in handles.keys() {
             let i = document.get_task(*id).unwrap();
             let mut tasks: Vec<KanbanId> = i.child_tasks.iter().copied().collect();
