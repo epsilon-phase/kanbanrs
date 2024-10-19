@@ -9,7 +9,10 @@
 * Sort tasks in the node layout.
 
   There may be unusual semantics exposed here
-
+* Time Tracking
+  * Per task!
+  * Can be added as an instanteous duration or started/finished.
+  * Tasks show how time is broken up by their dependencies.
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
   repainting the entire interface whenever an editor needs repainting.

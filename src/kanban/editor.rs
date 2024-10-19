@@ -1,4 +1,4 @@
-use super::{KanbanDocument, KanbanId, KanbanItem};
+use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
 #[derive(Clone)]
 pub struct State {
@@ -162,7 +162,7 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
                     if state.is_on_tag_view {
                         display_tags(ui, state);
                     } else {
-                        show_time_records(ui, state)
+                        show_time_records(ui, state, document)
                     }
                 }
             });
@@ -322,9 +322,26 @@ fn show_parents(
         });
 }
 
-fn show_time_records(ui: &mut egui::Ui, state: &mut State) {
+fn show_time_records(ui: &mut egui::Ui, state: &mut State, document: &KanbanDocument) {
     state.item_copy.time_records.entry_ui(ui);
     ScrollArea::vertical().show(ui, |ui| {
         state.item_copy.time_records.produce_list(ui);
+        ui.label("Child Tasks");
+        for (child_id, duration) in
+            time_tracking::collect_child_durations(document, &state.item_copy)
+        {
+            if duration.is_zero() {
+                continue;
+            }
+            let task = document.get_task(child_id).unwrap();
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "{}h {}m spent on {}",
+                    duration.num_hours(),
+                    duration.num_minutes() % 60,
+                    &task.name
+                ));
+            });
+        }
     });
 }

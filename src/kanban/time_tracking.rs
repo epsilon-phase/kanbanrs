@@ -1,7 +1,7 @@
 use chrono::TimeDelta;
 
 use super::*;
-use std::time;
+use std::{collections::HashSet, time};
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum TimeEntry {
     InstanteousDuration(chrono::TimeDelta),
@@ -162,6 +162,7 @@ impl TimeRecords {
                         Some(self.new_description.clone())
                     };
                     self.handle_record_request(desc);
+                    self.new_description.clear();
                 }
             });
         });
@@ -172,17 +173,42 @@ impl TimeRecords {
         self.entries.retain(|x| {
             let mut delete = false;
             ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(x.0.to_description());
-                    delete |= ui.button("Delete").clicked()
+                ui.group(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(x.0.to_description());
+                        delete |= ui.button("Delete").clicked()
+                    });
+                    if let Some(ref desc) = x.1 {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                        ui.label(desc);
+                    }
                 });
-                if let Some(ref desc) = x.1 {
-                    ui.label(desc);
-                }
             });
             !delete
         });
     }
+}
+pub fn collect_child_durations(
+    document: &KanbanDocument,
+    item: &KanbanItem,
+) -> Vec<(KanbanId, TimeDelta)> {
+    let mut result = Vec::new();
+    let mut seen: HashSet<KanbanId> = HashSet::new();
+    seen.extend(item.child_tasks.iter());
+    for i in item.child_tasks.iter() {
+        // This needs to start at zero because on_tree calls the function on the root node.
+        let mut current = document.get_task(*i).unwrap().time_records.duration();
+        document.on_tree(*i, 0, |document, x, _| {
+            if seen.contains(&x) {
+                return;
+            }
+            seen.insert(x);
+            let task = document.get_task(x);
+            current += task.unwrap().time_records.duration();
+        });
+        result.push((*i, current));
+    }
+    result
 }
 #[cfg(test)]
 mod test {
