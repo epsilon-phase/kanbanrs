@@ -13,6 +13,9 @@
   * Per task!
   * Can be added as an instanteous duration or started/finished.
   * Tasks show how time is broken up by their dependencies.
+  * Time entry descriptions can be edited after the fact.
+
+    The recorded times themselves represent a more difficult issue so that will come later.
 ## UI Improvements
 * Editors will now be rendered with the `show_viewport_deferred` which allows the program to avoid
   repainting the entire interface whenever an editor needs repainting.
