@@ -1,7 +1,7 @@
 use chrono::TimeDelta;
 
 use super::*;
-use std::{collections::HashSet, time};
+use std::collections::HashSet;
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum TimeEntry {
     InstanteousDuration(chrono::TimeDelta),
@@ -64,10 +64,6 @@ impl TimeEntry {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimeRecords {
     pub entries: Vec<(TimeEntry, Option<String>)>,
-    #[serde(skip)]
-    new_entry: chrono::TimeDelta,
-    #[serde(skip)]
-    new_description: String,
 }
 impl Default for TimeRecords {
     fn default() -> Self {
@@ -78,8 +74,6 @@ impl TimeRecords {
     pub fn new() -> Self {
         Self {
             entries: Vec::new(),
-            new_entry: chrono::TimeDelta::new(0, 0).unwrap(),
-            new_description: "".to_owned(),
         }
     }
     /// Finish recording, or add a new in-progress recording.
@@ -108,86 +102,8 @@ impl TimeRecords {
             .map(|x| x.0.duration())
             .fold(chrono::TimeDelta::new(0, 0).unwrap(), |a, b| a + b)
     }
-    pub fn entry_ui(&mut self, ui: &mut egui::Ui) {
-        ui.vertical_centered_justified(|ui| {
-            let hours = self.new_entry.num_hours();
-            let minutes = self.new_entry.num_minutes();
-            let mut h = hours.to_string();
-            let mut m = (minutes % 60).to_string();
-            let hour_input = ui
-                .horizontal(|ui| {
-                    let hour_label = ui.label("Hours");
-                    ui.text_edit_singleline(&mut h)
-                        .on_hover_text("Hours")
-                        .labelled_by(hour_label.id)
-                })
-                .inner;
-            ui.horizontal(|ui| {
-                let minute_label = ui.label("Minutes");
-                let minute_input = ui
-                    .text_edit_singleline(&mut m)
-                    .on_hover_text("Minutes")
-                    .labelled_by(minute_label.id);
-                if hour_input.union(minute_input).changed() {
-                    let hours: i64 = str::parse(&h).unwrap_or(hours);
-                    let minutes: i64 = str::parse(&m).unwrap_or(minutes);
-                    self.new_entry = TimeDelta::new(60 * minutes + 3600 * hours, 0).unwrap();
-                }
-            });
-            ui.text_edit_singleline(&mut self.new_description);
-            ui.horizontal(|ui| {
-                if ui.button("Add new entry").clicked() {
-                    self.entries.push((
-                        TimeEntry::InstanteousDuration(self.new_entry),
-                        if !self.new_description.is_empty() {
-                            Some(self.new_description.clone())
-                        } else {
-                            None
-                        },
-                    ));
-                    self.new_entry = TimeDelta::new(0, 0).unwrap();
-                    self.new_description.clear();
-                }
-                if ui
-                    .button(if self.is_recording() {
-                        "Stop recording"
-                    } else {
-                        "Start recording"
-                    })
-                    .clicked()
-                {
-                    let desc = if self.new_description.is_empty() {
-                        None
-                    } else {
-                        Some(self.new_description.clone())
-                    };
-                    self.handle_record_request(desc);
-                    self.new_description.clear();
-                }
-            });
-        });
-    }
-    pub fn produce_list(&mut self, ui: &mut egui::Ui) {
-        // This feels like a very bad use-case for retain
-        // idiomatically
-        self.entries.retain(|x| {
-            let mut delete = false;
-            ui.horizontal(|ui| {
-                ui.group(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label(x.0.to_description());
-                        delete |= ui.button("Delete").clicked()
-                    });
-                    if let Some(ref desc) = x.1 {
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-                        ui.label(desc);
-                    }
-                });
-            });
-            !delete
-        });
-    }
 }
+
 pub fn collect_child_durations(
     document: &KanbanDocument,
     item: &KanbanItem,

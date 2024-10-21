@@ -382,7 +382,6 @@ impl eframe::App for KanbanRS {
             for editor in self.open_editors.iter_mut() {
                 let viewport_id = ui.ctx().viewport_id();
                 let document = self.document.clone();
-                let tx = self.editor_tx.clone();
                 let editor = editor.clone();
                 let id = editor.read().item_copy.id;
                 let window_title = format!("Editing '{}'", editor.read().item_copy.name);
@@ -393,17 +392,11 @@ impl eframe::App for KanbanRS {
                         .with_title(&window_title),
                     move |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            let request = kanban::editor::editor(
+                            if kanban::editor::editor(
                                 ui,
                                 &document.read(),
                                 editor.write().borrow_mut(),
-                            );
-                            if !matches!(request, EditorRequest::NoRequest) {
-                                println! {"{:?}",request}
-                                tx.send(request).unwrap();
-                                println!("Sent?");
-                                // If we don't do this then it won't open a new editor when the
-                                // add child button is clicked
+                            ) {
                                 ctx.request_repaint_of(viewport_id);
                             }
                         });
@@ -483,8 +476,10 @@ impl KanbanRS {
         match action {
             SummaryAction::NoAction => (),
             SummaryAction::OpenEditor(id) => {
-                let mut editor =
-                    kanban::editor::state_from(self.document.read().get_task(*id).unwrap());
+                let mut editor = kanban::editor::state_from(
+                    self.document.read().get_task(*id).unwrap(),
+                    self.editor_tx.clone(),
+                );
                 editor.open = true;
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
             }
@@ -498,7 +493,7 @@ impl KanbanRS {
                 };
 
                 task_copy.add_child(&new_task);
-                let editor = kanban::editor::state_from(&new_task);
+                let editor = kanban::editor::state_from(&new_task, self.editor_tx.clone());
                 self.undo_buffer
                     .push_back(self.document.write().replace_task(&task_copy));
                 self.record_undo(child_creation);
@@ -571,7 +566,10 @@ impl KanbanRS {
                     document.replace_task(new_task)
                 });
                 self.open_editors
-                    .push(Arc::new(RwLock::new(kanban::editor::state_from(new_task))));
+                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
+                        new_task,
+                        self.editor_tx.clone(),
+                    ))));
 
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
@@ -584,6 +582,7 @@ impl KanbanRS {
                 self.open_editors
                     .push(Arc::new(RwLock::new(kanban::editor::state_from(
                         item_to_open,
+                        self.editor_tx.clone(),
                     ))));
             }
             kanban::editor::EditorRequest::DeleteItem(to_delete) => {

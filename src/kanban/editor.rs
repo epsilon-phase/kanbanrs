@@ -1,5 +1,9 @@
+use std::borrow::BorrowMut;
+
 use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
+use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
+use std::sync::mpsc::Sender;
 #[derive(Clone)]
 pub struct State {
     pub open: bool,
@@ -10,8 +14,12 @@ pub struct State {
     category: String,
     is_on_child_view: bool,
     is_on_tag_view: bool,
+    new_time_entry: TimeDelta,
+    new_time_descr: String,
+    time_entry_under_edit: Option<usize>,
+    transmitter: Sender<EditorRequest>,
 }
-pub fn state_from(item: &KanbanItem) -> State {
+pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
     State {
         open: true,
         cancelled: false,
@@ -21,6 +29,10 @@ pub fn state_from(item: &KanbanItem) -> State {
         category: item.category.as_ref().unwrap_or(&String::new()).clone(),
         is_on_child_view: true,
         is_on_tag_view: true,
+        new_time_descr: String::new(),
+        new_time_entry: TimeDelta::new(0, 0).unwrap(),
+        time_entry_under_edit: None,
+        transmitter: tx,
     }
 }
 #[derive(Clone, Debug)]
@@ -31,15 +43,13 @@ pub enum EditorRequest {
     DeleteItem(KanbanItem),
     UpdateItem(KanbanItem),
 }
-pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -> EditorRequest {
+pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -> bool {
     let mut create_child = false;
     let mut open_task: Option<KanbanId> = None;
     let mut delete_task: Option<KanbanItem> = None;
     let mut update_task = false;
-    // I'm kinda meh on this particular mechanic.
-    // It is convenient, but it also changes things that you would not expect to be
-    // changed simply by opening the editor.
     let mut copy: Vec<KanbanId> = state.item_copy.child_tasks.iter().copied().collect();
+    let mut needs_update = false;
     super::sorting::sort_completed_last(document, &mut copy);
     ui.vertical(|ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -202,21 +212,36 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
             });
         });
     });
+    needs_update = open_task.is_some() || create_child || update_task || delete_task.is_some();
     if update_task {
-        return EditorRequest::UpdateItem(state.item_copy.clone());
+        state
+            .transmitter
+            .send(EditorRequest::UpdateItem(state.item_copy.clone()))
+            .unwrap();
     }
     if let Some(to_delete) = delete_task {
-        return EditorRequest::DeleteItem(to_delete);
+        state
+            .transmitter
+            .send(EditorRequest::DeleteItem(to_delete))
+            .unwrap();
     }
     if create_child {
         let new_child = KanbanItem::new(document);
         state.item_copy.add_child(&new_child);
-        return EditorRequest::NewItem(state.item_copy.clone(), new_child);
+        state
+            .transmitter
+            .send(EditorRequest::NewItem(state.item_copy.clone(), new_child))
+            .unwrap();
     }
     if let Some(task_to_edit) = open_task {
-        return EditorRequest::OpenItem(document.get_task(task_to_edit).cloned().unwrap());
+        state
+            .transmitter
+            .send(EditorRequest::OpenItem(
+                document.get_task(task_to_edit).cloned().unwrap(),
+            ))
+            .unwrap();
     }
-    EditorRequest::NoRequest
+    needs_update
 }
 
 fn display_tags(ui: &mut egui::Ui, state: &mut State) {
@@ -323,9 +348,9 @@ fn show_parents(
 }
 
 fn show_time_records(ui: &mut egui::Ui, state: &mut State, document: &KanbanDocument) {
-    state.item_copy.time_records.entry_ui(ui);
+    time_entry_ui(state, ui);
     ScrollArea::vertical().show(ui, |ui| {
-        state.item_copy.time_records.produce_list(ui);
+        produce_time_list(state, ui);
         ui.label("Child Tasks");
         for (child_id, duration) in
             time_tracking::collect_child_durations(document, &state.item_copy)
@@ -343,5 +368,102 @@ fn show_time_records(ui: &mut egui::Ui, state: &mut State, document: &KanbanDocu
                 ));
             });
         }
+    });
+}
+fn time_entry_ui(state: &mut State, ui: &mut egui::Ui) {
+    use chrono::TimeDelta;
+    use time_tracking::*;
+    ui.vertical_centered_justified(|ui| {
+        let hours = state.new_time_entry.num_hours();
+        let minutes = state.new_time_entry.num_minutes();
+        let mut h = hours.to_string();
+        let mut m = (minutes % 60).to_string();
+        let hour_input = ui
+            .horizontal(|ui| {
+                let hour_label = ui.label("Hours");
+                ui.text_edit_singleline(&mut h)
+                    .on_hover_text("Hours")
+                    .labelled_by(hour_label.id)
+            })
+            .inner;
+        ui.horizontal(|ui| {
+            let minute_label = ui.label("Minutes");
+            let minute_input = ui
+                .text_edit_singleline(&mut m)
+                .on_hover_text("Minutes")
+                .labelled_by(minute_label.id);
+            if hour_input.union(minute_input).changed() {
+                let hours: i64 = str::parse(&h).unwrap_or(hours);
+                let minutes: i64 = str::parse(&m).unwrap_or(minutes);
+                state.new_time_entry = TimeDelta::new(60 * minutes + 3600 * hours, 0).unwrap();
+            }
+        });
+        ui.text_edit_singleline(&mut state.new_time_descr);
+        ui.horizontal(|ui| {
+            if ui.button("Add new entry").clicked() {
+                state.item_copy.time_records.entries.push((
+                    TimeEntry::InstanteousDuration(state.new_time_entry),
+                    if !state.new_time_descr.is_empty() {
+                        Some(state.new_time_descr.clone())
+                    } else {
+                        None
+                    },
+                ));
+                state.new_time_entry = TimeDelta::new(0, 0).unwrap();
+                state.new_time_descr.clear();
+            }
+            if ui
+                .button(if state.item_copy.time_records.is_recording() {
+                    "Stop recording"
+                } else {
+                    "Start recording"
+                })
+                .clicked()
+            {
+                let desc = if state.new_time_descr.is_empty() {
+                    None
+                } else {
+                    Some(state.new_time_descr.clone())
+                };
+                state.item_copy.time_records.handle_record_request(desc);
+                state.new_time_descr.clear();
+            }
+        });
+    });
+}
+fn produce_time_list(state: &mut State, ui: &mut egui::Ui) {
+    let mut current_index = 0;
+    // This feels like a very bad use-case for retain
+    // idiomatically
+    state.item_copy.time_records.entries.retain_mut(|x| {
+        let mut delete = false;
+        ui.horizontal(|ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(x.0.to_description());
+                    delete |= ui.button("Delete").clicked();
+                });
+                if let Some(index) = state.time_entry_under_edit {
+                    if current_index == index {
+                        if x.1.is_none() {
+                            x.1 = Some(String::new());
+                        }
+                        ui.text_edit_multiline(x.1.as_mut().unwrap());
+                        if ui.button("Done").clicked() {
+                            state.time_entry_under_edit = None;
+                        }
+                    }
+                }
+                if let Some(ref desc) = x.1 {
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                    ui.label(desc);
+                }
+                if ui.button("Edit").clicked() {
+                    state.time_entry_under_edit = Some(current_index);
+                }
+            });
+        });
+        current_index += 1;
+        !delete
     });
 }
