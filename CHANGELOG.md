@@ -41,6 +41,8 @@
       * Hide them when it is set to view the parents of the task
   * Mark task name in the editor's window title
 * Lighten the shade of red used for the status text
+* Dragging a node to the left side of a node will add the dragged node as a parent,
+  dragging it over the right side will add it as a child.
 
 ## Bugs
 * Now saving creates a temporary file and then renames it to the correct file once it's been completely

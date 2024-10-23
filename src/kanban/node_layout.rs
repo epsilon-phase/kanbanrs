@@ -183,6 +183,10 @@ fn from_color32(a: Color32) -> layout::core::color::Color {
     }
     layout::core::color::Color::new(result)
 }
+fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
+    let diff = r.max.x - r.min.x;
+    return cursor.x < r.min.x + diff / 2.0;
+}
 impl RenderBackend for NodeLayout {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
         if clip.is_some() {
@@ -428,9 +432,6 @@ impl NodeLayout {
                 let current = Instant::now();
                 if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
                     let paint = ui.painter();
-                    for i in ui.ctx().repaint_causes().iter() {
-                        println!("{:?}", i);
-                    }
                     if self.drag_linger.is_none() {
                         self.drag_linger = Some(current);
                         ui.ctx().clear_animations();
@@ -456,26 +457,45 @@ impl NodeLayout {
                         DRAG_AND_DROP_HYSTERISIS_SECS,
                     );
                     hovered = true;
-                    ui.ctx().set_cursor_icon(
-                        if _document.can_add_as_child(
-                            _document.get_task(*dropped).unwrap(),
-                            _document.get_task(*task_id).unwrap(),
-                        ) {
-                            paint.rect_stroke(
-                                offset_rect(*region, start.to_vec2()),
-                                drag_roundness,
-                                Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
-                            );
-                            egui::CursorIcon::PointingHand
+                    {
+                        let pointer_position = ui.ctx().pointer_latest_pos().unwrap();
+                        let rect = offset_rect(*region, start.to_vec2());
+
+                        let sign = if is_on_left_side(&rect, pointer_position) {
+                            -1.
                         } else {
-                            paint.rect_stroke(
-                                offset_rect(*region, start.to_vec2()),
-                                drag_roundness,
-                                Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
-                            );
-                            egui::CursorIcon::NoDrop
-                        },
-                    );
+                            1.
+                        };
+                        let clip = rect
+                            .shrink2(Vec2 {
+                                x: rect.width() / 4.,
+                                y: 0.,
+                            })
+                            .translate(Vec2::new(sign * rect.width() / 4.0, 0.))
+                            .expand2(Vec2::new(0.0, 5.));
+
+                        let paint = paint.with_clip_rect(clip);
+                        ui.ctx().set_cursor_icon(
+                            if _document.can_add_as_child(
+                                _document.get_task(*dropped).unwrap(),
+                                _document.get_task(*task_id).unwrap(),
+                            ) {
+                                paint.rect_stroke(
+                                    offset_rect(*region, start.to_vec2()),
+                                    drag_roundness,
+                                    Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
+                                );
+                                egui::CursorIcon::PointingHand
+                            } else {
+                                paint.rect_stroke(
+                                    offset_rect(*region, start.to_vec2()),
+                                    drag_roundness,
+                                    Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
+                                );
+                                egui::CursorIcon::NoDrop
+                            },
+                        );
+                    }
                 }
                 if let Some(x) = senses.dnd_release_payload::<i32>().clone() {
                     if _document.can_add_as_child(
@@ -485,7 +505,11 @@ impl NodeLayout {
                         .drag_linger
                         .map_or(false, |x| x.elapsed().as_secs_f32() > 1.0)
                     {
-                        actions.push(SummaryAction::AddChildTo(*x, *task_id));
+                        if is_on_left_side(region, start) {
+                            actions.push(SummaryAction::AddChildTo(*x, *task_id));
+                        } else {
+                            actions.push(SummaryAction::AddChildTo(*task_id, *x));
+                        }
                     }
                 }
             }
