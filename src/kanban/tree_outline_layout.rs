@@ -93,32 +93,45 @@ impl TreeOutline {
         {
             actions.push(SummaryAction::UpdateLayout);
         }
-        ScrollArea::vertical().id_salt("Tree Outline").show_rows(
-            ui,
-            (self.total_height / self.layout_count) as f32,
-            self.cache.len(),
-            |ui, range| {
-                ui.set_width(ui.available_width());
-                for idx in range {
-                    let (id, depth) = self.cache[idx];
-                    if let Some(task) = document.get_task(id) {
-                        let start = ui.cursor().min.y;
-                        ui.horizontal(|ui| {
-                            ui.label("");
-                            ui.add_space((depth as f32) * ui.available_width() / 20.0);
+        let id = egui::Id::new("Tree Outline");
 
-                            actions.push(task.summary(document, hovered_item, ui));
-                        });
-                        let end = ui.cursor().min.y;
-                        let difference = (end - start) as f64;
-                        let divergence = (self.total_height / self.layout_count - difference).abs();
-                        if divergence > 20.0 {
-                            self.total_height += difference;
-                            self.layout_count += 1.;
+        ui.group(|ui| {
+            ScrollArea::vertical()
+                .id_salt("Tree Outline")
+                .max_height(f32::INFINITY)
+                .show_rows(
+                    ui,
+                    super::layout_cache::get_average_item_height(id) as f32,
+                    self.cache.len(),
+                    |ui, range| {
+                        println!("Showing {} items", range.len());
+                        ui.set_width(ui.available_width());
+                        for idx in range {
+                            let (id, depth) = self.cache[idx];
+                            if let Some(task) = document.get_task(id) {
+                                let start = ui.cursor().min.y;
+
+                                ui.horizontal(|ui| {
+                                    // ui.label("");
+                                    ui.add_space((depth as f32) * ui.available_width() / 20.0);
+
+                                    actions.push(task.summary(
+                                        document,
+                                        hovered_item,
+                                        ui,
+                                        false,
+                                        idx,
+                                    ));
+                                });
+                                let end = ui.cursor().min.y;
+                                super::layout_cache::record_measurement(
+                                    ui.id(),
+                                    (end - start) as f64,
+                                );
+                            }
                         }
-                    }
-                }
-            },
-        );
+                    },
+                );
+        });
     }
 }

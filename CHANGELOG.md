@@ -43,10 +43,13 @@
 * Lighten the shade of red used for the status text
 * Dragging a node to the left side of a node will add the dragged node as a parent,
   dragging it over the right side will add it as a child.
+* Summaries are now collapsible
 
 ## Bugs
 * Now saving creates a temporary file and then renames it to the correct file once it's been completely
   written
+* Scrolling is now more consistent because the running average is kept running, rather than piling
+  up into a giant immovable blob
 
 ## Refactoring
 * Use `show_viewport_deferred`

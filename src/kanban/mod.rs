@@ -1,5 +1,10 @@
 use chrono::prelude::*;
-use eframe::egui::{self, Color32, Margin, Response, RichText, ScrollArea, Stroke, Vec2};
+use editor::editor;
+use eframe::egui::collapsing_header::CollapsingState;
+use eframe::egui::{
+    self, CollapsingHeader, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke,
+    Vec2,
+};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -281,11 +286,17 @@ pub mod layout_cache {
         AVERAGE_CACHE.with_borrow_mut(|x| {
             let (cached_height, count) = x.entry(id).or_insert((50.0, 1.0));
             let avg = *cached_height / *count;
-
-            if (height - avg).abs() / height > 0.2 {
+            if (height - avg).abs() > 1. {
                 *cached_height += height;
                 *count += 1.0;
-                println!("Average height for id '{}': {:.2}", id.value(), avg);
+                // This preserves the sensitivities of the calculation, this is important to keep it
+                // responsive, as the mean will become harder to influence over time as samples are
+                // accrued
+                if *count > 1000. {
+                    *count /= 10.0;
+                    *cached_height /= 10.0;
+                }
+                // println!("Average height for id '{}': {:.2}", id.value(), avg);
             }
         });
     }
@@ -317,7 +328,7 @@ impl KanbanDocument {
                         let start = ui.cursor().min.y;
                         let item_id = ids[row];
                         let item = &self.tasks[&item_id];
-                        let action = item.summary(self, hovered_task, ui);
+                        let action = item.summary(self, hovered_task, ui, true, 0);
                         event_collector.push(action);
                         let end = ui.cursor().min.y;
                         layout_cache::record_measurement(cache_key, (end - start) as f64);
@@ -474,6 +485,8 @@ impl KanbanItem {
         document: &KanbanDocument,
         hovered_task: &mut Option<KanbanId>,
         ui: &mut egui::Ui,
+        start_open: bool,
+        idx: usize,
     ) -> SummaryAction {
         let mut action = SummaryAction::NoAction;
         let style = ui.visuals_mut();
@@ -520,7 +533,61 @@ impl KanbanItem {
             .outer_margin(Vec2::new(3.0, 0.0))
             .rounding(style.noninteractive().rounding)
             .stroke(stroke);
+
+        let text = RichText::new(&self.name).heading().color(name_color);
+
         frame.show(ui, |ui| {
+            let mut nearest_acceptable_layout = *ui.layout();
+            nearest_acceptable_layout.main_dir = Direction::TopDown;
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+            ui.with_layout(nearest_acceptable_layout, |ui| {
+                let id = ui.make_persistent_id(format!("summary {}, idx {}", self.id, idx));
+                CollapsingState::load_with_default_open(ui.ctx(), id, start_open)
+                    .show_header(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                            if ui.label(text).double_clicked() {
+                                action = SummaryAction::OpenEditor(self.id);
+                            }
+                        });
+                    })
+                    .body(|ui| {
+                        ui.vertical(|ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                let button = ui.button("Edit");
+                                if button.clicked() {
+                                    action = SummaryAction::OpenEditor(self.id);
+                                    ui.close_menu();
+                                }
+                                if ui.button("Add Child").clicked() {
+                                    action = SummaryAction::CreateChildOf(self.id);
+                                    ui.close_menu();
+                                }
+                                if ui
+                                    .button(if self.completed.is_some() {
+                                        "Uncomplete"
+                                    } else {
+                                        "Complete"
+                                    })
+                                    .clicked()
+                                {
+                                    action = SummaryAction::MarkCompleted(self.id);
+                                    ui.close_menu();
+                                }
+                                if ui.button("focus").clicked() {
+                                    action = SummaryAction::FocusOn(self.id);
+                                    ui.close_menu();
+                                }
+                            });
+
+                            ScrollArea::vertical()
+                                .id_salt(format!("Summary for item {}", self.id))
+                                .max_height(50.0)
+                                .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
+                        })
+                    });
+            });
+            return action;
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
             // There might be a better way to do this :p
             id = ui.id();

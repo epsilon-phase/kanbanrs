@@ -197,6 +197,8 @@ impl KanbanRS {
                         &doc,
                         &mut self.hovered_task,
                         &mut columns[1],
+                        true,
+                        0,
                     ));
                 }
 

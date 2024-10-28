@@ -139,7 +139,7 @@ impl State {
             .replace_category_style(&String::from("category"), self.style);
         for i in self.dummy_document.get_tasks() {
             let mut hovered = None;
-            i.summary(&self.dummy_document, &mut hovered, ui);
+            i.summary(&self.dummy_document, &mut hovered, ui, true, 0);
         }
         if ui.button("Apply style").clicked() {
             action = EditorAction::ApplyStyle(self.current_category_name.clone(), self.style);

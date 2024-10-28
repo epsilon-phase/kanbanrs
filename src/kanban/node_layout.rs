@@ -302,18 +302,6 @@ impl NodeLayout {
                 .filter(|x| filter.matches(x, document))
                 .filter(|x| !self.is_collapsed(document, x))
                 .collect()
-            // for i in document.get_tasks() {
-            //     if self.exclude_completed && i.completed.is_some() {
-            //         continue;
-            //     }
-            //     if !filter.matches(i, document) {
-            //         continue;
-            //     }
-            //     if self.is_collapsed(document, i) {
-            //         continue;
-            //     }
-            //     add_item_to_graph(i, document, style, &mut vg, &mut handles);
-            // }
         };
         tasks
             .iter()
@@ -403,7 +391,7 @@ impl NodeLayout {
                 let senses = senses.on_hover_ui(|ui| {
                     let task = _document.get_task(*task_id).unwrap();
                     let mut nothing: Option<KanbanId> = None;
-                    actions.push(task.summary(_document, &mut nothing, ui));
+                    actions.push(task.summary(_document, &mut nothing, ui, true, 0));
                 });
                 if senses.middle_clicked() {
                     self.focus = Some(*task_id);
