@@ -62,6 +62,7 @@
 * The `tasks` field in `KanbanDocument` now uses a BTreeMap for consistent ordering.
 * The `SummaryAction` enum now includes a command to explicitly indicate that a relayout
   is necessary
+* Renamed the EditorRequest enum items
 
 # v0.2.2
 

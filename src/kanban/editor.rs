@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-
 use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
@@ -37,11 +35,10 @@ pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
 }
 #[derive(Clone, Debug)]
 pub enum EditorRequest {
-    NoRequest,
-    NewItem(KanbanItem, KanbanItem),
-    OpenItem(KanbanItem),
-    DeleteItem(KanbanItem),
-    UpdateItem(KanbanItem),
+    New(KanbanItem, KanbanItem),
+    Open(KanbanItem),
+    Delete(KanbanItem),
+    Update(KanbanItem),
 }
 pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -> bool {
     let mut create_child = false;
@@ -49,7 +46,6 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
     let mut delete_task: Option<KanbanItem> = None;
     let mut update_task = false;
     let mut copy: Vec<KanbanId> = state.item_copy.child_tasks.iter().copied().collect();
-    let mut needs_update = false;
     super::sorting::sort_completed_last(document, &mut copy);
     ui.vertical(|ui| {
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
@@ -212,17 +208,17 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
             });
         });
     });
-    needs_update = open_task.is_some() || create_child || update_task || delete_task.is_some();
+    let needs_update = open_task.is_some() || create_child || update_task || delete_task.is_some();
     if update_task {
         state
             .transmitter
-            .send(EditorRequest::UpdateItem(state.item_copy.clone()))
+            .send(EditorRequest::Update(state.item_copy.clone()))
             .unwrap();
     }
     if let Some(to_delete) = delete_task {
         state
             .transmitter
-            .send(EditorRequest::DeleteItem(to_delete))
+            .send(EditorRequest::Delete(to_delete))
             .unwrap();
     }
     if create_child {
@@ -230,13 +226,13 @@ pub fn editor(ui: &mut egui::Ui, document: &KanbanDocument, state: &mut State) -
         state.item_copy.add_child(&new_child);
         state
             .transmitter
-            .send(EditorRequest::NewItem(state.item_copy.clone(), new_child))
+            .send(EditorRequest::New(state.item_copy.clone(), new_child))
             .unwrap();
     }
     if let Some(task_to_edit) = open_task {
         state
             .transmitter
-            .send(EditorRequest::OpenItem(
+            .send(EditorRequest::Open(
                 document.get_task(task_to_edit).cloned().unwrap(),
             ))
             .unwrap();

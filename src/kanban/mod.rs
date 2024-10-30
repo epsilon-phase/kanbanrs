@@ -1,13 +1,10 @@
 use chrono::prelude::*;
-use editor::editor;
 use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{
-    self, CollapsingHeader, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke,
-    Vec2,
+    self, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke, Vec2,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
 use std::collections::btree_map::{Values, ValuesMut};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use time_tracking::TimeRecords;
@@ -562,7 +559,6 @@ impl KanbanItem {
                 _ => (),
             };
         }
-        let mut id: egui::Id = egui::Id::new(0);
         /* Groups don't allow for setting the fill color.
         They might still be better, after all, the category seems like a better
         option to color the frame with */
@@ -636,77 +632,7 @@ impl KanbanItem {
                         })
                     });
             });
-            return action;
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-            // There might be a better way to do this :p
-            id = ui.id();
-            ui.vertical(|ui| {
-                let mut label: Option<Response> = None;
-                ui.horizontal(|ui| {
-                    if hovered_task.is_none() {
-                        label = Some(ui.label(RichText::new(self.name.clone()).color(name_color)));
-                    } else {
-                        label = Some(ui.label(
-                            match document.get_relation(self.id, hovered_task.unwrap()) {
-                                TaskRelation::Unrelated | TaskRelation::TheItemItself => {
-                                    self.name.clone()
-                                }
-                                TaskRelation::ChildOf => format!("{}\nDependent on", self.name),
-                                TaskRelation::ParentOf => format!("{}\nParent task of", self.name),
-                            },
-                        ));
-                    }
-
-                    if label.as_ref().unwrap().hovered() {
-                        *hovered_task = Some(self.id);
-                    }
-                    if label.as_ref().unwrap().middle_clicked() {
-                        action = SummaryAction::FocusOn(self.id);
-                    }
-                });
-                ui.horizontal_wrapped(|ui| {
-                    let button = ui.button("Edit");
-                    if button.clicked() {
-                        action = SummaryAction::OpenEditor(self.id);
-                        ui.close_menu();
-                    }
-                    if ui.button("Add Child").clicked() {
-                        action = SummaryAction::CreateChildOf(self.id);
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(if self.completed.is_some() {
-                            "Uncomplete"
-                        } else {
-                            "Complete"
-                        })
-                        .clicked()
-                    {
-                        action = SummaryAction::MarkCompleted(self.id);
-                        ui.close_menu();
-                    }
-                    if ui.button("focus").clicked() {
-                        action = SummaryAction::FocusOn(self.id);
-                        ui.close_menu();
-                    }
-                });
-                ui.horizontal(|ui| {
-                    let thing = match self.completed {
-                        Some(_) => {
-                            format!("Completed {}", self.get_completed_time_string().unwrap())
-                        }
-                        None => "Not completed".into(),
-                    };
-                    ui.label(RichText::new(thing).color(status_color).strong());
-                });
-                ScrollArea::vertical()
-                    .id_salt(format!("Summary for item {}", self.id))
-                    .max_height(50.0)
-                    .show(ui, |ui| ui.label(RichText::new(self.description.clone())));
-                // if ui.min_size().y < 200. {
-                //     ui.allocate_space(Vec2::new(ui.available_width(), 200. - ui.min_size().y));
-                // }
-            });
+            action
         });
         action
     }

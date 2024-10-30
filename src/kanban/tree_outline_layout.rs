@@ -13,16 +13,12 @@ pub struct TreeOutline {
     // If this is set then it should only display the tree from this node onwards.
     focused_id: Option<KanbanId>,
     exclude_completed: bool,
-    total_height: f64,
-    layout_count: f64,
 }
 
 type Depth = u32;
 impl TreeOutline {
     pub fn new() -> TreeOutline {
         TreeOutline {
-            total_height: 50.0,
-            layout_count: 1.0,
             ..Default::default()
         }
     }
@@ -93,7 +89,6 @@ impl TreeOutline {
         {
             actions.push(SummaryAction::UpdateLayout);
         }
-        let id = egui::Id::new("Tree Outline");
 
         ui.group(|ui| {
             let scroll_area = ScrollArea::vertical()

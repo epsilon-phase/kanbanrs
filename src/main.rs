@@ -571,7 +571,7 @@ impl KanbanRS {
     }
     fn handle_editor_request(&mut self, request: &mut EditorRequest) {
         match request {
-            kanban::editor::EditorRequest::NewItem(parent, new_task) => {
+            kanban::editor::EditorRequest::New(parent, new_task) => {
                 self.record_undo({
                     let mut document = self.document.write();
                     new_task.inherit(parent, &document);
@@ -590,14 +590,14 @@ impl KanbanRS {
             // The main distinction between the two is that opening an
             // existing task shouldn't change the state of the item in the
             // document.
-            kanban::editor::EditorRequest::OpenItem(item_to_open) => {
+            kanban::editor::EditorRequest::Open(item_to_open) => {
                 self.open_editors
                     .push(Arc::new(RwLock::new(kanban::editor::state_from(
                         item_to_open,
                         self.editor_tx.clone(),
                     ))));
             }
-            kanban::editor::EditorRequest::DeleteItem(to_delete) => {
+            kanban::editor::EditorRequest::Delete(to_delete) => {
                 let undo = self.document.write().remove_task(to_delete);
                 self.record_undo(undo);
                 for editor in self.open_editors.iter() {
@@ -607,13 +607,12 @@ impl KanbanRS {
                 self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
-            kanban::editor::EditorRequest::UpdateItem(item) => {
+            kanban::editor::EditorRequest::Update(item) => {
                 let undo = self.document.write().replace_task(item);
                 self.record_undo(undo);
                 self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
-            _ => {}
         }
     }
 }

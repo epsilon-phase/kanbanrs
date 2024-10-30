@@ -8,7 +8,7 @@ use egui::epaint::CubicBezierShape;
 use egui::{Pos2, Rect, Style};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
-use layout::core::format::{ClipHandle, RenderBackend, Renderable};
+use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
 use layout::core::style::StyleAttr;
 use layout::std_shapes::render::get_shape_size;
@@ -146,7 +146,6 @@ pub struct NodeLayout {
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
-    edges: HashMap<(KanbanId, KanbanId), Vec<Pos2>>,
     focus: Option<KanbanId>,
     exclude_completed: bool,
     dragged_item: Option<KanbanId>,
@@ -185,7 +184,7 @@ fn from_color32(a: Color32) -> layout::core::color::Color {
 }
 fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
     let diff = r.max.x - r.min.x;
-    return cursor.x < r.min.x + diff / 2.0;
+    cursor.x < r.min.x + diff / 2.0
 }
 impl RenderBackend for NodeLayout {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {

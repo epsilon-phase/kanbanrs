@@ -26,7 +26,7 @@ impl KanbanFilter {
             Self::CompletionStatus(false) => "Uncompleted",
         }
     }
-    pub fn show_ui(&mut self, ui: &mut Ui, document: &KanbanDocument) -> egui::Response {
+    pub fn show_ui(&mut self, ui: &mut Ui, _document: &KanbanDocument) -> egui::Response {
         let mut response: Option<Response> = None;
         ui.horizontal_wrapped(|ui| {
             let previous = self.clone();
