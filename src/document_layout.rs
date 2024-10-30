@@ -55,6 +55,7 @@ impl KanbanDocumentLayout {
         style: &egui::Style,
         filter: &KanbanFilter,
     ) {
+        kanban::layout_cache::clear_layout_cache();
         match self {
             KanbanDocumentLayout::Queue(x) => {
                 x.update(document);
@@ -117,9 +118,10 @@ impl From<&KanbanDocumentLayout> for String {
 impl KanbanRS {
     pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
         if let KanbanDocumentLayout::Columnar(cache) = &mut self.current_layout.clone() {
+            let column_width = ui.available_width() / 3.0;
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());
-
+                columns.iter_mut().for_each(|x| x.set_width(column_width));
                 self.document.read().layout_id_list(
                     &mut columns[0],
                     &cache[0],
@@ -247,6 +249,11 @@ pub mod test {
             assert_eq!(cache[0].len(), 2);
             assert_eq!(cache[1].len(), 1);
             assert_eq!(cache[2].len(), 1);
+            for column in cache {
+                for id in &column {
+                    assert_eq!(column.iter().filter(|x| *x == id).count(), 1);
+                }
+            }
         }
     }
 }

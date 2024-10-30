@@ -96,42 +96,24 @@ impl TreeOutline {
         let id = egui::Id::new("Tree Outline");
 
         ui.group(|ui| {
-            ScrollArea::vertical()
+            let scroll_area = ScrollArea::vertical()
                 .id_salt("Tree Outline")
-                .max_height(f32::INFINITY)
-                .show_rows(
-                    ui,
-                    super::layout_cache::get_average_item_height(id) as f32,
-                    self.cache.len(),
-                    |ui, range| {
-                        println!("Showing {} items", range.len());
-                        ui.set_width(ui.available_width());
-                        for idx in range {
-                            let (id, depth) = self.cache[idx];
-                            if let Some(task) = document.get_task(id) {
-                                let start = ui.cursor().min.y;
+                .max_height(f32::INFINITY);
 
-                                ui.horizontal(|ui| {
-                                    // ui.label("");
-                                    ui.add_space((depth as f32) * ui.available_width() / 20.0);
+            scroll_area.show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                for idx in 0..self.cache.len() {
+                    let (id, depth) = self.cache[idx];
+                    if let Some(task) = document.get_task(id) {
+                        ui.horizontal(|ui| {
+                            // ui.label("");
+                            ui.add_space((depth as f32) * ui.available_width() / 20.0);
 
-                                    actions.push(task.summary(
-                                        document,
-                                        hovered_item,
-                                        ui,
-                                        false,
-                                        idx,
-                                    ));
-                                });
-                                let end = ui.cursor().min.y;
-                                super::layout_cache::record_measurement(
-                                    ui.id(),
-                                    (end - start) as f64,
-                                );
-                            }
-                        }
-                    },
-                );
+                            actions.push(task.summary(document, hovered_item, ui, false, idx));
+                        });
+                    }
+                }
+            });
         });
     }
 }

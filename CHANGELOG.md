@@ -48,8 +48,7 @@
 ## Bugs
 * Now saving creates a temporary file and then renames it to the correct file once it's been completely
   written
-* Scrolling is now more consistent because the running average is kept running, rather than piling
-  up into a giant immovable blob
+* Scrolling is now more consistent
 
 ## Refactoring
 * Use `show_viewport_deferred`

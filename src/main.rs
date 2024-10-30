@@ -2,7 +2,7 @@ mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
 use clap::*;
-use eframe::egui::{self, ComboBox, RichText, Vec2};
+use eframe::egui::{self, ComboBox, Rect, RichText, Vec2};
 use kanban::{
     category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
@@ -41,6 +41,7 @@ struct KanbanRS {
     editor_tx: std::sync::mpsc::Sender<EditorRequest>,
     undo_buffer: CircularBuffer<35, kanban::undo::UndoItem>,
     filter: kanban::filter::KanbanFilter,
+    last_rect: Option<Rect>,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -65,6 +66,7 @@ impl KanbanRS {
             editor_tx: tx,
             undo_buffer: CircularBuffer::new(),
             filter: KanbanFilter::None,
+            last_rect: None,
         }
     }
 }
@@ -149,6 +151,7 @@ impl eframe::App for KanbanRS {
                 return;
             }
         }
+
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(
                 &self.document.read(),
@@ -205,6 +208,15 @@ impl eframe::App for KanbanRS {
         });
         self.hovered_task = None;
         egui::CentralPanel::default().show(ctx, |ui| {
+            let current_rect = Rect {
+                min: egui::Pos2 { x: 0., y: 0. },
+                max: ui.available_size().to_pos2(),
+            };
+            if self.last_rect.map_or(true, |x| x != current_rect) {
+                println!("Clearing layout cache");
+                kanban::layout_cache::clear_layout_cache();
+                self.last_rect = Some(current_rect);
+            }
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("Save").clicked() {

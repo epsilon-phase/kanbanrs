@@ -15,6 +15,7 @@ use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod filter;
 pub mod focused_layout;
+pub mod layout_cache;
 pub mod node_layout;
 pub mod priority_editor;
 pub mod sorting;
@@ -267,40 +268,40 @@ impl KanbanDocument {
         self.categories.insert(name.into(), style);
     }
 }
-pub mod layout_cache {
-    use super::*;
-    use std::{borrow::Borrow, cell::RefCell};
-    thread_local! {
-        static AVERAGE_CACHE:RefCell<HashMap<egui::Id,(f64,f64)>>=RefCell::new(HashMap::new());
+// pub mod layout_cache {
+//     use super::*;
+//     use std::{borrow::Borrow, cell::RefCell};
+//     thread_local! {
+//         static AVERAGE_CACHE:RefCell<HashMap<egui::Id,(f64,f64)>>=RefCell::new(HashMap::new());
 
-    }
-    pub fn get_average_item_height(id: egui::Id) -> f64 {
-        let map = AVERAGE_CACHE.with(|x| x.borrow().get(&id).copied());
-        if let Some((height, count)) = map {
-            height / count
-        } else {
-            0.0
-        }
-    }
-    pub fn record_measurement(id: egui::Id, height: f64) {
-        AVERAGE_CACHE.with_borrow_mut(|x| {
-            let (cached_height, count) = x.entry(id).or_insert((50.0, 1.0));
-            let avg = *cached_height / *count;
-            if (height - avg).abs() > 1. {
-                *cached_height += height;
-                *count += 1.0;
-                // This preserves the sensitivities of the calculation, this is important to keep it
-                // responsive, as the mean will become harder to influence over time as samples are
-                // accrued
-                if *count > 1000. {
-                    *count /= 10.0;
-                    *cached_height /= 10.0;
-                }
-                // println!("Average height for id '{}': {:.2}", id.value(), avg);
-            }
-        });
-    }
-}
+//     }
+//     pub fn get_average_item_height(id: egui::Id) -> f64 {
+//         let map = AVERAGE_CACHE.with(|x| x.borrow().get(&id).copied());
+//         if let Some((height, count)) = map {
+//             height / count
+//         } else {
+//             0.0
+//         }
+//     }
+//     pub fn record_measurement(id: egui::Id, height: f64) {
+//         AVERAGE_CACHE.with_borrow_mut(|x| {
+//             let (cached_height, count) = x.entry(id).or_insert((50.0, 1.0));
+//             let avg = *cached_height / *count;
+//             if (height - avg).abs() > 2. {
+//                 *cached_height += height;
+//                 *count += 1.0;
+//                 // This preserves the sensitivities of the calculation, this is important to keep it
+//                 // responsive, as the mean will become harder to influence over time as samples are
+//                 // accrued
+//                 if *count > 200. {
+//                     *count /= 2.0;
+//                     *cached_height /= 2.0;
+//                 }
+//                 // println!("Average height for id '{}': {:.2}", id.value(), avg);
+//             }
+//         });
+//     }
+// }
 impl KanbanDocument {
     //! Produce a vertical layout scrolling downwards.
     //!
@@ -316,27 +317,65 @@ impl KanbanDocument {
         hovered_task: &mut Option<i32>,
         event_collector: &mut Vec<SummaryAction>,
         id_salt: impl std::hash::Hash,
-    ) -> f64 {
+    ) {
+        ui.set_width(ui.available_width());
         let cache_key = egui::Id::new(&id_salt);
-        egui::ScrollArea::vertical().id_salt(id_salt).show_rows(
-            ui,
-            layout_cache::get_average_item_height(cache_key) as f32,
-            ids.len(),
-            |ui, range| {
+        let scrollarea = egui::ScrollArea::vertical().id_salt(id_salt);
+        if layout_cache::has_cache(cache_key, ids.len()) {
+            println!("Using cached layout info");
+            scrollarea.show_viewport(ui, |ui, rect| {
+                ui.set_width(ui.available_width());
                 ui.vertical_centered_justified(|ui| {
-                    for row in range.clone() {
+                    ui.set_width(ui.available_width() - 5.);
+                    let height = layout_cache::cached_total_height(cache_key) + 20.;
+                    // Using set_height here is not great as it causes the ui to be fixed at that
+                    // size, which isn't a good idea.
+                    // Sources of errors here include things like the spacing provided.
+                    //
+                    // Possible enhancements here could include adding the expected gaps to the height
+                    // calculation.
+                    ui.set_min_height(height);
+                    let mut accumulated_height: f32 = 0.;
+                    for item_id in ids.iter() {
+                        let element_height = layout_cache::get_item_height(cache_key, *item_id);
+                        if accumulated_height + element_height < rect.min.y {
+                            accumulated_height += element_height + ui.spacing().item_spacing.y;
+                            let mut c = ui.cursor();
+                            c.set_height(element_height);
+                            ui.advance_cursor_after_rect(c);
+                            continue;
+                        }
+                        if accumulated_height > rect.max.y {
+                            break;
+                        }
+                        // This allows us to account for the size including the gaps
+                        // inserted by the layout
                         let start = ui.cursor().min.y;
-                        let item_id = ids[row];
-                        let item = &self.tasks[&item_id];
+                        let item = &self.tasks[item_id];
                         let action = item.summary(self, hovered_task, ui, true, 0);
                         event_collector.push(action);
                         let end = ui.cursor().min.y;
-                        layout_cache::record_measurement(cache_key, (end - start) as f64);
+                        layout_cache::record_position(cache_key, *item_id, start, end);
+                        accumulated_height += end - start;
                     }
                 });
-            },
-        );
-        layout_cache::get_average_item_height(cache_key)
+            });
+        } else {
+            scrollarea.show(ui, |ui| {
+                ui.vertical_centered_justified(|ui| {
+                    let mut last_end: Option<f32> = Some(0.0);
+                    for item_id in ids.iter() {
+                        let start = last_end.unwrap_or(ui.cursor().min.y);
+                        let item = &self.tasks[item_id];
+                        let action = item.summary(self, hovered_task, ui, true, 0);
+                        event_collector.push(action);
+                        let end = ui.cursor().min.y;
+                        layout_cache::record_position(cache_key, *item_id, start, end);
+                        last_end = Some(end);
+                    }
+                });
+            });
+        }
     }
 }
 #[derive(PartialEq, Eq)]
@@ -401,7 +440,7 @@ impl KanbanItem {
             let difference = current_time - completion_time;
             if difference.num_days() > 7 {
                 let local: DateTime<chrono::Local> = completion_time.into();
-                Some(format!("on {}", local))
+                Some(format!("on {}", local.format("%F %H:%M")))
             } else {
                 let diff_str;
                 if difference.num_days() >= 1 {
@@ -553,6 +592,16 @@ impl KanbanItem {
                     })
                     .body(|ui| {
                         ui.vertical(|ui| {
+                            let thing = match self.completed {
+                                Some(_) => {
+                                    format!(
+                                        "Completed {}",
+                                        self.get_completed_time_string().unwrap()
+                                    )
+                                }
+                                None => "Not completed".into(),
+                            };
+                            ui.label(RichText::new(thing).color(status_color).strong().small());
                             ui.horizontal_wrapped(|ui| {
                                 let button = ui.button("Edit");
                                 if button.clicked() {
