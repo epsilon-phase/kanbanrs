@@ -613,6 +613,7 @@ impl KanbanRS {
                 self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
+            _ => {}
         }
     }
 }

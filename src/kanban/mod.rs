@@ -265,40 +265,7 @@ impl KanbanDocument {
         self.categories.insert(name.into(), style);
     }
 }
-// pub mod layout_cache {
-//     use super::*;
-//     use std::{borrow::Borrow, cell::RefCell};
-//     thread_local! {
-//         static AVERAGE_CACHE:RefCell<HashMap<egui::Id,(f64,f64)>>=RefCell::new(HashMap::new());
 
-//     }
-//     pub fn get_average_item_height(id: egui::Id) -> f64 {
-//         let map = AVERAGE_CACHE.with(|x| x.borrow().get(&id).copied());
-//         if let Some((height, count)) = map {
-//             height / count
-//         } else {
-//             0.0
-//         }
-//     }
-//     pub fn record_measurement(id: egui::Id, height: f64) {
-//         AVERAGE_CACHE.with_borrow_mut(|x| {
-//             let (cached_height, count) = x.entry(id).or_insert((50.0, 1.0));
-//             let avg = *cached_height / *count;
-//             if (height - avg).abs() > 2. {
-//                 *cached_height += height;
-//                 *count += 1.0;
-//                 // This preserves the sensitivities of the calculation, this is important to keep it
-//                 // responsive, as the mean will become harder to influence over time as samples are
-//                 // accrued
-//                 if *count > 200. {
-//                     *count /= 2.0;
-//                     *cached_height /= 2.0;
-//                 }
-//                 // println!("Average height for id '{}': {:.2}", id.value(), avg);
-//             }
-//         });
-//     }
-// }
 impl KanbanDocument {
     //! Produce a vertical layout scrolling downwards.
     //!

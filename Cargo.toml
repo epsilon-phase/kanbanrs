@@ -1,6 +1,6 @@
 [package]
 name = "kanbanrs"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 repository = "https://github.com/epsilon-phase/kanbanrs/"
 authors = ["Violet White"]
@@ -43,6 +43,7 @@ opt-level = "s"
 lto = true
 panic = "abort"
 codegen-units = 1
+
 
 # The profile that 'cargo dist' will build with
 [profile.dist]
