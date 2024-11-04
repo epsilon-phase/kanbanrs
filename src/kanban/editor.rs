@@ -444,8 +444,7 @@ impl State {
                                 self.time_entry_under_edit = None;
                             }
                         }
-                    }
-                    if let Some(ref desc) = x.1 {
+                    } else if let Some(ref desc) = x.1 {
                         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                         ui.label(desc);
                     }

@@ -3,6 +3,7 @@
 ## Features
 
 ## Bugs
+* Time entry description entries are less congested during editing
 
 ## Refactoring
 * Moved the editor display functions into the State impl.
