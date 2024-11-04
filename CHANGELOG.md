@@ -1,3 +1,12 @@
+# v0.2.4
+
+## Features
+
+## Bugs
+
+## Refactoring
+* Moved the editor display functions into the State impl.
+
 # v0.2.3
 
 ## Features

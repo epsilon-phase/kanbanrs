@@ -404,11 +404,7 @@ impl eframe::App for KanbanRS {
                         .with_title(&window_title),
                     move |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            if kanban::editor::editor(
-                                ui,
-                                &document.read(),
-                                editor.write().borrow_mut(),
-                            ) {
+                            if editor.write().borrow_mut().editor(ui, &document.read()) {
                                 ctx.request_repaint_of(viewport_id);
                             }
                         });
