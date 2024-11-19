@@ -1,12 +1,21 @@
 # v0.2.4
 
 ## Features
+* Window menu - Makes managing windows substantially easier when you've opened too many.
+  * Focusing does not work on wayland compositors, but it will attempt to get your
+    attention otherwise
+  * Editors are listed with a close button.
+
+## UI Improvements
+* Add a separator between the layout controls and the filter settings.
 
 ## Bugs
 * Time entry description entries are less congested during editing
+* I swear that this time the scrolling is *smooth* and *not jank*
 
 ## Refactoring
 * Moved the editor display functions into the State impl.
+* Rename record_position to record_height to make it clearer what it does.
 
 # v0.2.3
 

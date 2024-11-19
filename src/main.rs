@@ -2,7 +2,7 @@ mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
 use clap::*;
-use eframe::egui::{self, ComboBox, Rect, RichText, Vec2};
+use eframe::egui::{self, ComboBox, Rect, RichText, Vec2, ViewportCommand};
 use kanban::{
     category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
@@ -42,6 +42,7 @@ struct KanbanRS {
     undo_buffer: CircularBuffer<35, kanban::undo::UndoItem>,
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
+    messages: Vec<String>,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -67,6 +68,7 @@ impl KanbanRS {
             undo_buffer: CircularBuffer::new(),
             filter: KanbanFilter::None,
             last_rect: None,
+            messages: Vec::new(),
         }
     }
 }
@@ -213,7 +215,7 @@ impl eframe::App for KanbanRS {
                 max: ui.available_size().to_pos2(),
             };
             if self.last_rect.map_or(true, |x| x != current_rect) {
-                println!("Clearing layout cache");
+                // println!("Clearing layout cache");
                 kanban::layout_cache::clear_layout_cache();
                 self.last_rect = Some(current_rect);
             }
@@ -275,6 +277,60 @@ impl eframe::App for KanbanRS {
                         self.priority_editor.open = true;
                         ui.close_menu();
                     }
+                    if ui
+                        .button("Open recording tasks")
+                        .on_hover_text("Open items with active time tracking")
+                        .clicked()
+                    {
+                        let mut editor_opened = false;
+                        for i in self
+                            .document
+                            .read()
+                            .get_tasks()
+                            .filter(|x| x.time_records.is_recording())
+                        {
+                            editor_opened = true;
+                            let editor = kanban::editor::state_from(i, self.editor_tx.clone());
+                            self.open_editors.push(Arc::new(RwLock::new(editor)));
+                        }
+                        if !editor_opened {
+                            self.messages.push("No open tasks".into());
+                        }
+                        ui.close_menu();
+                    }
+                });
+                ui.menu_button("Window", |ui| {
+                    ui.add_enabled_ui(!self.open_editors.is_empty(), |ui| {
+                        ui.menu_button("Task editors", |ui| {
+                            for i in &self.open_editors {
+                                let editor = i.read();
+                                ui.horizontal(|ui| {
+                                    if ui.button(&editor.item_copy.name).clicked() {
+                                        ctx.send_viewport_cmd_to(
+                                            editor.viewport_id,
+                                            egui::ViewportCommand::Focus,
+                                        );
+                                        ctx.send_viewport_cmd_to(
+                                            editor.viewport_id,
+                                            ViewportCommand::RequestUserAttention(
+                                                egui::UserAttentionType::Critical,
+                                            ),
+                                        );
+                                        ctx.request_repaint_of(editor.viewport_id);
+                                        ui.close_menu();
+                                    }
+                                    ui.separator();
+                                    if ui.button("Close").clicked() {
+                                        ctx.send_viewport_cmd_to(
+                                            editor.viewport_id,
+                                            ViewportCommand::Close,
+                                        );
+                                        ui.close_menu();
+                                    }
+                                });
+                            }
+                        });
+                    });
                 });
             });
             ui.horizontal(|ui| {
@@ -336,6 +392,7 @@ impl eframe::App for KanbanRS {
                 } else {
                     self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
                 }
+                ui.separator();
                 if self.filter.show_ui(ui, &self.document.read()).changed() {
                     self.layout_cache_needs_updating |= true;
                 }
@@ -395,10 +452,10 @@ impl eframe::App for KanbanRS {
                 let viewport_id = ui.ctx().viewport_id();
                 let document = self.document.clone();
                 let editor = editor.clone();
-                let id = editor.read().item_copy.id;
+                let id = editor.read().viewport_id;
                 let window_title = format!("Editing '{}'", editor.read().item_copy.name);
                 ui.ctx().show_viewport_deferred(
-                    egui::ViewportId::from_hash_of(id),
+                    id,
                     egui::ViewportBuilder::default()
                         .with_window_type(egui::X11WindowType::Dialog)
                         .with_title(&window_title),
@@ -414,6 +471,26 @@ impl eframe::App for KanbanRS {
                     },
                 );
             }
+            self.messages.retain(|x| {
+                let mut keep = true;
+                ui.ctx().show_viewport_immediate(
+                    egui::ViewportId::from_hash_of(x),
+                    egui::ViewportBuilder::default()
+                        .with_inner_size(Vec2::new(500.0, 100.))
+                        .with_window_type(egui::X11WindowType::Notification)
+                        .with_resizable(false),
+                    |ctx, _class| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.label(x);
+                            ui.button("")
+                        });
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            keep = false;
+                        }
+                    },
+                );
+                keep
+            });
 
             // I would prefer this in an iterator or a for loop, but, I am simply not brain enough tonight
             while let Some(x) = self.summary_actions_pending.pop() {

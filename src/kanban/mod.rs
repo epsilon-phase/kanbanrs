@@ -285,23 +285,25 @@ impl KanbanDocument {
         ui.set_width(ui.available_width());
         let cache_key = egui::Id::new(&id_salt);
         let scrollarea = egui::ScrollArea::vertical().id_salt(id_salt);
-        if layout_cache::has_cache(cache_key, ids.len()) {
-            println!("Using cached layout info");
-            scrollarea.show_viewport(ui, |ui, rect| {
-                ui.set_width(ui.available_width());
-                ui.vertical_centered_justified(|ui| {
-                    ui.set_width(ui.available_width() - 5.);
-                    let height = layout_cache::cached_total_height(cache_key) + 20.;
-                    // Using set_height here is not great as it causes the ui to be fixed at that
-                    // size, which isn't a good idea.
-                    // Sources of errors here include things like the spacing provided.
-                    //
-                    // Possible enhancements here could include adding the expected gaps to the height
-                    // calculation.
-                    ui.set_min_height(height);
-                    let mut accumulated_height: f32 = 0.;
-                    for item_id in ids.iter() {
-                        let element_height = layout_cache::get_item_height(cache_key, *item_id);
+        scrollarea.show_viewport(ui, |ui, rect| {
+            println!("{:?}", rect);
+            ui.set_width(ui.available_width());
+            ui.vertical_centered_justified(|ui| {
+                ui.set_width(ui.available_width() - 5.);
+                let height = layout_cache::cached_total_height(cache_key)
+                    + ui.spacing().item_spacing.y * (ids.len() as f32);
+                // Using set_height here is not great as it causes the ui to be fixed at that
+                // size, which isn't a good idea.
+                // Sources of errors here include things like the spacing provided.
+                //
+                // Possible enhancements here could include adding the expected gaps to the height
+                // calculation.
+                ui.set_min_height(height);
+                let mut accumulated_height: f32 = 0.;
+                let populating_cache = !layout_cache::has_cache(cache_key, ids.len());
+                for item_id in ids.iter() {
+                    let element_height = layout_cache::get_item_height(cache_key, *item_id);
+                    if let Some(element_height) = element_height {
                         if accumulated_height + element_height < rect.min.y {
                             accumulated_height += element_height + ui.spacing().item_spacing.y;
                             let mut c = ui.cursor();
@@ -309,37 +311,24 @@ impl KanbanDocument {
                             ui.advance_cursor_after_rect(c);
                             continue;
                         }
-                        if accumulated_height > rect.max.y {
-                            break;
-                        }
-                        // This allows us to account for the size including the gaps
-                        // inserted by the layout
-                        let start = ui.cursor().min.y;
-                        let item = &self.tasks[item_id];
-                        let action = item.summary(self, hovered_task, ui, true, 0);
-                        event_collector.push(action);
-                        let end = ui.cursor().min.y;
-                        layout_cache::record_position(cache_key, *item_id, start, end);
-                        accumulated_height += end - start;
                     }
-                });
-            });
-        } else {
-            scrollarea.show(ui, |ui| {
-                ui.vertical_centered_justified(|ui| {
-                    let mut last_end: Option<f32> = Some(0.0);
-                    for item_id in ids.iter() {
-                        let start = last_end.unwrap_or(ui.cursor().min.y);
-                        let item = &self.tasks[item_id];
-                        let action = item.summary(self, hovered_task, ui, true, 0);
-                        event_collector.push(action);
-                        let end = ui.cursor().min.y;
-                        layout_cache::record_position(cache_key, *item_id, start, end);
-                        last_end = Some(end);
+                    if accumulated_height > rect.max.y && !populating_cache {
+                        break;
                     }
-                });
+                    // This allows us to account for the size including the gaps
+                    // inserted by the layout
+                    let start = ui.cursor().min.y;
+                    let item = &self.tasks[item_id];
+                    let action = item.summary(self, hovered_task, ui, true, 0);
+                    event_collector.push(action);
+                    let end = ui.cursor().min.y;
+                    // This *might* be the cause of an error when scrolled down
+                    // when you edit an item.
+                    layout_cache::record_height(cache_key, *item_id, start, end);
+                    accumulated_height += end - start;
+                }
             });
-        }
+        });
     }
 }
 #[derive(PartialEq, Eq)]

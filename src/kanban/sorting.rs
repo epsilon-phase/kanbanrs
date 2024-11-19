@@ -10,6 +10,7 @@ pub enum ItemSort {
     Name,
     Category,
     Completed,
+    TimeSpent,
 }
 impl From<ItemSort> for String {
     fn from(value: ItemSort) -> Self {
@@ -20,6 +21,7 @@ impl From<ItemSort> for String {
             ItemSort::Name => "Name",
             ItemSort::Category => "Category",
             ItemSort::Completed => "Completed",
+            ItemSort::TimeSpent => "Time Spent",
         }
         .to_owned()
     }
@@ -33,6 +35,7 @@ impl ItemSort {
             Self::Name => a.name.cmp(&b.name),
             Self::Category => a.category.cmp(&b.category),
             Self::Completed => a.completed.cmp(&b.completed),
+            Self::TimeSpent => a.time_records.duration().cmp(&b.time_records.duration()),
         }
     }
     pub fn sort_by(&self, ids: &mut [KanbanId], document: &KanbanDocument) {
@@ -50,6 +53,9 @@ impl ItemSort {
             Self::Completed => {
                 ids.sort_by_key(|x| &document.get_task(*x).as_ref().unwrap().completed)
             }
+            Self::TimeSpent => {
+                ids.sort_by_cached_key(|x| document.get_task(*x).unwrap().time_records.duration())
+            }
         }
     }
     pub fn combobox(&mut self, ui: &mut egui::Ui) -> bool {
@@ -65,6 +71,7 @@ impl ItemSort {
                     ui.selectable_value(self, Self::Name, "Name"),
                     ui.selectable_value(self, Self::Category, "Category"),
                     ui.selectable_value(self, Self::Completed, "Completed"),
+                    ui.selectable_value(self, Self::TimeSpent, "Time Spent"),
                 ]
                 .iter()
                 .any(|x| x.clicked());

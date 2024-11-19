@@ -7,6 +7,7 @@ pub struct State {
     pub open: bool,
     pub cancelled: bool,
     pub item_copy: super::KanbanItem,
+    pub viewport_id: egui::ViewportId,
     selected_child: Option<KanbanId>,
     new_tag: String,
     category: String,
@@ -31,6 +32,7 @@ pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
         new_time_entry: TimeDelta::new(0, 0).unwrap(),
         time_entry_under_edit: None,
         transmitter: tx,
+        viewport_id: egui::ViewportId::from_hash_of(item.id),
     }
 }
 #[derive(Clone, Debug)]
