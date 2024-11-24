@@ -11,6 +11,7 @@ pub struct State {
     selected_child: Option<KanbanId>,
     new_tag: String,
     category: String,
+    editing_category: bool,
     is_on_child_view: bool,
     is_on_tag_view: bool,
     new_time_entry: TimeDelta,
@@ -33,6 +34,7 @@ pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
         time_entry_under_edit: None,
         transmitter: tx,
         viewport_id: egui::ViewportId::from_hash_of(item.id),
+        editing_category: false,
     }
 }
 #[derive(Clone, Debug)]
@@ -92,121 +94,148 @@ impl State {
                 });
                 ui.heading("Description");
                 ui.text_edit_multiline(&mut self.item_copy.description);
-                ui.columns(2, |columns| {
-                    columns[1]
-                        .text_edit_singleline(&mut self.category)
-                        .on_hover_text("Enter a category Name");
-                    columns[0].horizontal(|ui| {
-                        ui.label("Category");
+                ui.horizontal(|ui| {
+                    ui.label("Category:");
+
+                    if self.editing_category {
+                        ui.text_edit_singleline(&mut self.category);
+                        if ui.button("Accept").clicked() {
+                            self.editing_category = false;
+                        }
+                    } else {
                         ComboBox::from_id_salt("Category")
                             .selected_text(&self.category)
                             .show_ui(ui, |ui| {
                                 ui.selectable_value(&mut self.category, "".to_owned(), "None");
+                                // let mut found_current = false;
                                 for i in document.categories.keys() {
                                     ui.selectable_value(&mut self.category, i.clone(), i.clone());
+                                    // found_current |= *i == self.category;
                                 }
-                            })
-                    });
+                                // This can be uncommented if I find being able to select the
+                                // current value useful
+                                // if !found_current {
+                                //     let current = self.category.clone();
+                                //     // Need to investigate ways to avoid allocation here
+                                //     ui.selectable_value(
+                                //         &mut self.category,
+                                //         current.clone(),
+                                //         &current,
+                                //     );
+                                // }
+                            });
+                        self.editing_category = ui.button("Edit").clicked();
+                    }
                 });
 
                 ui.columns(2, |columns| {
-                    columns[0].horizontal(|ui| {
-                        ui.radio_value(&mut self.is_on_child_view, true, "Children");
-                        ui.radio_value(&mut self.is_on_child_view, false, "Parents");
-                    });
-                    if self.is_on_child_view {
-                        columns[0].horizontal(|ui| {
-                            if ui.button("Add new child").clicked {
-                                create_child = true;
-                            }
-                            ui.label("Select Child to add");
-                            ComboBox::from_id_salt("Select Child to add")
-                                .selected_text(match self.selected_child {
-                                    None => "None",
-                                    Some(x) => &document.get_task(x).unwrap().name[..12],
-                                })
-                                .show_ui(ui, |ui| {
-                                    let mut task: Vec<&KanbanItem> = document
-                                        .get_tasks()
-                                        .filter(|x| document.can_add_as_child(&self.item_copy, x))
-                                        .collect();
-                                    let c = super::sorting::ItemSort::Id;
-                                    task.sort_by(|a, b| c.cmp_by(a, b));
-                                    task.reverse();
-                                    task.sort_by(|a, b| {
-                                        super::sorting::task_comparison_completed_last(a, b)
-                                    });
-                                    ui.selectable_value(&mut self.selected_child, None, "None");
-                                    for i in task.drain(..) {
-                                        let mut style = RichText::new(&i.name);
-                                        if i.completed.is_some() {
-                                            style = style.strikethrough();
+                    columns[0].group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut self.is_on_child_view, true, "Children");
+                            ui.radio_value(&mut self.is_on_child_view, false, "Parents");
+                        });
+                        ui.separator();
+                        if self.is_on_child_view {
+                            ui.horizontal(|ui| {
+                                if ui.button("Add new child").clicked {
+                                    create_child = true;
+                                }
+                                ui.label("Select Child to add");
+                                ComboBox::from_id_salt("Select Child to add")
+                                    .selected_text(match self.selected_child {
+                                        None => "None",
+                                        Some(x) => &document.get_task(x).unwrap().name[..12],
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        let mut task: Vec<&KanbanItem> = document
+                                            .get_tasks()
+                                            .filter(|x| {
+                                                document.can_add_as_child(&self.item_copy, x)
+                                            })
+                                            .collect();
+                                        let c = super::sorting::ItemSort::Id;
+                                        task.sort_by(|a, b| c.cmp_by(a, b));
+                                        task.reverse();
+                                        task.sort_by(|a, b| {
+                                            super::sorting::task_comparison_completed_last(a, b)
+                                        });
+                                        ui.selectable_value(&mut self.selected_child, None, "None");
+                                        for i in task.drain(..) {
+                                            let mut style = RichText::new(&i.name);
+                                            if i.completed.is_some() {
+                                                style = style.strikethrough();
+                                            }
+                                            ui.selectable_value(
+                                                &mut self.selected_child,
+                                                Some(i.id),
+                                                style,
+                                            );
                                         }
-                                        ui.selectable_value(
-                                            &mut self.selected_child,
-                                            Some(i.id),
-                                            style,
-                                        );
-                                    }
-                                });
-                            ui.add_enabled(self.selected_child.is_some(), Button::new("Add Child"))
+                                    });
+                                ui.add_enabled(
+                                    self.selected_child.is_some(),
+                                    Button::new("Add Child"),
+                                )
                                 .clicked()
                                 .then(|| {
                                     self.item_copy
                                         .child_tasks
                                         .insert(self.selected_child.unwrap());
                                 });
-                        });
-                        self.show_children(&mut columns[0], document, &mut open_task, &copy);
-                    } else {
-                        self.show_parents(&mut columns[0], document, &mut open_task);
-                    }
-                    {
-                        let ui = &mut columns[1];
+                            });
+                            self.show_children(ui, document, &mut open_task, &copy);
+                        } else {
+                            self.show_parents(ui, document, &mut open_task);
+                        }
+                    });
+                    columns[1].group(|ui| {
                         ui.horizontal(|ui| {
                             ui.radio_value(&mut self.is_on_tag_view, true, "Tags");
                             ui.radio_value(&mut self.is_on_tag_view, false, "Time tracking");
                         });
+                        ui.separator();
                         if self.is_on_tag_view {
                             self.display_tags(ui);
                         } else {
                             self.show_time_records(ui, document);
                         }
-                    }
+                    });
                 });
-                ui.horizontal(|ui| {
-                    let accept_button = ui.button("Accept changes");
-                    let cancel_button = ui.button("Cancel changes");
-                    let delete_button = ui.button("Delete and close");
-                    if accept_button.clicked() {
-                        if !self.category.is_empty() {
-                            self.item_copy.category = Some(self.category.clone());
-                        } else {
-                            self.item_copy.category = None;
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        let accept_button = ui.button("Accept changes");
+                        let cancel_button = ui.button("Cancel changes");
+                        let delete_button = ui.button("Delete and close");
+                        if accept_button.clicked() {
+                            if !self.category.is_empty() {
+                                self.item_copy.category = Some(self.category.clone());
+                            } else {
+                                self.item_copy.category = None;
+                            }
+                            self.open = false;
                         }
-                        self.open = false;
-                    }
-                    if cancel_button.clicked() {
-                        self.open = false;
-                        self.cancelled = true;
-                    }
-                    if delete_button.clicked() {
-                        self.open = false;
-                        self.cancelled = true;
-                        // May be more efficient to avoid copying this in full and just populate a
-                        // dummy task with only the id set
-                        delete_task = Some(self.item_copy.clone());
-                    }
-                    if accept_button
-                        .union(delete_button)
-                        .union(cancel_button)
-                        .clicked()
-                    {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    }
-                    if ui.button("Apply").clicked() {
-                        update_task = true;
-                    }
+                        if cancel_button.clicked() {
+                            self.open = false;
+                            self.cancelled = true;
+                        }
+                        if delete_button.clicked() {
+                            self.open = false;
+                            self.cancelled = true;
+                            // May be more efficient to avoid copying this in full and just populate a
+                            // dummy task with only the id set
+                            delete_task = Some(self.item_copy.clone());
+                        }
+                        if accept_button
+                            .union(delete_button)
+                            .union(cancel_button)
+                            .clicked()
+                        {
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("Apply").clicked() {
+                            update_task = true;
+                        }
+                    });
                 });
             });
         });

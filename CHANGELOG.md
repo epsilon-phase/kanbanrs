@@ -5,9 +5,17 @@
   * Focusing does not work on wayland compositors, but it will attempt to get your
     attention otherwise
   * Editors are listed with a close button.
+* Add sorting by the time spent on the task
+* Add a button to open all tasks with open time recording
 
 ## UI Improvements
 * Add a separator between the layout controls and the filter settings.
+* Improve the editor's design a bit
+  * Add outlines around each column
+  * Add a separator between the column function radio selectors and the contents
+  * Creating a new category now consists of clicking the edit button,
+    which opens a text box and a button to accept the new category
+  * Add a group around the button cluster at the bottom
 
 ## Bugs
 * Time entry description entries are less congested during editing
