@@ -8,6 +8,8 @@ pub enum KanbanFilter {
     MatchesCategory(String),
     RelatedTo(KanbanId),
     CompletionStatus(bool),
+    NameContains(String),
+    TagContains(String),
 }
 
 impl Default for KanbanFilter {
@@ -24,6 +26,8 @@ impl KanbanFilter {
             Self::RelatedTo(_) => "Related To",
             Self::CompletionStatus(true) => "Completed",
             Self::CompletionStatus(false) => "Uncompleted",
+            Self::NameContains(_) => "Name Contains",
+            Self::TagContains(_) => "Tag Contains",
         }
     }
     pub fn show_ui(&mut self, ui: &mut Ui, _document: &KanbanDocument) -> egui::Response {
@@ -46,6 +50,8 @@ impl KanbanFilter {
                     );
                     ui.selectable_value(self, Self::CompletionStatus(true), "Completed");
                     ui.selectable_value(self, Self::CompletionStatus(false), "Uncompleted");
+                    ui.selectable_value(self, Self::NameContains("".to_string()), "Name Contains");
+                    ui.selectable_value(self, Self::TagContains("".to_string()), "Contains Tag");
                 })
                 .response;
             // I need to report this to egui as this seems as if it shouldn't be necessary
@@ -54,12 +60,13 @@ impl KanbanFilter {
             }
             let mut text_response: Option<Response> = None;
             match self {
-                Self::ContainsString(ref mut str) => {
+                Self::ContainsString(ref mut str)
+                | Self::MatchesCategory(ref mut str)
+                | Self::NameContains(ref mut str)
+                | Self::TagContains(ref mut str) => {
                     text_response = Some(ui.text_edit_singleline(str));
                 }
-                Self::MatchesCategory(ref mut str) => {
-                    text_response = Some(ui.text_edit_singleline(str));
-                }
+
                 _ => {}
             }
             if let Some(tr) = text_response {
@@ -90,6 +97,8 @@ impl KanbanFilter {
                     item.completed.is_none()
                 }
             }
+            Self::NameContains(substr) => item.name.contains(substr.as_str()),
+            Self::TagContains(tag) => item.tags.contains(tag),
         }
     }
 }
@@ -199,6 +208,30 @@ mod test {
                 .filter(|x| filter.matches(x, &document))
                 .count(),
             2
+        );
+    }
+    #[test]
+    fn test_name_contains() {
+        let document = get_test_document();
+        let filter = KanbanFilter::NameContains("Name".to_string());
+        assert_eq!(
+            document
+                .get_tasks()
+                .filter(|x| filter.matches(x, &document))
+                .count(),
+            1
+        );
+    }
+    #[test]
+    fn test_tag_contains() {
+        let document = get_test_document();
+        let filter = KanbanFilter::TagContains(TEST_TAG.to_string());
+        assert_eq!(
+            document
+                .get_tasks()
+                .filter(|x| filter.matches(x, &document))
+                .count(),
+            1
         );
     }
 }

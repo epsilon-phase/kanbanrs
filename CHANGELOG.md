@@ -6,7 +6,10 @@
     attention otherwise
   * Editors are listed with a close button.
 * Add sorting by the time spent on the task
-* Add a button to open all tasks with open time recording
+* Add a menu entry to open all tasks currently recording a time entry
+* Add Filters
+  * **Name** - Match on the name alone.
+  * **Tag** - Match a specific tag
 
 ## UI Improvements
 * Add a separator between the layout controls and the filter settings.
