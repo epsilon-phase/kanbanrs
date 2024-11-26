@@ -32,48 +32,66 @@ impl KanbanFilter {
     }
     pub fn show_ui(&mut self, ui: &mut Ui, _document: &KanbanDocument) -> egui::Response {
         let mut response: Option<Response> = None;
-        ui.horizontal_wrapped(|ui| {
-            let previous = self.clone();
-            let mut box_response = ComboBox::new("Filter Select", "Select filter type")
-                .selected_text(self.option_name())
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(self, Self::None, "None");
-                    ui.selectable_value(
-                        self,
-                        Self::ContainsString("".to_owned()),
-                        "Contains String",
-                    );
-                    ui.selectable_value(
-                        self,
-                        Self::MatchesCategory("".to_owned()),
-                        "Matches Category",
-                    );
-                    ui.selectable_value(self, Self::CompletionStatus(true), "Completed");
-                    ui.selectable_value(self, Self::CompletionStatus(false), "Uncompleted");
-                    ui.selectable_value(self, Self::NameContains("".to_string()), "Name Contains");
-                    ui.selectable_value(self, Self::TagContains("".to_string()), "Contains Tag");
-                })
-                .response;
-            // I need to report this to egui as this seems as if it shouldn't be necessary
-            if *self != previous {
-                box_response.mark_changed();
-            }
-            let mut text_response: Option<Response> = None;
-            match self {
-                Self::ContainsString(ref mut str)
-                | Self::MatchesCategory(ref mut str)
-                | Self::NameContains(ref mut str)
-                | Self::TagContains(ref mut str) => {
-                    text_response = Some(ui.text_edit_singleline(str));
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                let previous = self.clone();
+                let mut box_response = ComboBox::new("Filter Select", "Select filter type")
+                    .selected_text(self.option_name())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(self, Self::None, "None");
+                        ui.selectable_value(
+                            self,
+                            Self::ContainsString("".to_owned()),
+                            "Contains String",
+                        );
+                        ui.selectable_value(
+                            self,
+                            Self::MatchesCategory("".to_owned()),
+                            "Matches Category",
+                        );
+                        ui.selectable_value(self, Self::CompletionStatus(true), "Completed");
+                        ui.selectable_value(self, Self::CompletionStatus(false), "Uncompleted");
+                        ui.selectable_value(
+                            self,
+                            Self::NameContains("".to_string()),
+                            "Name Contains",
+                        );
+                        ui.selectable_value(
+                            self,
+                            Self::TagContains("".to_string()),
+                            "Contains Tag",
+                        );
+                    })
+                    .response;
+                // I need to report this to egui as this seems as if it shouldn't be necessary
+                if *self != previous {
+                    box_response.mark_changed();
                 }
+                let mut text_response: Option<Response> = None;
+                match self {
+                    Self::ContainsString(ref mut str)
+                    | Self::MatchesCategory(ref mut str)
+                    | Self::NameContains(ref mut str)
+                    | Self::TagContains(ref mut str) => {
+                        ui.allocate_ui(
+                            Vec2::new(
+                                ui.available_width() / 3. - ui.spacing().item_spacing.x,
+                                ui.available_height(),
+                            ),
+                            |ui| {
+                                text_response = Some(ui.text_edit_singleline(str));
+                            },
+                        );
+                    }
 
-                _ => {}
-            }
-            if let Some(tr) = text_response {
-                response = Some(tr.union(box_response));
-            } else {
-                response = Some(box_response);
-            }
+                    _ => {}
+                }
+                if let Some(tr) = text_response {
+                    response = Some(tr.union(box_response));
+                } else {
+                    response = Some(box_response);
+                }
+            });
         });
         response.unwrap()
     }

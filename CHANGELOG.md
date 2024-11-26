@@ -19,6 +19,7 @@
   * Creating a new category now consists of clicking the edit button,
     which opens a text box and a button to accept the new category
   * Add a group around the button cluster at the bottom
+* Add a frame enclosing the filter controls. Makes it easier to follow when the textbox is wrapped
 
 ## Bugs
 * Time entry description entries are less congested during editing
