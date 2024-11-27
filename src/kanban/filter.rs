@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use egui::{ComboBox, Ui};
 
 use super::*;
@@ -10,12 +12,20 @@ pub enum KanbanFilter {
     CompletionStatus(bool),
     NameContains(String),
     TagContains(String),
+    FuzzyMatch(String),
+    ExactMatch(String),
 }
 
 impl Default for KanbanFilter {
     fn default() -> Self {
         Self::None
     }
+}
+thread_local! {
+    static NUCLEO_MATCHER:RefCell<nucleo_matcher::Matcher> = RefCell::new(nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT));
+    static NUCLEO_PATTERN:RefCell<nucleo_matcher::pattern::Pattern>=RefCell::new(nucleo_matcher::pattern::Pattern::new("", nucleo_matcher::pattern::CaseMatching::Smart, nucleo_matcher::pattern::Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy));
+    static NUCLEO_BUFFER:RefCell<Vec<char>>=const {RefCell::new(Vec::new())};
+    static MATCH_BUFFER:RefCell<String>=const {RefCell::new(String::new())};
 }
 impl KanbanFilter {
     fn option_name(&self) -> &'static str {
@@ -28,6 +38,8 @@ impl KanbanFilter {
             Self::CompletionStatus(false) => "Uncompleted",
             Self::NameContains(_) => "Name Contains",
             Self::TagContains(_) => "Tag Contains",
+            Self::FuzzyMatch(_) => "Fuzzy Match",
+            Self::ExactMatch(_) => "Exact Match",
         }
     }
     pub fn show_ui(&mut self, ui: &mut Ui, _document: &KanbanDocument) -> egui::Response {
@@ -61,6 +73,8 @@ impl KanbanFilter {
                             Self::TagContains("".to_string()),
                             "Contains Tag",
                         );
+                        ui.selectable_value(self, Self::FuzzyMatch("".to_string()), "Fuzzy Match");
+                        ui.selectable_value(self, Self::ExactMatch("".to_string()), "Exact Match");
                     })
                     .response;
                 // I need to report this to egui as this seems as if it shouldn't be necessary
@@ -68,11 +82,14 @@ impl KanbanFilter {
                     box_response.mark_changed();
                 }
                 let mut text_response: Option<Response> = None;
+                let alter_match = matches!(self, Self::ExactMatch(_));
                 match self {
                     Self::ContainsString(ref mut str)
                     | Self::MatchesCategory(ref mut str)
                     | Self::NameContains(ref mut str)
-                    | Self::TagContains(ref mut str) => {
+                    | Self::TagContains(ref mut str)
+                    | Self::FuzzyMatch(ref mut str)
+                    | Self::ExactMatch(ref mut str) => {
                         ui.allocate_ui(
                             Vec2::new(
                                 ui.available_width() / 3. - ui.spacing().item_spacing.x,
@@ -80,6 +97,25 @@ impl KanbanFilter {
                             ),
                             |ui| {
                                 text_response = Some(ui.text_edit_singleline(str));
+                                if let Some(ref text_response) = text_response {
+                                    if text_response.changed() {
+                                        println!("Changed!");
+                                        NUCLEO_PATTERN.with_borrow_mut(|x| {
+                                            let str = if alter_match {
+                                                // A few things should be escaped here, not the
+                                                // least of which being the "'" character itself
+                                                "'".to_owned() + str
+                                            } else {
+                                                str.clone()
+                                            };
+                                            x.reparse(
+                                                &str,
+                                                nucleo_matcher::pattern::CaseMatching::Smart,
+                                                nucleo_matcher::pattern::Normalization::Smart,
+                                            );
+                                        });
+                                    }
+                                }
                             },
                         );
                     }
@@ -117,6 +153,57 @@ impl KanbanFilter {
             }
             Self::NameContains(substr) => item.name.contains(substr.as_str()),
             Self::TagContains(tag) => item.tags.contains(tag),
+            Self::FuzzyMatch(_pattern) => {
+                MATCH_BUFFER.with_borrow_mut(|x| {
+                    x.clear();
+                    item.fill_searchable_buffer(x);
+                    NUCLEO_BUFFER.with_borrow_mut(|buffer| {
+                        buffer.clear();
+                        buffer.extend(x.chars());
+                    })
+                });
+
+                // TODO In the future, it would be useful if the patterns that were possible were
+                // mentioned in the application. There isn't a large number of them and an explanation
+                // should be possible
+                let score = NUCLEO_MATCHER
+                    .with_borrow_mut(|x| {
+                        NUCLEO_PATTERN.with(|pattern| {
+                            NUCLEO_BUFFER.with_borrow(|haystack| {
+                                pattern
+                                    .borrow()
+                                    .score(nucleo_matcher::Utf32Str::Unicode(haystack), x)
+                            })
+                        })
+                    })
+                    .unwrap_or(0);
+                println!("'{}' has score {}", &item.name, score);
+                score > 0
+            }
+            Self::ExactMatch(_pattern) => {
+                MATCH_BUFFER.with_borrow_mut(|x| {
+                    x.clear();
+                    item.fill_searchable_buffer(x);
+                    NUCLEO_BUFFER.with_borrow_mut(|buffer| {
+                        buffer.clear();
+                        buffer.extend(x.chars());
+                    })
+                });
+
+                let score = NUCLEO_MATCHER
+                    .with_borrow_mut(|x| {
+                        NUCLEO_PATTERN.with(|pattern| {
+                            NUCLEO_BUFFER.with_borrow(|haystack| {
+                                pattern
+                                    .borrow()
+                                    .score(nucleo_matcher::Utf32Str::Unicode(haystack), x)
+                            })
+                        })
+                    })
+                    .unwrap_or(0);
+                println!("'{}' has score {}", &item.name, score);
+                score > 0
+            }
         }
     }
 }

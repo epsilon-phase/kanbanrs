@@ -8,8 +8,10 @@
 * Add sorting by the time spent on the task
 * Add a menu entry to open all tasks currently recording a time entry
 * Add Filters
-  * **Name** - Match on the name alone.
-  * **Tag** - Match a specific tag
+  * **Name**  - Match on the name alone.
+  * **Tag**   - Match a specific tag
+  * **Fuzzy** - Use fuzzy matching
+  * **Exact** - Full text exact case-insensitive match
 
 ## UI Improvements
 * Add a separator between the layout controls and the filter settings.
