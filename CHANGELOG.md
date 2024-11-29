@@ -7,6 +7,7 @@
   * Editors are listed with a close button.
 * Add sorting by the time spent on the task
 * Add a menu entry to open all tasks currently recording a time entry
+* Files are now saved on a separate thread. You are unlikely to notice a difference.
 * Add Filters
   * **Name**  - Match on the name alone.
   * **Tag**   - Match a specific tag

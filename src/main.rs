@@ -16,6 +16,7 @@ use std::{
     io::Write,
     path::PathBuf,
     sync::{mpsc, Arc},
+    thread::{self, JoinHandle},
 };
 mod document_layout;
 use document_layout::*;
@@ -43,6 +44,9 @@ struct KanbanRS {
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
     messages: Vec<String>,
+    // It may be ideal to actually return the result type instead, so that the main thread may
+    // report on the success of the saving.
+    save_thread: Option<JoinHandle<()>>,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -69,6 +73,7 @@ impl KanbanRS {
             filter: KanbanFilter::None,
             last_rect: None,
             messages: Vec::new(),
+            save_thread: None,
         }
     }
 }
@@ -120,6 +125,9 @@ fn main() {
 }
 impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
+            self.save_thread.take().unwrap().join();
+        }
         if self.close_application {
             let mut confirmed = false;
             if self.modified_since_last_saved {
@@ -828,14 +836,17 @@ impl KanbanRS {
         let mut tmp_path = self.save_file_name.clone().unwrap();
         tmp_path.set_extension("kan.bak");
         let file = fs::File::create(&tmp_path);
-        if let Err(x) =
-            serde_json::to_writer(file.unwrap(), &self.document.try_read().unwrap().clone())
-        {
-            println!("Error on saving: {}", x);
-        }
-        if let Err(x) = fs::rename(&tmp_path, self.save_file_name.as_ref().unwrap()) {
-            println!("Error! {}", x);
-        }
+        let cloned = self.document.try_read().unwrap().clone();
+        let save_file_name = self.save_file_name.clone().unwrap();
+        self.save_thread = Some(thread::spawn(move || {
+            if let Err(x) = serde_json::to_writer(file.unwrap(), &cloned) {
+                println!("Error on saving: {}", x);
+            }
+            if let Err(x) = fs::rename(&tmp_path, save_file_name) {
+                println!("Error! {}", x);
+            }
+        }));
+
         self.modified_since_last_saved = false;
         self.write_recents();
     }
