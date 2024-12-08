@@ -126,7 +126,9 @@ fn main() {
 impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
-            self.save_thread.take().unwrap().join();
+            if let Err(e) = self.save_thread.take().unwrap().join() {
+                self.messages.push(format!("{:?}", e));
+            }
         }
         if self.close_application {
             let mut confirmed = false;
