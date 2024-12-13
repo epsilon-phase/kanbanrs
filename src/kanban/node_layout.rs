@@ -140,7 +140,7 @@ impl DrawCommand {
         }
     }
 }
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct NodeLayout {
     commands: Vec<DrawCommand>,
     min: Pos2,

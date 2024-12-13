@@ -1,5 +1,5 @@
 use super::*;
-#[derive(Clone)]
+// #[derive(Clone)]
 pub enum KanbanDocumentLayout {
     Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
@@ -117,7 +117,7 @@ impl From<&KanbanDocumentLayout> for String {
 /// Layout code
 impl KanbanRS {
     pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
-        if let KanbanDocumentLayout::Columnar(cache) = &mut self.current_layout.clone() {
+        if let KanbanDocumentLayout::Columnar(cache) = &mut self.current_layout {
             let column_width = ui.available_width() / 3.0;
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());

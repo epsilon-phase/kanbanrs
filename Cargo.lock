@@ -1843,6 +1843,7 @@ dependencies = [
  "eframe",
  "env_logger",
  "layout-rs",
+ "log",
  "nucleo-matcher",
  "parking_lot",
  "rfd",

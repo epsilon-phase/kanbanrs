@@ -31,6 +31,7 @@ layout-rs = "0.1.2"
 clap = { version = "4.5.19", features = ["derive"] }
 parking_lot = { version = "0.12.3", features = ["serde"] }
 circular-buffer = "0.1.9"
+log = "0.4.22"
 
 [target.'cfg(unix)'.dependencies]
 xdg = "~2.5.0"

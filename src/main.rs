@@ -20,6 +20,7 @@ use std::{
 };
 mod document_layout;
 use document_layout::*;
+use log::{debug, info};
 
 struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
@@ -118,7 +119,6 @@ fn main() {
     };
     let args = KanbanArgs::parse();
     let app = KanbanRS::from_args(args);
-
     if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
         println!("{}", x);
     }
@@ -129,6 +129,7 @@ impl eframe::App for KanbanRS {
             if let Err(e) = self.save_thread.take().unwrap().join() {
                 self.messages.push(format!("{:?}", e));
             }
+            debug!("Joined save thread");
         }
         if self.close_application {
             let mut confirmed = false;
@@ -502,7 +503,6 @@ impl eframe::App for KanbanRS {
                 keep
             });
 
-            // I would prefer this in an iterator or a for loop, but, I am simply not brain enough tonight
             while let Some(x) = self.summary_actions_pending.pop() {
                 self.handle_summary_action(&x);
             }
