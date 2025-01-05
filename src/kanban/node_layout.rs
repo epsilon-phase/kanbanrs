@@ -1,9 +1,12 @@
+use std::cell::RefCell;
 use std::cmp::Ordering;
 
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use super::*;
 
+use egui::epaint::text::layout;
 use egui::epaint::CubicBezierShape;
 use egui::{Pos2, Rect, Style};
 use filter::KanbanFilter;
@@ -151,6 +154,7 @@ pub struct NodeLayout {
     dragged_item: Option<KanbanId>,
     collapsed: Vec<KanbanId>,
     drag_linger: Option<std::time::Instant>,
+    join_handle: Option<JoinHandle<VisualGraph>>,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -315,6 +319,7 @@ impl NodeLayout {
                 }
             }
         }
+
         if handles.is_empty() {
             return;
         }
@@ -511,6 +516,35 @@ impl NodeLayout {
     }
 }
 
+/// Wrap a string to a specified length, into a buffer.
+///
+/// * **buffer** The buffer to write to
+/// * **s** The string to wrap
+/// * **max_line_length** The number of characters(I think grapheme is the t)
+///
+/// Returns a mutable reference to the buffer
+fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &'a mut String {
+    buffer.clear();
+    let mut line_size = 0;
+    for i in s.chars() {
+        if line_size > max_line_length && i.is_whitespace() {
+            #[cfg(unix)]
+            buffer.push('\n');
+            // I don't know if this is necessary but I doubt it will hurt
+            #[cfg(windows)]
+            buffer.push_str("\r\n");
+            line_size = 0;
+        } else {
+            buffer.push(i);
+            line_size += 1;
+        }
+    }
+    buffer
+}
+thread_local! {
+    static  NAME_BUFFER:RefCell<String>=const{RefCell::new(String::new())};
+}
+const NODE_WRAP_LENGTH: usize = 50;
 fn add_item_to_graph<G>(
     i: &KanbanItem,
     document: &KanbanDocument,
@@ -547,22 +581,26 @@ fn add_item_to_graph<G>(
     }
     if i.completed.is_some() {
         text += " (Completed)";
-        // look0.line_color = layout::core::color::Color::from_name("green").unwrap();
     }
-    let shape = ShapeKind::new_box(&text);
-    let mut sz = get_shape_size(
-        layout::core::base::Orientation::LeftToRight,
-        &shape,
-        15,
-        false,
-    );
-    sz.x *= 0.7;
-    let node = Element::create(
-        shape,
-        look0.clone(),
-        layout::core::base::Orientation::LeftToRight,
-        sz,
-    );
-    let handle = vg.add_node(node);
-    handles.extend([(id, handle)].iter().cloned());
+    NAME_BUFFER.with_borrow_mut(|buffer| {
+        wrap_string(buffer, &text, NODE_WRAP_LENGTH);
+        let shape = ShapeKind::new_box(buffer);
+        let mut sz = get_shape_size(
+            layout::core::base::Orientation::LeftToRight,
+            &shape,
+            15,
+            false,
+        );
+        // This value was determined to be acceptable experimentally. Don't think too hard if you need
+        // to change it
+        sz.x *= 0.7;
+        let node = Element::create(
+            shape,
+            look0.clone(),
+            layout::core::base::Orientation::LeftToRight,
+            sz,
+        );
+        let handle = vg.add_node(node);
+        handles.extend([(id, handle)].iter().cloned());
+    });
 }

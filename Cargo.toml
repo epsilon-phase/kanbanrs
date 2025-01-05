@@ -15,7 +15,8 @@ license = false
 eula = false
 
 [dependencies]
-eframe = "0.29.0"
+eframe = "0.30.0"
+epaint = "0.30.0"
 # This can come back next release
 # chrono = { version = "0.4.38", features = ["serde"] }
 chrono = { git = "https://github.com/chronotope/chrono", features = ["serde"] }
