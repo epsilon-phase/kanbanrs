@@ -34,6 +34,9 @@
 
   This is a more basic layout, indenting the tasks to the depth they
   appear in a tasks's tree.
+* Time tracking
+
+  Keep track of how much time you have spent on a task
 
 # It might do
 

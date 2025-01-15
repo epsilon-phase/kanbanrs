@@ -18,6 +18,7 @@ pub struct State {
     new_time_descr: String,
     time_entry_under_edit: Option<usize>,
     transmitter: Sender<EditorRequest>,
+    show_time_rec_modal: bool,
 }
 pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
     State {
@@ -35,6 +36,7 @@ pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
         transmitter: tx,
         viewport_id: egui::ViewportId::from_hash_of(item.id),
         editing_category: false,
+        show_time_rec_modal: false,
     }
 }
 #[derive(Clone, Debug)]
@@ -43,6 +45,7 @@ pub enum EditorRequest {
     Open(KanbanItem),
     Delete(KanbanItem),
     Update(KanbanItem),
+    FinishTimeRecording(KanbanId),
 }
 impl State {
     pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
@@ -370,7 +373,7 @@ impl State {
             });
     }
     fn show_time_records(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) {
-        self.time_entry_ui(ui);
+        self.time_entry_ui(ui, document);
         ScrollArea::vertical().show(ui, |ui| {
             self.produce_time_list(ui);
             ui.label("Child Tasks");
@@ -392,7 +395,7 @@ impl State {
             }
         });
     }
-    fn time_entry_ui(self: &mut State, ui: &mut egui::Ui) {
+    fn time_entry_ui(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) {
         use chrono::TimeDelta;
         use time_tracking::*;
         ui.vertical_centered_justified(|ui| {
@@ -442,6 +445,31 @@ impl State {
                     })
                     .clicked()
                 {
+                    // The program should inquire about the user's intention
+                    // when there is 1) A task with an open time recording and
+                    // 2) The task is not already recording, and thus it is being marked as finished
+                    if document.get_tasks().any(|a| a.time_records.is_recording())
+                        && !self.item_copy.time_records.is_recording()
+                    {
+                        self.show_time_rec_modal = true;
+                    } else {
+                        let desc = if self.new_time_descr.is_empty() {
+                            None
+                        } else {
+                            Some(self.new_time_descr.clone())
+                        };
+                        self.item_copy.time_records.handle_record_request(desc);
+                        self.new_time_descr.clear();
+                    }
+                }
+            });
+        });
+        if self.show_time_rec_modal {
+            egui::Modal::new("time_rec_modal".into()).show(ui.ctx(), |ui| {
+                // This may need to be expanded to handle more than one open recording.
+                // It is uncertain to me if this will be a real issue for the users.
+                ui.label("You have a recording task");
+                if ui.button("Start anyway").clicked() {
                     let desc = if self.new_time_descr.is_empty() {
                         None
                     } else {
@@ -449,9 +477,33 @@ impl State {
                     };
                     self.item_copy.time_records.handle_record_request(desc);
                     self.new_time_descr.clear();
+                    self.show_time_rec_modal = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.show_time_rec_modal = false;
+                }
+                if ui.button("Finish recording other tasks").clicked() {
+                    if let Some(x) = document
+                        .get_tasks()
+                        .filter(|x| x.time_records.is_recording())
+                        .map(|x| x.id)
+                        .nth(0)
+                    {
+                        self.transmitter
+                            .send(EditorRequest::FinishTimeRecording(x))
+                            .unwrap();
+                        let desc = if self.new_time_descr.is_empty() {
+                            None
+                        } else {
+                            Some(self.new_time_descr.clone())
+                        };
+                        self.item_copy.time_records.handle_record_request(desc);
+                        self.new_time_descr.clear();
+                        self.show_time_rec_modal = false;
+                    }
                 }
             });
-        });
+        }
     }
     fn produce_time_list(self: &mut State, ui: &mut egui::Ui) {
         let mut current_index = 0;

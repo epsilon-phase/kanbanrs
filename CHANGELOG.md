@@ -25,6 +25,11 @@
   * Add a group around the button cluster at the bottom
 * Add a frame enclosing the filter controls. Makes it easier to follow when the textbox is wrapped
 * Very long task names are now wrapped in the node views
+* Starting a time entry on a task, when there are other open recordings, will ask what the user
+  would like to do
+  * Cancel the new time recording
+  * Mark the open time recordings as closed
+  * Start recording anyway
 
 ## Bugs
 * Time entry description entries are less congested during editing

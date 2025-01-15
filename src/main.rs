@@ -696,6 +696,11 @@ impl KanbanRS {
                 self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
+            kanban::editor::EditorRequest::FinishTimeRecording(id) => {
+                let mut doc = self.document.write();
+                let task = doc.get_task_mut(*id).unwrap();
+                task.time_records.handle_record_request(None);
+            }
         }
     }
 }
