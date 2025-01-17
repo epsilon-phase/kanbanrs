@@ -1,6 +1,6 @@
 [package]
 name = "kanbanrs"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 repository = "https://github.com/epsilon-phase/kanbanrs/"
 authors = ["Violet White"]
@@ -17,9 +17,7 @@ eula = false
 [dependencies]
 eframe = "0.30.0"
 epaint = "0.30.0"
-# This can come back next release
 chrono = { version = "0.4.39", features = ["serde"] }
-# chrono = { git = "https://github.com/chronotope/chrono", features = ["serde"] }
 env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",
     "humantime",

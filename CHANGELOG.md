@@ -1,3 +1,15 @@
+# v0.2.5
+
+## Features
+
+## UI Improvements
+
+## Bugs
+
+* Creation events in the undo queue are now only merged when they are empty.
+
+## Refactoring
+
 # v0.2.4
 
 ## Features

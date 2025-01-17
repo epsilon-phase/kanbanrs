@@ -52,7 +52,12 @@ impl UndoItem {
     }
     pub fn merge(&self, other: &Self) -> Option<Self> {
         match self {
-            UndoItem::Create(ce) => match other {
+            // Using is_unset here allows us to limit the updates that can be collapsed.
+            //
+            // Ideally this will be performed twice on each new item, the creation,
+            // the modification event, and then it will be overwritten by the first actually
+            // filled-out version of the task.
+            UndoItem::Create(ce) if ce.new_task.is_unset() => match other {
                 UndoItem::Modification(me) if ce.new_task.id == me.former_item.id => {
                     Some(UndoItem::Create(CreationEvent {
                         new_task: me.former_item.clone(),

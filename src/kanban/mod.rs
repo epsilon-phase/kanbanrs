@@ -616,6 +616,18 @@ impl KanbanItem {
         false
     }
 }
+
+impl KanbanItem {
+    /// Returns true if the kanbanitem is unset.
+    /// A true new land.
+    pub fn is_unset(&self) -> bool {
+        self.name.is_empty()
+            && self.description.is_empty()
+            && self.tags.is_empty()
+            && self.child_tasks.is_empty()
+            && self.category.is_none()
+    }
+}
 /*
 */
 pub mod search {
