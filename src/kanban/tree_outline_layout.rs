@@ -71,7 +71,7 @@ impl TreeOutline {
             .map(|key| key.id)
             .collect();
         self.dfs(document, sort, filter);
-        println!("Found {} toplevel items", self.toplevel_items.len());
+        info!(target: "node_layout", "Found {} toplevel items", self.toplevel_items.len());
     }
     pub fn set_focus(&mut self, id: KanbanId) {
         self.focused_id = Some(id);

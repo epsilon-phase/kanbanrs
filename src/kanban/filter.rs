@@ -1,6 +1,6 @@
-use std::cell::RefCell;
-
 use egui::{ComboBox, Ui};
+use log::{debug, info};
+use std::cell::RefCell;
 
 use super::*;
 #[derive(PartialEq, Clone)]
@@ -99,7 +99,7 @@ impl KanbanFilter {
                                 text_response = Some(ui.text_edit_singleline(str));
                                 if let Some(ref text_response) = text_response {
                                     if text_response.changed() {
-                                        println!("Changed!");
+                                        info!(target:"fuzzy_match","Search filter changed!");
                                         NUCLEO_PATTERN.with_borrow_mut(|x| {
                                             let str = if alter_match {
                                                 // A few things should be escaped here, not the
@@ -177,7 +177,7 @@ impl KanbanFilter {
                         })
                     })
                     .unwrap_or(0);
-                println!("'{}' has score {}", &item.name, score);
+                debug!(target:"fuzzy_match", "'{}' has score {}", &item.name, score);
                 score > 0
             }
             Self::ExactMatch(_pattern) => {
@@ -201,7 +201,7 @@ impl KanbanFilter {
                         })
                     })
                     .unwrap_or(0);
-                println!("'{}' has score {}", &item.name, score);
+                debug!(target:"fuzzy_match", "'{}' has score {}", &item.name, score);
                 score > 0
             }
         }

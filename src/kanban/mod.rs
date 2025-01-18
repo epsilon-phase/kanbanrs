@@ -3,6 +3,7 @@ use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{
     self, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke, Vec2,
 };
+use log::{debug, info, warn};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::btree_map::{Values, ValuesMut};
@@ -101,7 +102,7 @@ impl KanbanDocument {
     pub fn get_next_id(&self) -> KanbanId {
         let next = *self.next_id.read();
         let start = if next == KanbanId::MAX {
-            println!("I'm at the highest!");
+            info!(target:"id_assignment", "Ids are wrapping around, congrats! maybe?");
             KanbanId::MIN
         } else {
             next
@@ -286,7 +287,7 @@ impl KanbanDocument {
         let cache_key = egui::Id::new(&id_salt);
         let scrollarea = egui::ScrollArea::vertical().id_salt(id_salt);
         scrollarea.show_viewport(ui, |ui, rect| {
-            println!("{:?}", rect);
+            debug!(target:"layout_id_list","{:?}", rect);
             ui.set_width(ui.available_width());
             ui.vertical_centered_justified(|ui| {
                 ui.set_width(ui.available_width() - 5.);

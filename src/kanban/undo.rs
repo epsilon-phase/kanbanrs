@@ -43,7 +43,7 @@ pub enum UndoItem {
 }
 impl UndoItem {
     pub fn undo(&self, document: &mut KanbanDocument) {
-        println!("Undoing: {:?}", self);
+        info!(target:"Undo","Undoing: {:?}", self);
         match self {
             UndoItem::Create(ce) => ce.undo(document),
             UndoItem::Delete(de) => de.undo(document),
@@ -56,7 +56,7 @@ impl UndoItem {
             //
             // Ideally this will be performed twice on each new item, the creation,
             // the modification event, and then it will be overwritten by the first actually
-            // filled-out version of the task.
+            // filled-out version of the task, should it be modified another time in a row.
             UndoItem::Create(ce) if ce.new_task.is_unset() => match other {
                 UndoItem::Modification(me) if ce.new_task.id == me.former_item.id => {
                     Some(UndoItem::Create(CreationEvent {

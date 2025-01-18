@@ -10,6 +10,8 @@
 
 ## Refactoring
 
+* Use the log crate instead of `println!` calls, much better habit to be in, I think
+
 # v0.2.4
 
 ## Features

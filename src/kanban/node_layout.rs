@@ -193,7 +193,7 @@ fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
 impl RenderBackend for NodeLayout {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
         if clip.is_some() {
-            println!("Ow");
+            warn!(target:"node_layout","Ow, I'm getting clipped and I'm not bothering to react. Layout-rs may not be behaving");
         }
         let start = Pos2 {
             x: xy.x as f32,

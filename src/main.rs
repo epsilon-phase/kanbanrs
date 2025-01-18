@@ -20,7 +20,7 @@ use std::{
 };
 mod document_layout;
 use document_layout::*;
-use log::{debug, info};
+use log::{debug, error};
 
 struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
@@ -120,7 +120,7 @@ fn main() {
     let args = KanbanArgs::parse();
     let app = KanbanRS::from_args(args);
     if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
-        println!("{}", x);
+        error!("{}", x);
     }
 }
 impl eframe::App for KanbanRS {
@@ -706,6 +706,9 @@ impl KanbanRS {
 }
 
 impl KanbanRS {
+    /// Record an undo action.
+    /// * **self** The kanban application state
+    /// * **item** The undo item.
     #[inline]
     fn record_undo(&mut self, item: kanban::undo::UndoItem) {
         if let Some(i) = self.undo_buffer.back_mut() {
@@ -762,7 +765,7 @@ impl KanbanRS {
             .expect("Could not create recents file");
         if !std::fs::exists(&recents_file).unwrap() {
             if let Err(x) = std::fs::File::create(&recents_file) {
-                println!("Failed to open file with error '{}'", x);
+                error!("Failed to open file with error '{}'", x);
             }
         }
         let mut old_recents: Vec<String> = std::fs::read_to_string(&recents_file)
@@ -784,7 +787,7 @@ impl KanbanRS {
             old_recents.rotate_right(1);
         }
         if let Err(x) = std::fs::write(recents_file, old_recents.join("\n")) {
-            println!("{}", x);
+            error!("{}", x);
             std::process::abort();
         }
     }
@@ -847,10 +850,10 @@ impl KanbanRS {
         let save_file_name = self.save_file_name.clone().unwrap();
         self.save_thread = Some(thread::spawn(move || {
             if let Err(x) = serde_json::to_writer(file.unwrap(), &cloned) {
-                println!("Error on saving: {}", x);
+                error!("Error on saving: {}", x);
             }
             if let Err(x) = fs::rename(&tmp_path, save_file_name) {
-                println!("Error! {}", x);
+                error!("Error! {}", x);
             }
         }));
 
