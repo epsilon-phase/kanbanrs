@@ -1,14 +1,13 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 
-use std::thread::JoinHandle;
+use std::thread::{JoinHandle, Thread};
 use std::time::Instant;
 
 use super::*;
 
-use egui::epaint::text::layout;
 use egui::epaint::CubicBezierShape;
-use egui::{Pos2, Rect, Style};
+use egui::{Modal, Pos2, Rect, Style};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
@@ -144,8 +143,15 @@ impl DrawCommand {
     }
 }
 #[derive(Default)]
-pub struct NodeLayout {
+struct CommandContainer {
     commands: Vec<DrawCommand>,
+}
+
+#[derive(Default)]
+pub struct NodeLayout {
+    // A thought on this. This should be extracted into another container and then
+    // the interface should be implemented on that instead.
+    commands: CommandContainer,
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
@@ -154,12 +160,20 @@ pub struct NodeLayout {
     dragged_item: Option<KanbanId>,
     collapsed: Vec<KanbanId>,
     drag_linger: Option<std::time::Instant>,
-    join_handle: Option<JoinHandle<VisualGraph>>,
+    layout_handle: Option<
+        JoinHandle<(
+            VisualGraph,
+            BTreeMap<KanbanId, NodeHandle>,
+            CommandContainer,
+        )>,
+    >,
 }
 impl NodeLayout {
     pub fn new() -> Self {
         NodeLayout {
-            commands: Vec::new(),
+            commands: CommandContainer {
+                commands: Vec::new(),
+            },
             min: Pos2 { x: 0.0, y: 0.0 },
             max: Pos2::new(0.0, 0.0),
             sense_regions: Vec::new(),
@@ -190,7 +204,7 @@ fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
     let diff = r.max.x - r.min.x;
     cursor.x < r.min.x + diff / 2.0
 }
-impl RenderBackend for NodeLayout {
+impl RenderBackend for CommandContainer {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
         if clip.is_some() {
             warn!(target:"node_layout","Ow, I'm getting clipped and I'm not bothering to react. Layout-rs may not be behaving");
@@ -277,7 +291,7 @@ impl NodeLayout {
     ) {
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
-        self.commands.clear();
+        self.commands.commands.clear();
         let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
         let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
         let mut arrow = Arrow::simple("");
@@ -323,8 +337,51 @@ impl NodeLayout {
         if handles.is_empty() {
             return;
         }
-        vg.do_it(false, false, false, self);
-        self.commands.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        self.layout_handle = Some(std::thread::spawn(move || {
+            let mut commands = CommandContainer {
+                commands: Vec::new(),
+            };
+            vg.do_it(false, false, false, &mut commands);
+            (vg, handles, commands)
+        }));
+        // To move this into a new thread, we must also persist the handle mapping from update-to-update
+        // vg.do_it(false, false, false, &mut self.commands);
+        // self.commands
+        //     .commands
+        //     .sort_by(|a, b| a.partial_cmp(b).unwrap());
+        // self.sense_regions.clear();
+        // for (task_id, node_handle) in handles.iter() {
+        //     let element = vg.element(*node_handle);
+        //     let start_x = element.pos.left(false) as f32;
+        //     let start_y = element.pos.top(false) as f32;
+        //     let end_x = element.pos.right(false) as f32;
+        //     let end_y = element.pos.bottom(false) as f32;
+        //     self.max.x = self.max.x.max(end_x + 50.);
+        //     self.max.y = self.max.y.max(end_y + 90.);
+        //     self.min.x = self.min.x.min(start_x);
+        //     self.min.y = self.min.y.min(start_y);
+        //     self.sense_regions.push((
+        //         *task_id,
+        //         Rect::from_min_max(
+        //             Pos2 {
+        //                 x: start_x,
+        //                 y: start_y,
+        //             },
+        //             Pos2 { x: end_x, y: end_y },
+        //         ),
+        //     ));
+        // }
+    }
+    fn incorporate_update(
+        &mut self,
+        vg: VisualGraph,
+        handles: BTreeMap<KanbanId, NodeHandle>,
+        commands: CommandContainer,
+    ) {
+        self.commands = commands;
+        self.commands
+            .commands
+            .sort_by(|a, b| a.partial_cmp(b).unwrap());
         self.sense_regions.clear();
         for (task_id, node_handle) in handles.iter() {
             let element = vg.element(*node_handle);
@@ -354,6 +411,18 @@ impl NodeLayout {
         ui: &mut egui::Ui,
         actions: &mut Vec<SummaryAction>,
     ) -> bool {
+        if self.layout_handle.is_some() {
+            if !self.layout_handle.as_ref().unwrap().is_finished() {
+                Modal::new("layout_modal".into()).show(ui.ctx(), |ui| {
+                    ui.label("Performing layout!");
+                });
+                ui.ctx().request_repaint();
+            } else {
+                let handle = self.layout_handle.take().unwrap();
+                let (vg, handles, commands) = handle.join().unwrap();
+                self.incorporate_update(vg, handles, commands)
+            }
+        }
         let mut needs_update = false;
         ui.horizontal(|ui| {
             needs_update |= ui
@@ -379,6 +448,7 @@ impl NodeLayout {
             let start = response.rect.min;
 
             self.commands
+                .commands
                 .iter()
                 .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
             let mut hovered = false;

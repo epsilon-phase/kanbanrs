@@ -1,5 +1,5 @@
 use super::*;
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CreationEvent {
     pub parent_id: Option<KanbanId>,
     pub new_task: KanbanItem,
@@ -12,7 +12,7 @@ impl CreationEvent {
         });
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct DeletionEvent {
     pub former_item: KanbanItem,
     pub parent_ids: Vec<KanbanId>,
@@ -26,7 +26,7 @@ impl DeletionEvent {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ModificationEvent {
     pub former_item: KanbanItem,
 }
@@ -35,7 +35,7 @@ impl ModificationEvent {
         document.replace_task(&self.former_item);
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum UndoItem {
     Create(CreationEvent),
     Delete(DeletionEvent),
@@ -51,22 +51,18 @@ impl UndoItem {
         }
     }
     pub fn merge(&self, other: &Self) -> Option<Self> {
-        match self {
-            // Using is_unset here allows us to limit the updates that can be collapsed.
-            //
-            // Ideally this will be performed twice on each new item, the creation,
-            // the modification event, and then it will be overwritten by the first actually
-            // filled-out version of the task, should it be modified another time in a row.
-            UndoItem::Create(ce) if ce.new_task.is_unset() => match other {
-                UndoItem::Modification(me) if ce.new_task.id == me.former_item.id => {
-                    Some(UndoItem::Create(CreationEvent {
-                        new_task: me.former_item.clone(),
-                        parent_id: ce.parent_id,
-                    }))
-                }
-                _ => None,
-            },
-            _ => None,
+        // The only time this can really be done semantically is if an item is modified twice in a row
+        // after creation, but I think this makes doing the undo a bit easier
+        match (self, other) {
+            (UndoItem::Create(ce), UndoItem::Modification(me))
+                if me.former_item.id == ce.new_task.id && ce.new_task.is_unset() =>
+            {
+                Some(UndoItem::Create(CreationEvent {
+                    new_task: me.former_item.clone(),
+                    parent_id: ce.parent_id,
+                }))
+            }
+            (_, _) => None,
         }
     }
 }

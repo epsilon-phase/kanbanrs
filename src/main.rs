@@ -2,7 +2,7 @@ mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
 use clap::*;
-use eframe::egui::{self, ComboBox, Rect, RichText, Vec2, ViewportCommand};
+use eframe::egui::{self, ComboBox, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand};
 use kanban::{
     category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
@@ -10,6 +10,8 @@ use kanban::{
     SummaryAction,
 };
 use parking_lot::RwLock;
+use preferences::Preferences;
+use serde::Serialize;
 use std::{
     borrow::BorrowMut,
     fs,
@@ -19,6 +21,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 mod document_layout;
+mod preferences;
 use document_layout::*;
 use log::{debug, error};
 
@@ -48,6 +51,7 @@ struct KanbanRS {
     // It may be ideal to actually return the result type instead, so that the main thread may
     // report on the success of the saving.
     save_thread: Option<JoinHandle<()>>,
+    preferences: preferences::Preferences,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -75,6 +79,8 @@ impl KanbanRS {
             last_rect: None,
             messages: Vec::new(),
             save_thread: None,
+            // This needs to be initialized from storage
+            preferences: Preferences::default(),
         }
     }
 }
@@ -115,11 +121,22 @@ fn main() {
     env_logger::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
+
         ..Default::default()
     };
+    let duration = std::time::Duration::from_secs(60);
+    println!("{}", serde_json::to_string(&duration).unwrap());
     let args = KanbanArgs::parse();
     let app = KanbanRS::from_args(args);
-    if let Err(x) = eframe::run_native("KanbanRS", options, Box::new(|_cc| Ok(Box::new(app)))) {
+    if let Err(x) = eframe::run_native(
+        "KanbanRS",
+        options,
+        Box::new(|_cc| {
+            let mut app = Box::new(app);
+            app.initialize_preferences(_cc.storage.unwrap());
+            Ok(app)
+        }),
+    ) {
         error!("{}", x);
     }
 }
@@ -268,6 +285,9 @@ impl eframe::App for KanbanRS {
                     });
                     if ui.button("Export to graphviz").clicked() {
                         self.write_dot();
+                    }
+                    if ui.button("Preferences").clicked() {
+                        self.preferences.showing_preference = true;
                     }
                     if ui.button("Quit").clicked() {
                         self.close_application = true;
@@ -554,11 +574,49 @@ impl eframe::App for KanbanRS {
                     },
                 );
             }
+            if self.preferences.showing_preference {
+                ui.ctx().show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("preferences window"),
+                    ViewportBuilder::default(),
+                    |ctx, _class| {
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            self.preferences.showing_preference = false;
+                        }
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            self.preferences.show_ui(ui);
+                        });
+                    },
+                );
+            }
         });
+    }
+    fn save(&mut self, _storage: &mut dyn eframe::Storage) {
+        log::debug!("Save function called");
+        _storage.set_string(
+            "preferences",
+            serde_json::to_string(&self.preferences).unwrap(),
+        );
+        if self.preferences.autosave.is_some() && self.save_file_name.is_some() {
+            log::info!("Saving file");
+            self.save_file(false)
+        }
+    }
+    fn auto_save_interval(&self) -> std::time::Duration {
+        let default_interval = std::time::Duration::from_secs(6);
+        self.preferences.autosave.unwrap_or(default_interval)
     }
 }
 
 impl KanbanRS {
+    fn initialize_preferences(&mut self, storage: &dyn eframe::Storage) {
+        let str = storage.get_string("preferences");
+        let str = str.unwrap_or(
+            "{'autosave':{'secs':60,'nanos':0},'store_undo_history_for_files':false}".to_string(),
+        );
+        if let Ok(x) = serde_json::from_str(&str) {
+            self.preferences = x;
+        }
+    }
     fn from_args(args: KanbanArgs) -> Self {
         let mut result = KanbanRS::new();
         if let Some(filename) = args.filename {
@@ -830,6 +888,10 @@ impl KanbanRS {
         }
     }
     pub fn save_file(&mut self, force_choose_file: bool) {
+        // Another file could be saved containing undo information.
+        //
+        // It might not be the best idea until we have a preference store, this is a side
+        // channel that I would rather not complicate someone's life with
         if self.save_file_name.is_none() || force_choose_file {
             let filename = rfd::FileDialog::new()
                 .add_filter("Kanban", &["kan"])

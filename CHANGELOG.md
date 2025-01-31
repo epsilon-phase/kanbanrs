@@ -1,6 +1,8 @@
 # v0.2.5
 
 ## Features
+* Autosave
+* Preferences
 
 ## UI Improvements
 
@@ -10,7 +12,7 @@
 
 ## Refactoring
 
-* Use the log crate instead of `println!` calls, much better habit to be in, I think
+* Use the log crate instead of `println!` calls
 
 # v0.2.4
 
