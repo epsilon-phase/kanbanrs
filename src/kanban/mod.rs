@@ -7,7 +7,7 @@ use log::{debug, info, warn};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::btree_map::{Values, ValuesMut};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use time_tracking::TimeRecords;
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
@@ -230,8 +230,6 @@ impl KanbanDocument {
     }
     /// Operate on the whole of the tree down from this point
     ///
-    /// This will visit the same nodes multiple times; try not to worry too much.
-    ///
     /// * `root_id` The starting point for this tree
     /// * `depth` The starting depth
     /// * `func` The function to call on each child.
@@ -241,11 +239,13 @@ impl KanbanDocument {
         F: FnMut(&Self, KanbanId, u32),
     {
         let mut stack = Vec::new();
+        let mut seen: HashSet<KanbanId> = HashSet::new();
         stack.push((root_id, depth));
         while let Some((id, depth)) = stack.pop() {
             let task = self.get_task(id).unwrap();
             func(self, id, depth);
-            for child in task.child_tasks.iter() {
+            seen.insert(id);
+            for child in task.child_tasks.iter().filter(|x| !seen.contains(x)) {
                 stack.push((*child, depth + 1));
             }
         }

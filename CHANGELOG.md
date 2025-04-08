@@ -18,11 +18,13 @@
 ## Bugs
 
 * Creation events in the undo queue are now only merged when they are empty.
+* `KanbanDocument::on_tree` will only call the provided function on each task once
 
 ## Refactoring
 
 * Use the log crate instead of `println!` calls
 * Update egui and associated crates to 0.31.1
+* Added a test for `kanban::time_tracking::collect_child_durations`
 
 # v0.2.4
 

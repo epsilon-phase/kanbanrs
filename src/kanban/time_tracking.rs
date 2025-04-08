@@ -102,6 +102,9 @@ impl TimeRecords {
             .map(|x| x.0.duration())
             .fold(chrono::TimeDelta::new(0, 0).unwrap(), |a, b| a + b)
     }
+    pub(crate) fn add_duration_test(&mut self, d: chrono::TimeDelta) {
+        self.entries.push((TimeEntry::InstanteousDuration(d), None));
+    }
 }
 
 pub fn collect_child_durations(
@@ -129,6 +132,8 @@ pub fn collect_child_durations(
 #[cfg(test)]
 mod test {
 
+    use crate::kanban::tests::make_document_easy;
+
     use super::*;
     #[test]
     fn test_recording() {
@@ -141,5 +146,47 @@ mod test {
         assert_eq!(t.entries[0].0.duration(), t.duration());
         t.handle_record_request(None);
         assert_eq!(t.entries.len(), 2);
+    }
+    #[test]
+    fn test_task_duration() {
+        // 0 -> {1,2}
+        // 2->{3,4}
+        // 3->{4}
+        let children = [vec![1, 2], Vec::new(), vec![3, 4], vec![4], Vec::new()];
+        let mut document = make_document_easy(5, &children);
+        // Trivial case, the answer doesn't have any paths where an item can be
+        // counted more than once.
+        {
+            {
+                let mut task = document.get_task_mut(1).unwrap();
+                task.time_records
+                    .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
+            }
+            let zero_task = document.get_task(0).unwrap();
+            let duration = collect_child_durations(&document, &zero_task);
+            assert_eq!(
+                duration
+                    .iter()
+                    .fold(TimeDelta::new(0, 0).unwrap(), |start, x| x.1 + start),
+                TimeDelta::new(5, 0).unwrap()
+            );
+        }
+        // Non-trivial case, the item in question can be counted twice if the
+        // implementation is wrong.
+        {
+            {
+                let mut task = document.get_task_mut(4).unwrap();
+                task.time_records
+                    .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
+            }
+            let zero_task = document.get_task(0).unwrap();
+            let duration = collect_child_durations(&document, &zero_task);
+            assert_eq!(
+                duration
+                    .iter()
+                    .fold(TimeDelta::new(0, 0).unwrap(), |start, x| x.1 + start),
+                TimeDelta::new(10, 0).unwrap()
+            );
+        }
     }
 }
