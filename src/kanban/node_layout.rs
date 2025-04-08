@@ -1,11 +1,12 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 
-use std::thread::{JoinHandle, Thread};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use super::*;
 
+use eframe::egui::Scene;
 use egui::epaint::CubicBezierShape;
 use egui::{Modal, Pos2, Rect, Style};
 use filter::KanbanFilter;
@@ -71,6 +72,7 @@ impl DrawCommand {
                     0.0,
                     fill.unwrap_or(style.noninteractive().bg_fill),
                     egui::Stroke::new(*stroke_width, *color),
+                    egui::StrokeKind::Middle,
                 );
             }
             DrawCommand::Text(pos, str, size) => {
@@ -147,11 +149,11 @@ struct CommandContainer {
     commands: Vec<DrawCommand>,
 }
 
-#[derive(Default)]
 pub struct NodeLayout {
     // A thought on this. This should be extracted into another container and then
     // the interface should be implemented on that instead.
     commands: CommandContainer,
+    scene_rect: Rect,
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
@@ -167,6 +169,7 @@ pub struct NodeLayout {
             CommandContainer,
         )>,
     >,
+    frames_in_update: u32,
 }
 impl NodeLayout {
     pub fn new() -> Self {
@@ -176,8 +179,19 @@ impl NodeLayout {
             },
             min: Pos2 { x: 0.0, y: 0.0 },
             max: Pos2::new(0.0, 0.0),
+
+            scene_rect: Rect {
+                min: Pos2::new(0.0, 0.0),
+                max: Pos2::new(0.0, 0.0),
+            },
+            drag_linger: Option::None,
+            layout_handle: Option::None,
+            focus: Option::None,
             sense_regions: Vec::new(),
-            ..Default::default()
+            exclude_completed: false,
+            dragged_item: Option::None,
+            collapsed: Vec::new(),
+            frames_in_update: 0,
         }
     }
 }
@@ -344,33 +358,6 @@ impl NodeLayout {
             vg.do_it(false, false, false, &mut commands);
             (vg, handles, commands)
         }));
-        // To move this into a new thread, we must also persist the handle mapping from update-to-update
-        // vg.do_it(false, false, false, &mut self.commands);
-        // self.commands
-        //     .commands
-        //     .sort_by(|a, b| a.partial_cmp(b).unwrap());
-        // self.sense_regions.clear();
-        // for (task_id, node_handle) in handles.iter() {
-        //     let element = vg.element(*node_handle);
-        //     let start_x = element.pos.left(false) as f32;
-        //     let start_y = element.pos.top(false) as f32;
-        //     let end_x = element.pos.right(false) as f32;
-        //     let end_y = element.pos.bottom(false) as f32;
-        //     self.max.x = self.max.x.max(end_x + 50.);
-        //     self.max.y = self.max.y.max(end_y + 90.);
-        //     self.min.x = self.min.x.min(start_x);
-        //     self.min.y = self.min.y.min(start_y);
-        //     self.sense_regions.push((
-        //         *task_id,
-        //         Rect::from_min_max(
-        //             Pos2 {
-        //                 x: start_x,
-        //                 y: start_y,
-        //             },
-        //             Pos2 { x: end_x, y: end_y },
-        //         ),
-        //     ));
-        // }
     }
     fn incorporate_update(
         &mut self,
@@ -413,14 +400,36 @@ impl NodeLayout {
     ) -> bool {
         if self.layout_handle.is_some() {
             if !self.layout_handle.as_ref().unwrap().is_finished() {
-                Modal::new("layout_modal".into()).show(ui.ctx(), |ui| {
-                    ui.label("Performing layout!");
-                });
+                if self.frames_in_update > 40 {
+                    Modal::new("layout_modal".into()).show(ui.ctx(), |ui| {
+                        ui.label("Performing layout!");
+                    });
+                    println!("Using modal due to slow update!");
+                }
+                self.frames_in_update += 1;
                 ui.ctx().request_repaint();
             } else {
+                if self.frames_in_update > 0 {
+                    println!("{} frames to layout graph", self.frames_in_update);
+                }
+                self.frames_in_update = 0;
                 let handle = self.layout_handle.take().unwrap();
                 let (vg, handles, commands) = handle.join().unwrap();
-                self.incorporate_update(vg, handles, commands)
+                self.incorporate_update(vg, handles, commands);
+                let min_max_rect = Rect {
+                    min: self.min,
+                    max: self.max,
+                };
+
+                if !self.scene_rect.intersects(min_max_rect) {
+                    // Reset the scene rectangle to include the start of the
+                    // layout.
+                    self.scene_rect = Rect {
+                        min: Pos2::new(0.0, 0.0),
+                        max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2())
+                            .to_pos2(),
+                    };
+                }
             }
         }
         let mut needs_update = false;
@@ -433,17 +442,13 @@ impl NodeLayout {
                 needs_update = true;
             }
         });
-        ScrollArea::both().id_salt("NodeLayout").show(ui, |ui| {
+        Scene::new().show(ui, &mut self.scene_rect, |ui| {
             if !self.min.is_finite() || !self.max.is_finite() {
                 return;
             }
             let (response, paint) = ui.allocate_painter(
                 self.max.to_vec2() - self.min.to_vec2(),
-                egui::Sense {
-                    click: false,
-                    drag: false,
-                    focusable: false,
-                },
+                egui::Sense::empty(),
             );
             let start = response.rect.min;
 
@@ -455,11 +460,7 @@ impl NodeLayout {
             for (task_id, region) in self.sense_regions.iter() {
                 let senses = ui.allocate_rect(
                     offset_rect(*region, start.to_vec2()),
-                    egui::Sense {
-                        click: true,
-                        drag: true,
-                        focusable: false,
-                    },
+                    egui::Sense::click_and_drag(),
                 );
                 senses.dnd_set_drag_payload(*task_id);
                 let senses = senses.on_hover_ui(|ui| {
@@ -546,6 +547,7 @@ impl NodeLayout {
                                     offset_rect(*region, start.to_vec2()),
                                     drag_roundness,
                                     Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
+                                    egui::StrokeKind::Middle,
                                 );
                                 egui::CursorIcon::PointingHand
                             } else {
@@ -553,6 +555,7 @@ impl NodeLayout {
                                     offset_rect(*region, start.to_vec2()),
                                     drag_roundness,
                                     Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
+                                    egui::StrokeKind::Middle,
                                 );
                                 egui::CursorIcon::NoDrop
                             },

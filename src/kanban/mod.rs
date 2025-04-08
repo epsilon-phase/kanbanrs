@@ -519,11 +519,11 @@ impl KanbanItem {
         /* Groups don't allow for setting the fill color.
         They might still be better, after all, the category seems like a better
         option to color the frame with */
-        let frame = eframe::egui::Frame::none()
+        let frame = eframe::egui::Frame::new()
             .fill(panel_fill)
-            .inner_margin(Margin::same(6.0))
+            .inner_margin(Margin::same(6))
             .outer_margin(Vec2::new(3.0, 0.0))
-            .rounding(style.noninteractive().rounding)
+            .corner_radius(style.noninteractive().corner_radius)
             .stroke(stroke);
 
         let text = RichText::new(&self.name).heading().color(name_color);

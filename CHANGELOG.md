@@ -3,8 +3,17 @@
 ## Features
 * Autosave
 * Preferences
+  * Autosave interval configuration
+  * Undo storage
 
 ## UI Improvements
+
+* Node layout
+  * Added the ability to zoom out on the node layout
+    * Current zoom factors of greater than 100% are not enabled s text rendering
+      does not work well in egui at higher factors
+  * The "updating layout" modal no longer triggers unless it is waiting for
+    most of a second
 
 ## Bugs
 
@@ -13,6 +22,7 @@
 ## Refactoring
 
 * Use the log crate instead of `println!` calls
+* Update egui and associated crates to 0.31.1
 
 # v0.2.4
 

@@ -11,7 +11,6 @@ use kanban::{
 };
 use parking_lot::RwLock;
 use preferences::Preferences;
-use serde::Serialize;
 use std::{
     borrow::BorrowMut,
     fs,

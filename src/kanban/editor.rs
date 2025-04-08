@@ -140,7 +140,7 @@ impl State {
                         ui.separator();
                         if self.is_on_child_view {
                             ui.horizontal(|ui| {
-                                if ui.button("Add new child").clicked {
+                                if ui.button("Add new child").clicked() {
                                     create_child = true;
                                 }
                                 ui.label("Select Child to add");
@@ -276,7 +276,7 @@ impl State {
         let mut removed_tag: Option<String> = None;
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut self.new_tag);
-            if !self.item_copy.tags.contains(&self.new_tag) && ui.button("Add tag").clicked {
+            if !self.item_copy.tags.contains(&self.new_tag) && ui.button("Add tag").clicked() {
                 self.item_copy.tags.push(self.new_tag.clone());
                 self.new_tag.clear();
             }
@@ -289,7 +289,7 @@ impl State {
                 for tag in self.item_copy.tags.iter() {
                     ui.horizontal(|ui| {
                         ui.label(tag);
-                        if ui.button("X").clicked {
+                        if ui.button("X").clicked() {
                             removed_tag = Some(tag.clone());
                         }
                     });
@@ -330,7 +330,7 @@ impl State {
                             *open_task = Some(*child);
                         }
                         let button = ui.button("Remove");
-                        if button.clicked {
+                        if button.clicked() {
                             removed_task = Some(*child);
                         }
                     });
