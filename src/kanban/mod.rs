@@ -250,6 +250,7 @@ impl KanbanDocument {
             }
         }
     }
+    /// Returns references to all tasks that have the specified id in their children.
     pub fn parents_of(&'_ self, id: KanbanId) -> Vec<&'_ KanbanItem> {
         self.tasks
             .values()

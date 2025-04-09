@@ -46,6 +46,7 @@ pub enum EditorRequest {
     Delete(KanbanItem),
     Update(KanbanItem),
     FinishTimeRecording(KanbanId),
+    ScrollTo(KanbanId),
 }
 impl State {
     pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
@@ -65,6 +66,11 @@ impl State {
                                 "Editing '{}'",
                                 self.item_copy.name
                             )))
+                    }
+                    if ui.button("Scroll to").clicked() {
+                        self.transmitter
+                            .send(EditorRequest::ScrollTo(self.item_copy.id))
+                            .unwrap();
                     }
                 });
                 if self.item_copy.completed.is_some() {
@@ -332,6 +338,11 @@ impl State {
                         let button = ui.button("Remove");
                         if button.clicked() {
                             removed_task = Some(*child);
+                        }
+                        if ui.button("scroll to").clicked() {
+                            self.transmitter
+                                .send(EditorRequest::ScrollTo(*child))
+                                .unwrap();
                         }
                     });
                 }

@@ -14,6 +14,9 @@
       does not work well in egui at higher factors
   * The "updating layout" modal no longer triggers unless it is waiting for
     most of a second
+* Added a "Scroll to" button in the editor to navigate to the tasks in question.
+  This only works on the node layout at the moment, but there is no reason it
+  shouldn't be easily added to the other layouts
 
 ## Bugs
 

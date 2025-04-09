@@ -758,6 +758,13 @@ impl KanbanRS {
                 let task = doc.get_task_mut(*id).unwrap();
                 task.time_records.handle_record_request(None);
             }
+            kanban::editor::EditorRequest::ScrollTo(id) => {
+                // TODO this should be moved into a new funcion in KanbanDocumentLayout
+                // which should handle this for each of the various layouts
+                if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
+                    nl.scroll_to(*id);
+                }
+            }
         }
     }
 }
