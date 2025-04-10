@@ -1,6 +1,8 @@
+use crate::kanban::KanbanId;
+
 use super::*;
 // #[derive(Clone)]
-pub enum KanbanDocumentLayout {
+pub enum KanbanDocumentLayoutType {
     Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
     Search(kanban::search::SearchState),
@@ -8,18 +10,30 @@ pub enum KanbanDocumentLayout {
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
     NodeLayout(kanban::node_layout::NodeLayout),
 }
+pub struct KanbanDocumentLayout {
+    pub layout: KanbanDocumentLayoutType,
+    pub scroll_to: Option<KanbanId>,
+}
 impl PartialEq for KanbanDocumentLayout {
     fn eq(&self, other: &Self) -> bool {
-        match self {
-            KanbanDocumentLayout::Columnar(_) => matches!(other, KanbanDocumentLayout::Columnar(_)),
-            KanbanDocumentLayout::Queue(_) => matches!(other, KanbanDocumentLayout::Queue(_)),
-            KanbanDocumentLayout::Search(_) => matches!(other, KanbanDocumentLayout::Search(_)),
-            KanbanDocumentLayout::Focused(_) => matches!(other, KanbanDocumentLayout::Focused(_)),
-            KanbanDocumentLayout::TreeOutline(_) => {
-                matches!(other, KanbanDocumentLayout::TreeOutline(_))
+        match self.layout {
+            KanbanDocumentLayoutType::Columnar(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::Columnar(_))
             }
-            KanbanDocumentLayout::NodeLayout(_) => {
-                matches!(other, KanbanDocumentLayout::NodeLayout(_))
+            KanbanDocumentLayoutType::Queue(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::Queue(_))
+            }
+            KanbanDocumentLayoutType::Search(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::Search(_))
+            }
+            KanbanDocumentLayoutType::Focused(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::Focused(_))
+            }
+            KanbanDocumentLayoutType::TreeOutline(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::TreeOutline(_))
+            }
+            KanbanDocumentLayoutType::NodeLayout(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::NodeLayout(_))
             }
         }
     }
@@ -44,7 +58,7 @@ impl KanbanDocumentLayout {
         }
     }
     pub fn inform_of_new_items(&mut self) {
-        if let KanbanDocumentLayout::Search(x) = self {
+        if let KanbanDocumentLayoutType::Search(x) = &mut self.layout {
             x.force_update();
         }
     }
@@ -56,34 +70,37 @@ impl KanbanDocumentLayout {
         filter: &KanbanFilter,
     ) {
         kanban::layout_cache::clear_layout_cache();
-        match self {
-            KanbanDocumentLayout::Queue(x) => {
+        match &mut self.layout {
+            KanbanDocumentLayoutType::Queue(x) => {
                 x.update(document);
             }
-            KanbanDocumentLayout::Columnar(array) => {
+            KanbanDocumentLayoutType::Columnar(array) => {
                 KanbanDocumentLayout::update_columnar(array, document, filter);
             }
-            KanbanDocumentLayout::Search(search_state) => {
+            KanbanDocumentLayoutType::Search(search_state) => {
                 search_state.update(document);
             }
-            KanbanDocumentLayout::Focused(focus) => {
+            KanbanDocumentLayoutType::Focused(focus) => {
                 focus.update(document);
             }
-            KanbanDocumentLayout::TreeOutline(tree) => {
+            KanbanDocumentLayoutType::TreeOutline(tree) => {
                 tree.update(document, *sort, filter);
             }
-            KanbanDocumentLayout::NodeLayout(nl) => {
+            KanbanDocumentLayoutType::NodeLayout(nl) => {
                 nl.update(document, style, filter, sort);
+                if let Some(id) = self.scroll_to {
+                    nl.scroll_to(id);
+                }
             }
         }
     }
 
     pub fn sort_cache(&mut self, document: &KanbanDocument, sort: &ItemSort) {
-        match self {
-            KanbanDocumentLayout::Columnar(array) => array
+        match &mut self.layout {
+            KanbanDocumentLayoutType::Columnar(array) => array
                 .iter_mut()
                 .for_each(|item| sort.sort_by(item, document)),
-            KanbanDocumentLayout::Focused(focus) => {
+            KanbanDocumentLayoutType::Focused(focus) => {
                 sort.sort_by(&mut focus.children, document);
                 sort.sort_by(&mut focus.ancestors, document);
             }
@@ -93,18 +110,21 @@ impl KanbanDocumentLayout {
 }
 impl Default for KanbanDocumentLayout {
     fn default() -> Self {
-        KanbanDocumentLayout::Columnar([Vec::new(), Vec::new(), Vec::new()])
+        KanbanDocumentLayout {
+            layout: KanbanDocumentLayoutType::Columnar([Vec::new(), Vec::new(), Vec::new()]),
+            scroll_to: None,
+        }
     }
 }
 impl From<&KanbanDocumentLayout> for String {
     fn from(src: &KanbanDocumentLayout) -> String {
-        match src {
-            KanbanDocumentLayout::Columnar(_) => "Columnar",
-            KanbanDocumentLayout::Queue(_) => "Queue",
-            KanbanDocumentLayout::Search(_) => "Search",
-            KanbanDocumentLayout::Focused(_) => "Focus",
-            KanbanDocumentLayout::TreeOutline(_) => "Tree outline",
-            KanbanDocumentLayout::NodeLayout(_) => "Node outline",
+        match src.layout {
+            KanbanDocumentLayoutType::Columnar(_) => "Columnar",
+            KanbanDocumentLayoutType::Queue(_) => "Queue",
+            KanbanDocumentLayoutType::Search(_) => "Search",
+            KanbanDocumentLayoutType::Focused(_) => "Focus",
+            KanbanDocumentLayoutType::TreeOutline(_) => "Tree outline",
+            KanbanDocumentLayoutType::NodeLayout(_) => "Node outline",
         }
         .into()
     }
@@ -117,7 +137,7 @@ impl From<&KanbanDocumentLayout> for String {
 /// Layout code
 impl KanbanRS {
     pub fn layout_columnar(&mut self, ui: &mut egui::Ui) {
-        if let KanbanDocumentLayout::Columnar(cache) = &mut self.current_layout {
+        if let KanbanDocumentLayoutType::Columnar(cache) = &mut self.current_layout.layout {
             let column_width = ui.available_width() / 3.0;
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());
@@ -128,6 +148,7 @@ impl KanbanRS {
                     &mut self.hovered_task,
                     &mut self.summary_actions_pending,
                     "ReadyScrollArea",
+                    None,
                 );
                 columns[1].label(RichText::new("Blocked").heading());
                 self.document.read().layout_id_list(
@@ -136,6 +157,7 @@ impl KanbanRS {
                     &mut self.hovered_task,
                     &mut self.summary_actions_pending,
                     "BlockedScrollArea",
+                    self.current_layout.scroll_to,
                 );
                 columns[2].label(RichText::new("Completed").heading());
 
@@ -145,13 +167,15 @@ impl KanbanRS {
                     &mut self.hovered_task,
                     &mut self.summary_actions_pending,
                     "CompletedScrollArea",
+                    self.current_layout.scroll_to,
                 );
+                self.current_layout.scroll_to = None;
             });
         }
     }
 
     pub fn layout_queue(&mut self, ui: &mut egui::Ui) {
-        if let KanbanDocumentLayout::Queue(qs) = &mut self.current_layout {
+        if let KanbanDocumentLayoutType::Queue(qs) = &mut self.current_layout.layout {
             // ScrollArea::vertical().id_salt("Queue").show_rows(
             //     ui,
             //     200.0,
@@ -163,13 +187,15 @@ impl KanbanRS {
                 &mut self.hovered_task,
                 &mut self.summary_actions_pending,
                 "Queue",
+                self.current_layout.scroll_to,
             );
+            self.current_layout.scroll_to = None;
             // );
         }
     }
     pub fn layout_search(&mut self, ui: &mut egui::Ui) {
         let doc = self.document.read();
-        if let KanbanDocumentLayout::Search(search_state) = &mut self.current_layout {
+        if let KanbanDocumentLayoutType::Search(search_state) = &mut self.current_layout.layout {
             ui.horizontal(|ui| {
                 let label = ui.label("Search");
                 ui.text_edit_singleline(&mut search_state.search_prompt)
@@ -183,11 +209,12 @@ impl KanbanRS {
                 &mut self.hovered_task,
                 &mut self.summary_actions_pending,
                 "SearchArea",
+                self.current_layout.scroll_to,
             );
         }
     }
     pub fn layout_focused(&mut self, ui: &mut egui::Ui) {
-        if let KanbanDocumentLayout::Focused(focus) = &mut self.current_layout {
+        if let KanbanDocumentLayoutType::Focused(focus) = &mut self.current_layout.layout {
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Child tasks").heading());
                 columns[2].label(RichText::new("Parent tasks").heading());
@@ -210,6 +237,7 @@ impl KanbanRS {
                     &mut self.hovered_task,
                     &mut self.summary_actions_pending,
                     "ChildScroller",
+                    self.current_layout.scroll_to,
                 );
 
                 self.document.read().layout_id_list(
@@ -218,6 +246,7 @@ impl KanbanRS {
                     &mut self.hovered_task,
                     &mut self.summary_actions_pending,
                     "ParentScroller",
+                    self.current_layout.scroll_to,
                 );
             });
         }
@@ -238,14 +267,14 @@ pub mod test {
             task.completed = Some(Utc::now());
             document.replace_task(&task);
         }
-        let mut layout = KanbanDocumentLayout::Columnar([Vec::new(), vec![], vec![]]);
+        let mut layout = KanbanDocumentLayout::default();
         layout.update_cache(
             &document,
             &ItemSort::None,
             &egui::Style::default(),
             &KanbanFilter::None,
         );
-        if let KanbanDocumentLayout::Columnar(cache) = layout {
+        if let KanbanDocumentLayoutType::Columnar(cache) = layout.layout {
             assert_eq!(cache[0].len(), 2);
             assert_eq!(cache[1].len(), 1);
             assert_eq!(cache[2].len(), 1);

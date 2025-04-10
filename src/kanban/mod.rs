@@ -1,8 +1,9 @@
 use chrono::prelude::*;
 use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{
-    self, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke, Vec2,
+    self, Align, Color32, Direction, Margin, Response, RichText, ScrollArea, Stroke, Vec2,
 };
+use epaint::{Pos2, Rect};
 use log::{debug, info, warn};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -276,6 +277,7 @@ impl KanbanDocument {
     //! * `range` - the range of indices to render
     //! * `hovered_task` - The task being hovered over by the user, may be set here
     //! * `event_collector` - The list of actions being collected.
+    //! * `scroll_to` - The id of an action to scroll to
     pub fn layout_id_list(
         &self,
         ui: &mut egui::Ui,
@@ -283,10 +285,12 @@ impl KanbanDocument {
         hovered_task: &mut Option<i32>,
         event_collector: &mut Vec<SummaryAction>,
         id_salt: impl std::hash::Hash,
+        scroll_to: Option<KanbanId>,
     ) {
         ui.set_width(ui.available_width());
         let cache_key = egui::Id::new(&id_salt);
         let scrollarea = egui::ScrollArea::vertical().id_salt(id_salt);
+
         scrollarea.show_viewport(ui, |ui, rect| {
             debug!(target:"layout_id_list","{:?}", rect);
             ui.set_width(ui.available_width());
@@ -302,7 +306,9 @@ impl KanbanDocument {
                 // calculation.
                 ui.set_min_height(height);
                 let mut accumulated_height: f32 = 0.;
-                let populating_cache = !layout_cache::has_cache(cache_key, ids.len());
+                let populating_cache = !layout_cache::has_cache(cache_key, ids.len())
+                    || scroll_to.is_some_and(|x| ids.iter().any(|y| *y == x));
+
                 for item_id in ids.iter() {
                     let element_height = layout_cache::get_item_height(cache_key, *item_id);
                     if let Some(element_height) = element_height {
@@ -324,9 +330,19 @@ impl KanbanDocument {
                     let action = item.summary(self, hovered_task, ui, true, 0);
                     event_collector.push(action);
                     let end = ui.cursor().min.y;
+
                     // This *might* be the cause of an error when scrolled down
                     // when you edit an item.
                     layout_cache::record_height(cache_key, *item_id, start, end);
+                    if scroll_to.is_some_and(|x| *item_id == x) {
+                        ui.scroll_to_rect(
+                            Rect {
+                                min: Pos2::new(0., start),
+                                max: Pos2::new(0., end),
+                            },
+                            Some(Align::TOP),
+                        );
+                    }
                     accumulated_height += end - start;
                 }
             });

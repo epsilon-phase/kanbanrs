@@ -98,14 +98,18 @@ impl std::fmt::Display for StartupLayout {
 }
 impl From<StartupLayout> for KanbanDocumentLayout {
     fn from(value: StartupLayout) -> Self {
-        match value {
+        let layout_type = match value {
             StartupLayout::Column => {
-                KanbanDocumentLayout::Columnar([Vec::new(), Vec::new(), Vec::new()])
+                KanbanDocumentLayoutType::Columnar([Vec::new(), Vec::new(), Vec::new()])
             }
-            StartupLayout::Node => KanbanDocumentLayout::NodeLayout(NodeLayout::new()),
-            StartupLayout::Queue => KanbanDocumentLayout::Queue(QueueState::new()),
-            StartupLayout::Search => KanbanDocumentLayout::Search(SearchState::new()),
-            StartupLayout::TreeOutline => KanbanDocumentLayout::TreeOutline(TreeOutline::new()),
+            StartupLayout::Node => KanbanDocumentLayoutType::NodeLayout(NodeLayout::new()),
+            StartupLayout::Queue => KanbanDocumentLayoutType::Queue(QueueState::new()),
+            StartupLayout::Search => KanbanDocumentLayoutType::Search(SearchState::new()),
+            StartupLayout::TreeOutline => KanbanDocumentLayoutType::TreeOutline(TreeOutline::new()),
+        };
+        Self {
+            layout: layout_type,
+            scroll_to: None,
         }
     }
 }
@@ -230,7 +234,7 @@ impl eframe::App for KanbanRS {
                 logical_key: egui::Key::F,
             };
             i.consume_shortcut(&find_shortcut).then(|| {
-                self.current_layout = KanbanDocumentLayout::Search(SearchState::new());
+                self.current_layout.layout = KanbanDocumentLayoutType::Search(SearchState::new());
                 self.layout_cache_needs_updating = true;
                 println!("FINDING");
             })
@@ -381,7 +385,10 @@ impl eframe::App for KanbanRS {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanDocumentLayout::Queue(QueueState::new()),
+                                KanbanDocumentLayout {
+                                    layout: KanbanDocumentLayoutType::Queue(QueueState::new()),
+                                    scroll_to: None,
+                                },
                                 "Queue",
                             )
                             .clicked()
@@ -391,7 +398,10 @@ impl eframe::App for KanbanRS {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanDocumentLayout::Search(SearchState::new()),
+                                KanbanDocumentLayout {
+                                    layout: KanbanDocumentLayoutType::Search(SearchState::new()),
+                                    scroll_to: None,
+                                },
                                 "Search",
                             )
                             .clicked()
@@ -401,7 +411,12 @@ impl eframe::App for KanbanRS {
                         if ui
                             .selectable_value(
                                 &mut self.current_layout,
-                                KanbanDocumentLayout::TreeOutline(TreeOutline::new()),
+                                KanbanDocumentLayout {
+                                    layout: KanbanDocumentLayoutType::TreeOutline(
+                                        TreeOutline::new(),
+                                    ),
+                                    scroll_to: None,
+                                },
                                 "Tree Outline",
                             )
                             .clicked()
@@ -410,7 +425,10 @@ impl eframe::App for KanbanRS {
                         }
                         ui.selectable_value(
                             &mut self.current_layout,
-                            KanbanDocumentLayout::NodeLayout(NodeLayout::new()),
+                            KanbanDocumentLayout {
+                                layout: KanbanDocumentLayoutType::NodeLayout(NodeLayout::new()),
+                                scroll_to: None,
+                            },
                             "Node",
                         )
                         .clicked()
@@ -418,7 +436,7 @@ impl eframe::App for KanbanRS {
                             self.layout_cache_needs_updating = true;
                         })
                     });
-                if let KanbanDocumentLayout::Search(_) = self.current_layout {
+                if let KanbanDocumentLayoutType::Search(_) = self.current_layout.layout {
                 } else {
                     self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
                 }
@@ -445,25 +463,30 @@ impl eframe::App for KanbanRS {
             });
 
             ui.end_row();
-            if let KanbanDocumentLayout::Columnar(_) = self.current_layout {
+            if let KanbanDocumentLayoutType::Columnar(_) = self.current_layout.layout {
                 self.layout_columnar(ui);
-            } else if let KanbanDocumentLayout::Search(_) = self.current_layout {
+            } else if let KanbanDocumentLayoutType::Search(_) = self.current_layout.layout {
                 self.layout_search(ui);
-            } else if let KanbanDocumentLayout::Focused(_) = self.current_layout {
+            } else if let KanbanDocumentLayoutType::Focused(_) = self.current_layout.layout {
                 self.layout_focused(ui);
-            } else if let KanbanDocumentLayout::TreeOutline(tr) = &mut self.current_layout {
+            } else if let KanbanDocumentLayoutType::TreeOutline(tr) =
+                &mut self.current_layout.layout
+            {
                 tr.show(
                     ui,
                     &self.document.read(),
                     &mut self.summary_actions_pending,
                     &mut self.hovered_task,
                 )
-            } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
+            } else if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout
+            {
                 self.layout_cache_needs_updating |=
                     nl.show(&self.document.read(), ui, &mut self.summary_actions_pending);
             } else {
                 self.layout_queue(ui);
             }
+            // Should be cleared after each layout update.
+            self.current_layout.scroll_to = None;
             let mut undo_items: Vec<kanban::undo::UndoItem> = Vec::new();
             self.open_editors
                 .iter()
@@ -673,14 +696,17 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
             }
             SummaryAction::FocusOn(id) => {
-                if let KanbanDocumentLayout::TreeOutline(t_o) = &mut self.current_layout {
+                if let KanbanDocumentLayoutType::TreeOutline(t_o) = &mut self.current_layout.layout
+                {
                     t_o.set_focus(*id);
-                } else if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
+                } else if let KanbanDocumentLayoutType::NodeLayout(nl) =
+                    &mut self.current_layout.layout
+                {
                     nl.set_focus(id);
                     //This shouldn't trigger a switch to the focused view
                 } else {
-                    self.current_layout =
-                        KanbanDocumentLayout::Focused(kanban::focused_layout::Focus::new(*id));
+                    self.current_layout.layout =
+                        KanbanDocumentLayoutType::Focused(kanban::focused_layout::Focus::new(*id));
                 }
                 self.layout_cache_needs_updating = true;
             }
@@ -759,11 +785,7 @@ impl KanbanRS {
                 task.time_records.handle_record_request(None);
             }
             kanban::editor::EditorRequest::ScrollTo(id) => {
-                // TODO this should be moved into a new funcion in KanbanDocumentLayout
-                // which should handle this for each of the various layouts
-                if let KanbanDocumentLayout::NodeLayout(nl) = &mut self.current_layout {
-                    nl.scroll_to(*id);
-                }
+                self.current_layout.scroll_to = Some(*id);
             }
         }
     }

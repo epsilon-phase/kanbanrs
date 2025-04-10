@@ -43,7 +43,9 @@ impl Preferences {
                         &mut self.store_undo_history_for_files,
                         "Persist Undo records",
                     );
-                    ui.label("This retains information in your home configuration directory.\nIt will leak information there, and may lead to retaining information saved into more secure locations.\n Currently this doesn't do anything");
+                    ui.label(r"This retains information in your home configuration directory.
+It will leak information there, and may lead to retaining information saved into more secure locations.
+Currently this doesn't do anything");
                     response
                 })
                 .inner,
