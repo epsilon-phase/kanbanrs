@@ -410,7 +410,7 @@ impl NodeLayout {
                     Modal::new("layout_modal".into()).show(ui.ctx(), |ui| {
                         ui.label("Performing layout!");
                     });
-                    println!("Using modal due to slow update!");
+                    debug!("Displaying modal due to slow update!");
                 }
                 self.frames_in_update += 1;
                 ui.ctx().request_repaint();
@@ -438,6 +438,7 @@ impl NodeLayout {
                 }
             }
         }
+
         let mut needs_update = false;
         ui.horizontal(|ui| {
             needs_update |= ui
@@ -448,6 +449,7 @@ impl NodeLayout {
                 needs_update = true;
             }
         });
+
         Scene::new().show(ui, &mut self.scene_rect, |ui| {
             if !self.min.is_finite() || !self.max.is_finite() {
                 return;
@@ -456,6 +458,7 @@ impl NodeLayout {
                 self.max.to_vec2() - self.min.to_vec2(),
                 egui::Sense::empty(),
             );
+
             let start = response.rect.min;
 
             self.commands

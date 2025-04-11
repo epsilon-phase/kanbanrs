@@ -27,6 +27,9 @@
 * Use the log crate instead of `println!` calls
 * Update egui and associated crates to 0.31.1
 * Added a test for `kanban::time_tracking::collect_child_durations`
+* Redo some of the layout stuff
+  * Renamed `KanbanDocumentLayout` to `KanbanDocumentLayoutType` and replaced it with a
+  new struct that also contains a `scroll_to` member
 
 # v0.2.4
 
@@ -68,6 +71,7 @@
 ## Refactoring
 * Moved the editor display functions into the State impl.
 * Rename record_position to record_height to make it clearer what it does.
+
 
 # v0.2.3
 
