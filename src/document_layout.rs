@@ -88,9 +88,6 @@ impl KanbanDocumentLayout {
             }
             KanbanDocumentLayoutType::NodeLayout(nl) => {
                 nl.update(document, style, filter, sort);
-                if let Some(id) = self.scroll_to {
-                    nl.scroll_to(id);
-                }
             }
         }
     }

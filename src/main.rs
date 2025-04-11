@@ -786,6 +786,9 @@ impl KanbanRS {
             }
             kanban::editor::EditorRequest::ScrollTo(id) => {
                 self.current_layout.scroll_to = Some(*id);
+                if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout {
+                    nl.scroll_to(*id);
+                }
             }
         }
     }

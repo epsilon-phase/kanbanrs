@@ -1817,6 +1817,7 @@ dependencies = [
  "env_logger",
  "epaint",
  "layout-rs",
+ "lazy_static",
  "log",
  "nucleo-matcher",
  "parking_lot",
@@ -1848,6 +1849,12 @@ name = "layout-rs"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84deb28a3a6c839ca42a7341664f32281416d69e2f29deb85aec5cc0243fdea8"
+
+[[package]]
+name = "lazy_static"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
 
 [[package]]
 name = "libc"

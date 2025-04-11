@@ -4,6 +4,8 @@ use std::cmp::Ordering;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use lazy_static::lazy_static;
+
 use super::*;
 
 use eframe::egui::Scene;
@@ -144,6 +146,7 @@ impl DrawCommand {
         }
     }
 }
+
 #[derive(Default)]
 struct CommandContainer {
     commands: Vec<DrawCommand>,
@@ -154,6 +157,7 @@ pub struct NodeLayout {
     // the interface should be implemented on that instead.
     commands: CommandContainer,
     scene_rect: Rect,
+    scroll_target: Option<(Pos2, bool)>,
     min: Pos2,
     max: Pos2,
     sense_regions: Vec<(KanbanId, Rect)>,
@@ -184,6 +188,7 @@ impl NodeLayout {
                 min: Pos2::new(0.0, 0.0),
                 max: Pos2::new(0.0, 0.0),
             },
+            scroll_target: None,
             drag_linger: Option::None,
             layout_handle: Option::None,
             focus: Option::None,
@@ -289,7 +294,10 @@ impl RenderBackend for CommandContainer {
 }
 
 impl NodeLayout {}
-
+lazy_static! {
+    static ref SCROLL_X_ID: egui::Id = egui::Id::new("scroll-x");
+    static ref SCROLL_Y_ID: egui::Id = egui::Id::new("scroll-y");
+}
 impl NodeLayout {
     fn is_collapsed(&self, document: &KanbanDocument, item: &KanbanItem) -> bool {
         self.collapsed
@@ -395,7 +403,8 @@ impl NodeLayout {
     pub fn scroll_to(&mut self, id: KanbanId) {
         let target_rect = self.sense_regions.iter().find(|x| x.0 == id);
         if let Some(target_rect) = target_rect {
-            self.scene_rect.set_center(target_rect.1.center());
+            // self.scene_rect.set_center(target_rect.1.center());
+            self.scroll_target = Some((target_rect.1.center(), true));
         }
     }
     pub fn show(
@@ -449,7 +458,31 @@ impl NodeLayout {
                 needs_update = true;
             }
         });
-
+        let scene_center = self.scene_rect.center();
+        if let Some((target, first_frame)) = &mut self.scroll_target {
+            println!("animating!");
+            let (cx, cy) = if *first_frame {
+                (
+                    ui.ctx()
+                        .animate_value_with_time(*SCROLL_X_ID, scene_center.x, 2.),
+                    ui.ctx()
+                        .animate_value_with_time(*SCROLL_Y_ID, scene_center.y, 2.),
+                )
+            } else {
+                (
+                    ui.ctx().animate_value_with_time(*SCROLL_X_ID, target.x, 2.),
+                    ui.ctx().animate_value_with_time(*SCROLL_Y_ID, target.y, 2.),
+                )
+            };
+            *first_frame = false;
+            self.scene_rect.set_center(Pos2::new(cx, cy));
+        }
+        if self
+            .scroll_target
+            .is_some_and(|(x, _y)| x == self.scene_rect.center())
+        {
+            self.scroll_target = None;
+        }
         Scene::new().show(ui, &mut self.scene_rect, |ui| {
             if !self.min.is_finite() || !self.max.is_finite() {
                 return;
