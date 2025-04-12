@@ -294,6 +294,8 @@ impl RenderBackend for CommandContainer {
 }
 
 impl NodeLayout {}
+// It may be a good idea, should performance be an issue,
+// to check if this actually saves any cpu time
 lazy_static! {
     static ref SCROLL_X_ID: egui::Id = egui::Id::new("scroll-x");
     static ref SCROLL_Y_ID: egui::Id = egui::Id::new("scroll-y");
@@ -460,22 +462,30 @@ impl NodeLayout {
         });
         let scene_center = self.scene_rect.center();
         if let Some((target, first_frame)) = &mut self.scroll_target {
-            println!("animating!");
-            let (cx, cy) = if *first_frame {
-                (
-                    ui.ctx()
-                        .animate_value_with_time(*SCROLL_X_ID, scene_center.x, 2.),
-                    ui.ctx()
-                        .animate_value_with_time(*SCROLL_Y_ID, scene_center.y, 2.),
+            const SCROLL_ANIMATION_TIME: f32 = 1.5;
+            let center = if *first_frame {
+                Pos2::new(
+                    ui.ctx().animate_value_with_time(
+                        *SCROLL_X_ID,
+                        scene_center.x,
+                        SCROLL_ANIMATION_TIME,
+                    ),
+                    ui.ctx().animate_value_with_time(
+                        *SCROLL_Y_ID,
+                        scene_center.y,
+                        SCROLL_ANIMATION_TIME,
+                    ),
                 )
             } else {
-                (
-                    ui.ctx().animate_value_with_time(*SCROLL_X_ID, target.x, 2.),
-                    ui.ctx().animate_value_with_time(*SCROLL_Y_ID, target.y, 2.),
+                Pos2::new(
+                    ui.ctx()
+                        .animate_value_with_time(*SCROLL_X_ID, target.x, SCROLL_ANIMATION_TIME),
+                    ui.ctx()
+                        .animate_value_with_time(*SCROLL_Y_ID, target.y, SCROLL_ANIMATION_TIME),
                 )
             };
             *first_frame = false;
-            self.scene_rect.set_center(Pos2::new(cx, cy));
+            self.scene_rect.set_center(center);
         }
         if self
             .scroll_target

@@ -787,6 +787,8 @@ impl KanbanRS {
             kanban::editor::EditorRequest::ScrollTo(id) => {
                 self.current_layout.scroll_to = Some(*id);
                 if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout {
+                    //This needs to happen here because the scrolling works differently
+                    //in the node layout than the scrollarea based containers.
                     nl.scroll_to(*id);
                 }
             }
