@@ -23,18 +23,28 @@ pub mod tree_outline_layout;
 pub mod undo;
 
 pub type KanbanId = i32;
-
+///The three states a task might be in
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Status {
+    ///A blocked task has a child task that is not completed
     Blocked,
+    ///A completed task is marked as completed
     Completed,
+    ///A ready task has no uncompleted child tasks
     Ready,
 }
+///A kanban document
 #[derive(Default, Serialize, Deserialize)]
 pub struct KanbanDocument {
+    ///An association between task ids and items
     tasks: BTreeMap<KanbanId, KanbanItem>,
+    ///An association of priorities and their value
     priorities: HashMap<String, i32>,
+    ///An association between a category and their style,
+    ///if a category is not mentioned, then you can't be sure the category
+    ///doesn't exist
     categories: HashMap<String, KanbanCategoryStyle>,
+    ///The id the next task will be created with.
     next_id: RwLock<KanbanId>,
 }
 impl Clone for KanbanDocument {
@@ -349,23 +359,38 @@ impl KanbanDocument {
         });
     }
 }
+///The relationship between two tasks
 #[derive(PartialEq, Eq)]
 pub enum TaskRelation {
+    ///There is no direct relationship
     Unrelated,
+    ///The task is the child of the other task
     ChildOf,
+    ///The task is the parent of the other task
     ParentOf,
+    ///The two tasks are the same
     TheItemItself,
 }
+/// A kanban task
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct KanbanItem {
+    ///The id of the task
     pub id: KanbanId,
+    ///The name of the task
     pub name: String,
+    ///The description of the task
     pub description: String,
+    ///The completion time of the task
     pub completed: Option<DateTime<Utc>>,
+    ///The cateogry of the task, there is only one
     pub category: Option<String>,
+    ///The priority of the task
     pub priority: Option<String>,
+    ///The tags associated with the task
     pub tags: Vec<String>,
+    ///The children of the tasks
     pub child_tasks: BTreeSet<KanbanId>,
+    ///The time records associated with the task
     #[serde(default)]
     pub time_records: TimeRecords,
 }
@@ -400,11 +425,14 @@ impl KanbanItem {
             }
         }
     }
+    ///Adds a task as a child, ensuring it is not already in the child
+    ///list
     pub fn add_child(&mut self, child: &Self) {
         if !self.child_tasks.contains(&child.id) {
             self.child_tasks.insert(child.id);
         }
     }
+    ///Retrieve a textual representation of the task's completion state
     pub fn get_completed_time_string(&self) -> Option<String> {
         if let Some(completion_time) = self.completed {
             let current_time = Utc::now();
@@ -435,7 +463,7 @@ impl KanbanItem {
             None
         }
     }
-    // Remove a child from the task, returning true if it was present
+    /// Remove a child from the task, returning true if it was present
     pub fn remove_child(&mut self, other: &Self) -> bool {
         let mut found = false;
         self.child_tasks.retain(|x| {
@@ -449,7 +477,8 @@ impl KanbanItem {
         });
         found
     }
-
+    ///Returns true if any of the textual fields contains the specified
+    ///string
     pub fn matches(&self, other: &str) -> bool {
         if self.name.contains(other) {
             return true;
@@ -479,14 +508,22 @@ impl KanbanItem {
         }
     }
 }
+///An action that is produced by interaction with the task summary
 #[derive(Clone, Copy)]
 pub enum SummaryAction {
+    ///No changes
     NoAction,
+    ///Open the task in the editor
     OpenEditor(KanbanId),
+    ///Create a child task on this one
     CreateChildOf(KanbanId),
+    ///Mark the specified task as completed, or uncomplete it.
     MarkCompleted(KanbanId),
+    ///Focus on the specified task
     FocusOn(KanbanId),
+    ///Add an extant task as a child to another task
     AddChildTo(KanbanId, KanbanId),
+    ///Signal that the layout must be updated
     UpdateLayout,
 }
 impl KanbanItem {
@@ -729,8 +766,11 @@ pub mod search {
 */
 pub mod queue_view {
     use super::*;
+    ///The queue UI produces a single column of tasks that are immediately
+    ///actionable
     #[derive(PartialEq, Eq, Clone)]
     pub struct QueueState {
+        ///The list of all ready tasks, as prefilteredd
         pub cached_ready: Vec<KanbanId>,
     }
     impl Default for QueueState {

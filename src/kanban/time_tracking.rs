@@ -2,11 +2,14 @@ use chrono::TimeDelta;
 
 use super::*;
 use std::collections::HashSet;
+///The time recording type.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum TimeEntry {
+    ///A time entry without any referent to actual time.
     InstanteousDuration(chrono::TimeDelta),
-
+    ///A time entry with both a beginning and an ending time.
     Concluded(chrono::DateTime<chrono::Utc>, chrono::DateTime<Utc>),
+    ///A time entry that hasn't been concluded.
     Started(chrono::DateTime<chrono::Utc>),
 }
 impl TimeEntry {
@@ -21,6 +24,7 @@ impl TimeEntry {
             _ => self,
         }
     }
+    ///Calculate or retrieve the duration of the time entry.
     pub fn duration(self) -> chrono::TimeDelta {
         match self {
             Self::InstanteousDuration(x) => x,
@@ -28,6 +32,7 @@ impl TimeEntry {
             Self::Started(start) => Utc::now() - start,
         }
     }
+    ///Retrieve a 'human friendly' description of the time entry
     pub fn to_description(self) -> String {
         let dur = self.duration();
         match self {
@@ -61,8 +66,11 @@ impl TimeEntry {
         }
     }
 }
+///A container for the time records in a task
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TimeRecords {
+    ///An association between time entries and, optionally, a string
+    ///describing how the time was spent
     pub entries: Vec<(TimeEntry, Option<String>)>,
 }
 impl Default for TimeRecords {
@@ -107,7 +115,9 @@ impl TimeRecords {
         self.entries.push((TimeEntry::InstanteousDuration(d), None));
     }
 }
-
+///Collect the time spent of each child task.
+///
+///Produces a list of task Ids and associated durations.
 pub fn collect_child_durations(
     document: &KanbanDocument,
     item: &KanbanItem,
@@ -136,6 +146,8 @@ mod test {
     use crate::kanban::tests::make_document_easy;
 
     use super::*;
+    ///Test that the time record container correctly handles a timer toggle
+    ///signal
     #[test]
     fn test_recording() {
         let mut t = TimeRecords::new();

@@ -21,6 +21,7 @@ use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
 use sorting::ItemSort;
 
+///Stores a path between two items in the drawing
 #[derive(PartialEq, Clone, Eq)]
 struct ArrowOptions {
     path: Vec<Pos2>,
@@ -28,18 +29,32 @@ struct ArrowOptions {
     head: (bool, bool),
     text: String,
 }
-
+///A drawing command used to store the results of the layout-rs commands.
+///
+///This loses a *lot* of information, partly because there's no way to
+///store the information required in a way useful to egui
 #[derive(Clone, PartialEq)]
 enum DrawCommand {
     // There would ideally be a text color here, however I don't think layout-rs has
     // a suitable field for this in the styleattr struct.
+    ///A text item to display, consisting of the position, the text
+    ///and the text size.
     Text(Pos2, String, f32),
+    ///A rectangle to display, consisting of the rectangle coordinates,
+    ///the color of the outline, the color of the background, and the
+    ///thickness of the thickness of the outline
     Rect(Rect, Color32, Option<Color32>, f32),
+    ///An ellipse, bounded by these two points
     Circle(Pos2, Pos2),
+    ///An arrow that follows a path
     Arrow(ArrowOptions),
-
+    ///A line from one point to another, not used, I think?
     Line(Pos2, Pos2),
 }
+/// This is necessary to order the drawing commands so as not to clash with
+/// one another. Commands that should be drawn on top must come last
+///
+/// Text > Rectangle > Circle > Arrow > Line
 impl PartialOrd for DrawCommand {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         use DrawCommand::*;
@@ -151,21 +166,36 @@ impl DrawCommand {
 struct CommandContainer {
     commands: Vec<DrawCommand>,
 }
-
+///The state required for the node layout
 pub struct NodeLayout {
     // A thought on this. This should be extracted into another container and then
     // the interface should be implemented on that instead.
+    ///A list of commands required to draw the node layout.
     commands: CommandContainer,
+    ///The scene rectangle which controls the Scene layout
     scene_rect: Rect,
+    ///The center of the rectangle that is being scrolled to
     scroll_target: Option<(Pos2, bool)>,
+    ///The minimum coordinate
     min: Pos2,
+    ///The maximum coordinate
     max: Pos2,
+    ///A container mapping the rectangles displayed to their associated
+    ///task ids
     sense_regions: Vec<(KanbanId, Rect)>,
+    ///The focused kanban task, which when set, determines that only
+    ///related tasks will be displayed
     focus: Option<KanbanId>,
+    ///Whether or not completed tasks should be displayed
     exclude_completed: bool,
+    ///The id of the dragged item, or `None`
     dragged_item: Option<KanbanId>,
+    ///A container of every kanban task which is collapsed
     collapsed: Vec<KanbanId>,
+    ///The instant during which the current drag target was selected
     drag_linger: Option<std::time::Instant>,
+    ///A thread handle that returns the necessary state to build the update
+    ///on the main thread and displayed
     layout_handle: Option<
         JoinHandle<(
             VisualGraph,
@@ -173,6 +203,8 @@ pub struct NodeLayout {
             CommandContainer,
         )>,
     >,
+    ///The number of frames since the layout thread was spawned, state
+    ///used to determine when the waiting modal must be displayed
     frames_in_update: u32,
 }
 impl NodeLayout {
@@ -206,12 +238,18 @@ fn from_point(value: Point) -> Pos2 {
         y: value.y as f32,
     }
 }
+///Move the rectangle by the position specified
+///
+///* `rect`: The rectangle to move
+///* `pos`: The offset to move by
 fn offset_rect(rect: Rect, pos: Vec2) -> Rect {
     Rect {
         min: rect.min + pos,
         max: rect.max + pos,
     }
 }
+/// Convert a Color32 from egui into the representation used by
+/// the layoutrs library
 fn from_color32(a: Color32) -> layout::core::color::Color {
     let mut result: u32 = 0;
     for i in a.to_srgba_unmultiplied().iter() {
@@ -219,6 +257,11 @@ fn from_color32(a: Color32) -> layout::core::color::Color {
     }
     layout::core::color::Color::new(result)
 }
+/// Returns true if the position specified is on the left side of the
+/// rectangle's center
+///
+/// * `r` - The rectangle to check against
+/// * `cursor` - The position to check
 fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
     let diff = r.max.x - r.min.x;
     cursor.x < r.min.x + diff / 2.0
@@ -226,6 +269,7 @@ fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
 impl RenderBackend for CommandContainer {
     fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
         if clip.is_some() {
+            // This has never triggered in the input I've created.
             warn!(target:"node_layout","Ow, I'm getting clipped and I'm not bothering to react. Layout-rs may not be behaving");
         }
         let start = Pos2 {
@@ -306,6 +350,7 @@ impl NodeLayout {
             .iter()
             .any(|parent_id| item.is_child_of(document.get_task(*parent_id).unwrap(), document))
     }
+    /// Update the nodelayout's state to match that of the kanban document
     pub fn update(
         &mut self,
         document: &KanbanDocument,
@@ -361,9 +406,11 @@ impl NodeLayout {
         if handles.is_empty() {
             return;
         }
+        let capacity = self.commands.commands.len();
         self.layout_handle = Some(std::thread::spawn(move || {
             let mut commands = CommandContainer {
-                commands: Vec::new(),
+                // Starting with this capacity is probably a good idea
+                commands: Vec::with_capacity(capacity),
             };
             vg.do_it(false, false, false, &mut commands);
             (vg, handles, commands)
@@ -409,6 +456,7 @@ impl NodeLayout {
             self.scroll_target = Some((target_rect.1.center(), true));
         }
     }
+    /// Draw the node layout into the ui
     pub fn show(
         &mut self,
         _document: &KanbanDocument,
@@ -667,9 +715,13 @@ fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &
     buffer
 }
 thread_local! {
+    ///A buffer used to wrap the nodes without reallocating memory constantly.
     static  NAME_BUFFER:RefCell<String>=const{RefCell::new(String::new())};
 }
+///The number of characters to wrap a node at.
 const NODE_WRAP_LENGTH: usize = 50;
+/// Add an item to the layout-rs graph, mostly a convenience function
+/// as it's kinda heavy to do inline
 fn add_item_to_graph<G>(
     i: &KanbanItem,
     document: &KanbanDocument,

@@ -87,13 +87,22 @@ impl KanbanRS {
 #[derive(
     clap::Parser, PartialEq, Eq, Clone, Copy, Debug, ValueEnum, Deserialize, Serialize, Default,
 )]
+/// The startup layout is used entirely in preferences and argument
+/// parsing to represent an empty layout.
 enum StartupLayout {
+    /// Converts into the NodeLayout
     Node,
+    ///Converted into the columnar layout
     #[default]
     Column,
+    ///Converted into the TreeLayout
     TreeOutline,
+    ///Converted into the QueueLayout
     Queue,
+    ///Converted into the SearchLayout
     Search,
+    ///Placeholder specifying that the layout should be initialized
+    ///from the stored preferences
     NotSelected,
 }
 impl std::fmt::Display for StartupLayout {

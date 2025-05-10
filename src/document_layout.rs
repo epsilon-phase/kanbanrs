@@ -1,14 +1,24 @@
 use crate::kanban::KanbanId;
 
 use super::*;
-
+///The layout type, with somes tate
 pub enum KanbanDocumentLayoutType {
+    ///The queue state
     Queue(kanban::queue_view::QueueState),
+    ///The column state, consisting of three lists that represent
+    ///* Ready
+    ///* Blocked
+    ///* Completed
     Columnar([Vec<i32>; 3]),
+    ///The search view
     Search(kanban::search::SearchState),
+    ///The focused view
     Focused(kanban::focused_layout::Focus),
+    ///The Tree Outline state
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
+    ///The node layout
     NodeLayout(kanban::node_layout::NodeLayout),
+    ///Placeholder to be loaded later
     Unloaded,
 }
 impl std::fmt::Debug for KanbanDocumentLayoutType {

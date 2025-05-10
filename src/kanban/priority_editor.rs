@@ -1,7 +1,11 @@
 use super::*;
+///The state used for the priority editor
 pub struct PriorityEditor {
+    ///The name of the priority being editor
     pub name: String,
+    ///The priority number
     pub current_value: i32,
+    ///Whether the editor is open
     pub open: bool,
 }
 impl PriorityEditor {

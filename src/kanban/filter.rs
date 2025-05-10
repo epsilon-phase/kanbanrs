@@ -3,16 +3,26 @@ use log::{debug, info};
 use std::cell::RefCell;
 
 use super::*;
+///A kanbanfilter
 #[derive(PartialEq, Clone)]
 pub enum KanbanFilter {
+    ///Matches every task
     None,
+    ///Matches tasks which contain a specific string
     ContainsString(String),
+    ///Matches tasks with a specific category
     MatchesCategory(String),
+    ///Matches tasks that are related to a specified task
     RelatedTo(KanbanId),
+    ///Matches tasks that is either completed or not, as specified
     CompletionStatus(bool),
+    ///Matches tasks that match a specific name
     NameContains(String),
+    ///Matches tasks with a specific tag
     TagContains(String),
+    ///'Full text' matches tasks with a fuzzy matcher
     FuzzyMatch(String),
+    ///'Full text' matches tasks with an exact match
     ExactMatch(String),
 }
 
@@ -22,12 +32,17 @@ impl Default for KanbanFilter {
     }
 }
 thread_local! {
+    ///The fuzzy matcher state.
     static NUCLEO_MATCHER:RefCell<nucleo_matcher::Matcher> = RefCell::new(nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT));
+    ///A fuzzy matching pattern, as parsed
     static NUCLEO_PATTERN:RefCell<nucleo_matcher::pattern::Pattern>=RefCell::new(nucleo_matcher::pattern::Pattern::new("", nucleo_matcher::pattern::CaseMatching::Smart, nucleo_matcher::pattern::Normalization::Smart, nucleo_matcher::pattern::AtomKind::Fuzzy));
+    ///A buffer to match a task with Nucleo-matcher
     static NUCLEO_BUFFER:RefCell<Vec<char>>=const {RefCell::new(Vec::new())};
+    ///A buffer(read string) for exact matching
     static MATCH_BUFFER:RefCell<String>=const {RefCell::new(String::new())};
 }
 impl KanbanFilter {
+    ///Returns the name of the filter type
     fn option_name(&self) -> &'static str {
         match self {
             Self::None => "No filter",
@@ -42,6 +57,7 @@ impl KanbanFilter {
             Self::ExactMatch(_) => "Exact Match",
         }
     }
+    ///Show the ui necessary to collect and display the filter settings
     pub fn show_ui(&mut self, ui: &mut Ui, _document: &KanbanDocument) -> egui::Response {
         let mut response: Option<Response> = None;
         ui.group(|ui| {
@@ -131,6 +147,7 @@ impl KanbanFilter {
         });
         response.unwrap()
     }
+    ///Returns true if a task matches the filter
     pub fn matches(&self, item: &KanbanItem, document: &KanbanDocument) -> bool {
         match self {
             KanbanFilter::None => true,

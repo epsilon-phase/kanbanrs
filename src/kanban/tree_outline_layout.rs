@@ -11,7 +11,9 @@ pub struct TreeOutline {
     /// particular occurance
     cache: Vec<(KanbanId, u32)>,
     // If this is set then it should only display the tree from this node onwards.
+    ///The optional focused task
     focused_id: Option<KanbanId>,
+    ///Whether or not to exclude completed tasks from the list
     exclude_completed: bool,
 }
 
@@ -22,6 +24,7 @@ impl TreeOutline {
             ..Default::default()
         }
     }
+    /// Spider down from each task until it reaches the bottom of the tree.
     fn dfs(&mut self, document: &KanbanDocument, sort: ItemSort, filter: &KanbanFilter) {
         self.cache.clear();
         let mut queue: VecDeque<(KanbanId, Depth)> = VecDeque::new();

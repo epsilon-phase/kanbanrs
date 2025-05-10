@@ -1,20 +1,30 @@
 use egui::{ComboBox, Ui, Widget};
 
 use super::*;
+///Signals to send representing the category information
 #[derive(PartialEq)]
 pub enum EditorAction {
+    ///Create a category and add it to the document, associated with a style
+    ///which will be applied to the display of any tasks assigned to it.
     CreateCategory(String, KanbanCategoryStyle),
+    ///Update the style of a category
     ApplyStyle(String, KanbanCategoryStyle),
+    ///Nothing has changed 🙂
     Nothing,
 }
 pub struct State {
+    ///The category style being edited, a copy at this point
     style: KanbanCategoryStyle,
+    ///The new category's name
     new_category_name: String,
     // Necessary because if the selected style changes it needs to wait till the next
     // frame to update
     selected_category_name: String,
+    ///The selected category name, in the listbox, I think?
     current_category_name: String,
+    ///Whether or not the category editor is opened
     pub open: bool,
+    ///A test document used to display the current category's style
     dummy_document: KanbanDocument,
 }
 impl State {

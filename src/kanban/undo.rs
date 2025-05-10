@@ -1,7 +1,11 @@
 use super::*;
+///Represents the creation of a task
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreationEvent {
+    ///The id of the parent task, there can only be one, and the new
+    ///id must be deleted from the list of its children to undo
     pub parent_id: Option<KanbanId>,
+    ///The new task added. Kept here mostly for posterity
     pub new_task: KanbanItem,
 }
 impl CreationEvent {
@@ -12,9 +16,13 @@ impl CreationEvent {
         });
     }
 }
+///Represents the deletion record of a task
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeletionEvent {
+    ///The deleted task
     pub former_item: KanbanItem,
+    ///The ids of the tasks which had this as a parent, necessary
+    ///to restore it
     pub parent_ids: Vec<KanbanId>,
 }
 impl DeletionEvent {
@@ -26,8 +34,10 @@ impl DeletionEvent {
         }
     }
 }
+///Represents a modification of an existing task
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ModificationEvent {
+    ///The former version of that task.
     pub former_item: KanbanItem,
 }
 impl ModificationEvent {
@@ -35,6 +45,7 @@ impl ModificationEvent {
         document.replace_task(&self.former_item);
     }
 }
+///The various types of events
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UndoItem {
     Create(CreationEvent),

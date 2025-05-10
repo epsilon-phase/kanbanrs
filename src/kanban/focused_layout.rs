@@ -1,8 +1,17 @@
 use super::*;
+///The state necessary to represent the focused layout
+///Tabular, roughly with this following layout
+///
+///|Right   |center|Left     |
+///|--------|------|---------|
+///|Children|Task  |Ancestors|
 #[derive(Clone)]
 pub struct Focus {
+    ///The task which is focused
     pub cares_about: Option<KanbanId>,
+    ///The list of descendent ids,
     pub children: Vec<KanbanId>,
+    ///The list of ancestor ids
     pub ancestors: Vec<KanbanId>,
 }
 impl Focus {

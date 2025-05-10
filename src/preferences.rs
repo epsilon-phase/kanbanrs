@@ -3,13 +3,18 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::StartupLayout;
-
+///Preferences to be stored between invocations of the program across
+///all documents
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
 pub struct Preferences {
+    ///Does nothing right now, not sure it ever will.
     pub store_undo_history_for_files: bool,
+    ///If something, then the duration between automatic saves
     pub autosave: Option<Duration>,
+    ///Whether or not to display the preference UI
     #[serde(skip)]
     pub showing_preference: bool,
+    ///The startup layout to open a document with if not specified
     #[serde(default)]
     pub startup_layout: StartupLayout,
 }

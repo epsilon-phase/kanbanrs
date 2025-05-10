@@ -2,22 +2,41 @@ use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
 use std::sync::mpsc::Sender;
+///The task editor's state
 #[derive(Clone)]
 pub struct State {
+    ///If the editor is open
     pub open: bool,
+    ///Whether or not the editor's changes are cancelled, and thus discarded
     pub cancelled: bool,
+    ///The copy of the item being edited
     pub item_copy: super::KanbanItem,
+    ///The unique id of the editor
     pub viewport_id: egui::ViewportId,
+    ///The id of the selected child
     selected_child: Option<KanbanId>,
+    ///A tag's name that is being edited, but has not yet been entered
     new_tag: String,
+    ///The name of the category of the task
     category: String,
+    ///If the category is being edited
     editing_category: bool,
+    ///If the ui is set to view the children, if not, then it will display
+    ///the parents of the task
     is_on_child_view: bool,
+    ///If the ui is set to display the tags, if not it will display the
+    ///time records associated with the task
     is_on_tag_view: bool,
+    ///The time delta for a new time entry
     new_time_entry: TimeDelta,
+    ///The description for a new(but not created) time entry
     new_time_descr: String,
+    ///The index of the time entry being edited
     time_entry_under_edit: Option<usize>,
+    ///A pipe to the main thread to send information to
     transmitter: Sender<EditorRequest>,
+    ///Set to true if the editor is displaying a warning about another task
+    ///having a time entry currently recording
     show_time_rec_modal: bool,
 }
 pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
@@ -516,6 +535,7 @@ impl State {
             });
         }
     }
+    ///Create the list of time entries, as it must be displayed
     fn produce_time_list(self: &mut State, ui: &mut egui::Ui) {
         let mut current_index = 0;
         // This feels like a very bad use-case for retain

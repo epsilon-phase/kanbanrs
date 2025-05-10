@@ -32,6 +32,9 @@
   * Renamed `KanbanDocumentLayout` to `KanbanDocumentLayoutType` and replaced it with a
   new struct that also contains a `scroll_to` member
 
+Maintenence:
+* Document *much* more of the code.
+
 # v0.2.4
 
 ## Features

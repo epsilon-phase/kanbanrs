@@ -2,14 +2,23 @@ use std::cmp::Ordering;
 
 use super::{KanbanDocument, KanbanId, KanbanItem};
 use eframe::egui::{self, ComboBox};
+///The way that kanban tasks should be sorted by
 #[derive(PartialEq, Copy, Clone)]
 pub enum ItemSort {
+    ///No sorting, leave every ordering as is.
     None,
+    ///Sort by the id of kanban tasks, which is roughly equivalent to
+    ///creation order.
     Id,
+    ///Sort by the inverse of creation order.
     Newest,
+    ///Sort by the name of the tasks
     Name,
+    ///Sort by the names of the category assigned to each task
     Category,
+    ///Sort by the completion time of each task.
     Completed,
+    ///Sort by the amount of time recorded on each task
     TimeSpent,
 }
 impl From<ItemSort> for String {
