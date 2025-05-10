@@ -102,6 +102,7 @@ impl TimeRecords {
             .map(|x| x.0.duration())
             .fold(chrono::TimeDelta::new(0, 0).unwrap(), |a, b| a + b)
     }
+    #[cfg(test)]
     pub(crate) fn add_duration_test(&mut self, d: chrono::TimeDelta) {
         self.entries.push((TimeEntry::InstanteousDuration(d), None));
     }
@@ -158,7 +159,7 @@ mod test {
         // counted more than once.
         {
             {
-                let mut task = document.get_task_mut(1).unwrap();
+                let task = document.get_task_mut(1).unwrap();
                 task.time_records
                     .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
             }
@@ -175,7 +176,7 @@ mod test {
         // implementation is wrong.
         {
             {
-                let mut task = document.get_task_mut(4).unwrap();
+                let task = document.get_task_mut(4).unwrap();
                 task.time_records
                     .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
             }
