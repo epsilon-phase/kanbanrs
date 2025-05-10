@@ -16,6 +16,7 @@
   * The "updating layout" modal no longer triggers unless it is waiting for
     most of a second
 * Added a "Scroll to" button in the editor to navigate to the tasks in question.
+* Label the task name entry box
 
 
 ## Bugs
@@ -34,6 +35,7 @@
 
 Maintenence:
 * Document *much* more of the code.
+* Write a getting started section in the readme.
 
 # v0.2.4
 

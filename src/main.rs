@@ -461,6 +461,7 @@ impl eframe::App for KanbanRS {
                 }
             });
             ui.horizontal(|ui| {
+                ui.label("New task name");
                 ui.text_edit_singleline(&mut self.task_name);
                 if ui.button("Add Task").clicked() {
                     let mut document = self.document.write();
