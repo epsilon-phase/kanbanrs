@@ -620,7 +620,7 @@ impl NodeLayout {
                         _document.get_task(*task_id).unwrap(),
                     ) && self
                         .drag_linger
-                        .map_or(false, |x| x.elapsed().as_secs_f32() > 1.0)
+                        .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
                     {
                         if is_on_left_side(region, start) {
                             actions.push(SummaryAction::AddChildTo(*x, *task_id));

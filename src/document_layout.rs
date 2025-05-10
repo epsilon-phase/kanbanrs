@@ -1,7 +1,9 @@
+use serde::{Deserialize, Serialize};
+
 use crate::kanban::KanbanId;
 
 use super::*;
-// #[derive(Clone)]
+
 pub enum KanbanDocumentLayoutType {
     Queue(kanban::queue_view::QueueState),
     Columnar([Vec<i32>; 3]),
@@ -9,6 +11,21 @@ pub enum KanbanDocumentLayoutType {
     Focused(kanban::focused_layout::Focus),
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
     NodeLayout(kanban::node_layout::NodeLayout),
+    Unloaded,
+}
+impl std::fmt::Debug for KanbanDocumentLayoutType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Type").unwrap();
+        f.write_str(match self {
+            Self::Queue(_) => "Queue",
+            Self::Columnar(_) => "Columnar",
+            Self::Search(_) => "Search",
+            Self::Focused(_) => "Focused",
+            Self::TreeOutline(_) => "Tree Outline",
+            Self::NodeLayout(_) => "Node",
+            Self::Unloaded => "Unloaded",
+        })
+    }
 }
 pub struct KanbanDocumentLayout {
     pub layout: KanbanDocumentLayoutType,
@@ -34,6 +51,9 @@ impl PartialEq for KanbanDocumentLayout {
             }
             KanbanDocumentLayoutType::NodeLayout(_) => {
                 matches!(other.layout, KanbanDocumentLayoutType::NodeLayout(_))
+            }
+            KanbanDocumentLayoutType::Unloaded => {
+                matches!(other.layout, KanbanDocumentLayoutType::Unloaded)
             }
         }
     }
@@ -89,6 +109,9 @@ impl KanbanDocumentLayout {
             KanbanDocumentLayoutType::NodeLayout(nl) => {
                 nl.update(document, style, filter, sort);
             }
+            KanbanDocumentLayoutType::Unloaded => {
+                panic!("Layout type should not be Unloaded");
+            }
         }
     }
 
@@ -122,6 +145,7 @@ impl From<&KanbanDocumentLayout> for String {
             KanbanDocumentLayoutType::Focused(_) => "Focus",
             KanbanDocumentLayoutType::TreeOutline(_) => "Tree outline",
             KanbanDocumentLayoutType::NodeLayout(_) => "Node outline",
+            KanbanDocumentLayoutType::Unloaded => "You shouldn't see this",
         }
         .into()
     }

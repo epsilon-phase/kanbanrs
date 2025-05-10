@@ -82,6 +82,7 @@ impl TreeOutline {
         document: &KanbanDocument,
         actions: &mut Vec<SummaryAction>,
         hovered_item: &mut Option<KanbanId>,
+        scroll_to: &Option<KanbanId>,
     ) {
         if ui
             .checkbox(&mut self.exclude_completed, "Exclude completed")
@@ -100,8 +101,10 @@ impl TreeOutline {
                 for idx in 0..self.cache.len() {
                     let (id, depth) = self.cache[idx];
                     if let Some(task) = document.get_task(id) {
+                        if scroll_to.is_some_and(|scroll_to| id == scroll_to) {
+                            ui.scroll_to_cursor(Some(Align::TOP));
+                        }
                         ui.horizontal(|ui| {
-                            // ui.label("");
                             ui.add_space((depth as f32) * ui.available_width() / 20.0);
 
                             actions.push(task.summary(document, hovered_item, ui, false, idx));

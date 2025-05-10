@@ -128,13 +128,13 @@ impl KanbanDocument {
         let new_task = KanbanItem::new(self);
         let new_task_id = new_task.id;
         self.tasks.insert(new_task_id, new_task);
-        return self.tasks.get_mut(&new_task_id).unwrap();
+        self.tasks.get_mut(&new_task_id).unwrap()
     }
     pub fn get_new_task(&mut self) -> KanbanItem {
         let new_task = KanbanItem::new(self);
         let new_task_id = new_task.id;
         self.tasks.insert(new_task_id, new_task);
-        return self.tasks.get(&new_task_id).unwrap().clone();
+        self.tasks.get(&new_task_id).unwrap().clone()
     }
     pub fn get_tasks(&'_ self) -> Values<'_, KanbanId, KanbanItem> {
         self.tasks.values()

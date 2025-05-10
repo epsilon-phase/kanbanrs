@@ -11,6 +11,7 @@ use kanban::{
 };
 use parking_lot::RwLock;
 use preferences::Preferences;
+use serde::{Deserialize, Serialize};
 use std::{
     borrow::BorrowMut,
     fs,
@@ -83,13 +84,17 @@ impl KanbanRS {
         }
     }
 }
-#[derive(clap::Parser, PartialEq, Eq, Clone, Copy, Debug, ValueEnum)]
+#[derive(
+    clap::Parser, PartialEq, Eq, Clone, Copy, Debug, ValueEnum, Deserialize, Serialize, Default,
+)]
 enum StartupLayout {
     Node,
+    #[default]
     Column,
     TreeOutline,
     Queue,
     Search,
+    NotSelected,
 }
 impl std::fmt::Display for StartupLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -106,6 +111,7 @@ impl From<StartupLayout> for KanbanDocumentLayout {
             StartupLayout::Queue => KanbanDocumentLayoutType::Queue(QueueState::new()),
             StartupLayout::Search => KanbanDocumentLayoutType::Search(SearchState::new()),
             StartupLayout::TreeOutline => KanbanDocumentLayoutType::TreeOutline(TreeOutline::new()),
+            StartupLayout::NotSelected => KanbanDocumentLayoutType::Unloaded,
         };
         Self {
             layout: layout_type,
@@ -116,7 +122,7 @@ impl From<StartupLayout> for KanbanDocumentLayout {
 #[derive(clap::Parser)]
 struct KanbanArgs {
     filename: Option<String>,
-    #[arg(short,long,value_enum,default_value_t=StartupLayout::Column)]
+    #[arg(short,long,value_enum,default_value_t=StartupLayout::NotSelected)]
     default_view: StartupLayout,
 }
 
@@ -245,7 +251,7 @@ impl eframe::App for KanbanRS {
                 min: egui::Pos2 { x: 0., y: 0. },
                 max: ui.available_size().to_pos2(),
             };
-            if self.last_rect.map_or(true, |x| x != current_rect) {
+            if self.last_rect != Some(current_rect) {
                 // println!("Clearing layout cache");
                 kanban::layout_cache::clear_layout_cache();
                 self.last_rect = Some(current_rect);
@@ -477,6 +483,7 @@ impl eframe::App for KanbanRS {
                     &self.document.read(),
                     &mut self.summary_actions_pending,
                     &mut self.hovered_task,
+                    &self.current_layout.scroll_to,
                 )
             } else if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout
             {
@@ -637,6 +644,15 @@ impl KanbanRS {
         );
         if let Ok(x) = serde_json::from_str(&str) {
             self.preferences = x;
+        }
+        // If the layout is specified in the preferences, and unspecified
+        // otherwise, then change it
+        if matches!(
+            self.current_layout.layout,
+            KanbanDocumentLayoutType::Unloaded
+        ) {
+            self.current_layout = self.preferences.startup_layout.into();
+            self.layout_cache_needs_updating = true;
         }
     }
     fn from_args(args: KanbanArgs) -> Self {

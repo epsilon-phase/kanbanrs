@@ -5,6 +5,7 @@
 * Preferences
   * Autosave interval configuration
   * Undo storage
+  * Default layout on startup
 
 ## UI Improvements
 

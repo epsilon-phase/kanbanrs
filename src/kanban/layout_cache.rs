@@ -20,17 +20,17 @@ pub fn has_cache(id: egui::Id, expected_count: usize) -> bool {
     ITEM_POSITION_CACHE.with_borrow(|cache| {
         cache
             .get(&id)
-            .map_or(false, |x| x.len() == expected_count && expected_count != 0)
+            .is_some_and(|x| x.len() == expected_count && expected_count != 0)
     })
 }
 pub fn get_item_height(id: egui::Id, task_id: KanbanId) -> Option<f32> {
-    return ITEM_POSITION_CACHE.with_borrow(|x| {
+    ITEM_POSITION_CACHE.with_borrow(|x| {
         if let Some(id_cache) = x.get(&id) {
             id_cache.get(&task_id).copied()
         } else {
             None
         }
-    });
+    })
 }
 pub fn cached_total_height(id: egui::Id) -> f32 {
     ITEM_POSITION_CACHE.with_borrow(|cache| {

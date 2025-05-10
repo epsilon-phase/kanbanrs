@@ -82,7 +82,7 @@ impl ItemSort {
 pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Ordering {
     if a.completed.is_some() {
         if b.completed.is_some() {
-            return a.completed.unwrap().cmp(b.completed.as_ref().unwrap());
+            a.completed.unwrap().cmp(b.completed.as_ref().unwrap())
         } else {
             Ordering::Greater
         }

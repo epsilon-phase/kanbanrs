@@ -1,12 +1,17 @@
 use eframe::egui::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+
+use crate::StartupLayout;
+
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
 pub struct Preferences {
     pub store_undo_history_for_files: bool,
     pub autosave: Option<Duration>,
     #[serde(skip)]
     pub showing_preference: bool,
+    #[serde(default)]
+    pub startup_layout: StartupLayout,
 }
 
 impl Preferences {
@@ -49,6 +54,16 @@ Currently this doesn't do anything");
                     response
                 })
                 .inner,
+            ).union(
+                ui.horizontal(|ui|{
+                    ComboBox::new("StartupLayout", "Startup layout").selected_text(format!("{}",&self.startup_layout))
+                        .show_ui(ui,|ui|{
+                            ui.selectable_value(&mut self.startup_layout, StartupLayout::Column, "Columnar");
+                            ui.selectable_value(&mut self.startup_layout, StartupLayout::Queue, "Queue");
+                            ui.selectable_value(&mut self.startup_layout, StartupLayout::Node, "Node");
+                            ui.selectable_value(&mut self.startup_layout, StartupLayout::TreeOutline, "Tree Outline");
+                        }).response
+                }).inner
             )
         })
         .inner
