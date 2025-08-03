@@ -1,3 +1,10 @@
+# v0.2.6
+
+## Refactoring
+
+* Updated packages
+* Fixed missing parameters introduced in newer version of layout-rs
+
 # v0.2.5
 
 ## Features

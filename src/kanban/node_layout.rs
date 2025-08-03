@@ -267,7 +267,14 @@ fn is_on_left_side(r: &Rect, cursor: Pos2) -> bool {
     cursor.x < r.min.x + diff / 2.0
 }
 impl RenderBackend for CommandContainer {
-    fn draw_rect(&mut self, xy: Point, size: Point, look: &StyleAttr, clip: Option<ClipHandle>) {
+    fn draw_rect(
+        &mut self,
+        xy: Point,
+        size: Point,
+        look: &StyleAttr,
+        _properties: Option<String>,
+        clip: Option<ClipHandle>,
+    ) {
         if clip.is_some() {
             // This has never triggered in the input I've created.
             warn!(target:"node_layout","Ow, I'm getting clipped and I'm not bothering to react. Layout-rs may not be behaving");
@@ -293,7 +300,13 @@ impl RenderBackend for CommandContainer {
             look.line_width as f32,
         ));
     }
-    fn draw_line(&mut self, start: Point, end: Point, _look: &StyleAttr) {
+    fn draw_line(
+        &mut self,
+        start: Point,
+        end: Point,
+        _look: &StyleAttr,
+        _properties: Option<String>,
+    ) {
         self.commands
             .push(DrawCommand::Line(from_point(start), from_point(end)));
     }
@@ -310,6 +323,7 @@ impl RenderBackend for CommandContainer {
         _dashed: bool,
         _head: (bool, bool),
         _look: &StyleAttr,
+        _properties: Option<String>,
         _text: &str,
     ) {
         let mut buffer: Vec<Pos2> = Vec::new();
@@ -331,7 +345,13 @@ impl RenderBackend for CommandContainer {
     fn create_clip(&mut self, _xy: Point, _size: Point, _rounded_px: usize) -> ClipHandle {
         0
     }
-    fn draw_circle(&mut self, xy: Point, size: Point, _look: &StyleAttr) {
+    fn draw_circle(
+        &mut self,
+        xy: Point,
+        size: Point,
+        _look: &StyleAttr,
+        _properties: Option<String>,
+    ) {
         self.commands
             .push(DrawCommand::Circle(from_point(xy), from_point(size)));
     }
