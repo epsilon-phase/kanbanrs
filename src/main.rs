@@ -107,7 +107,7 @@ enum StartupLayout {
 }
 impl std::fmt::Display for StartupLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 impl From<StartupLayout> for KanbanDocumentLayout {
@@ -155,14 +155,14 @@ fn main() {
             Ok(app)
         }),
     ) {
-        error!("{}", x);
+        error!("{x}");
     }
 }
 impl eframe::App for KanbanRS {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
             if let Err(e) = self.save_thread.take().unwrap().join() {
-                self.messages.push(format!("{:?}", e));
+                self.messages.push(format!("{e:?}"));
             }
             debug!("Joined save thread");
         }
@@ -882,7 +882,7 @@ impl KanbanRS {
             .expect("Could not create recents file");
         if !std::fs::exists(&recents_file).unwrap() {
             if let Err(x) = std::fs::File::create(&recents_file) {
-                error!("Failed to open file with error '{}'", x);
+                error!("Failed to open file with error '{x}'");
             }
         }
         let mut old_recents: Vec<String> = std::fs::read_to_string(&recents_file)
@@ -904,7 +904,7 @@ impl KanbanRS {
             old_recents.rotate_right(1);
         }
         if let Err(x) = std::fs::write(recents_file, old_recents.join("\n")) {
-            error!("{}", x);
+            error!("{x}");
             std::process::abort();
         }
     }
@@ -938,7 +938,7 @@ impl KanbanRS {
                     if needs_comma {
                         write!(&mut file, ",").unwrap();
                     }
-                    write!(&mut file, "{}", id).unwrap();
+                    write!(&mut file, "{id}").unwrap();
                     needs_comma = true;
                 }
                 writeln!(&mut file, "}};").unwrap();
@@ -971,10 +971,10 @@ impl KanbanRS {
         let save_file_name = self.save_file_name.clone().unwrap();
         self.save_thread = Some(thread::spawn(move || {
             if let Err(x) = serde_json::to_writer(file.unwrap(), &cloned) {
-                error!("Error on saving: {}", x);
+                error!("Error on saving: {x}");
             }
             if let Err(x) = fs::rename(&tmp_path, save_file_name) {
-                error!("Error! {}", x);
+                error!("Error! {x}");
             }
         }));
 

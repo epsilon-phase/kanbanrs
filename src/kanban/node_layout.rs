@@ -207,6 +207,11 @@ pub struct NodeLayout {
     ///used to determine when the waiting modal must be displayed
     frames_in_update: u32,
 }
+impl Default for NodeLayout {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl NodeLayout {
     pub fn new() -> Self {
         NodeLayout {

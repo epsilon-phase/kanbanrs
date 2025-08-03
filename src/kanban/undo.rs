@@ -54,7 +54,7 @@ pub enum UndoItem {
 }
 impl UndoItem {
     pub fn undo(&self, document: &mut KanbanDocument) {
-        info!(target:"Undo","Undoing: {:?}", self);
+        info!(target:"Undo","Undoing: {self:?}");
         match self {
             UndoItem::Create(ce) => ce.undo(document),
             UndoItem::Delete(de) => de.undo(document),

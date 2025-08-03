@@ -176,7 +176,7 @@ mod test {
                     .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
             }
             let zero_task = document.get_task(0).unwrap();
-            let duration = collect_child_durations(&document, &zero_task);
+            let duration = collect_child_durations(&document, zero_task);
             assert_eq!(
                 duration
                     .iter()
@@ -193,7 +193,7 @@ mod test {
                     .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
             }
             let zero_task = document.get_task(0).unwrap();
-            let duration = collect_child_durations(&document, &zero_task);
+            let duration = collect_child_durations(&document, zero_task);
             assert_eq!(
                 duration
                     .iter()

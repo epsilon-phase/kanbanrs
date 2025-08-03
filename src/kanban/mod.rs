@@ -302,7 +302,7 @@ impl KanbanDocument {
         let scrollarea = egui::ScrollArea::vertical().id_salt(id_salt);
 
         scrollarea.show_viewport(ui, |ui, rect| {
-            debug!(target:"layout_id_list","{:?}", rect);
+            debug!(target:"layout_id_list","{rect:?}");
             ui.set_width(ui.available_width());
             ui.vertical_centered_justified(|ui| {
                 ui.set_width(ui.available_width() - 5.);
@@ -317,7 +317,7 @@ impl KanbanDocument {
                 ui.set_min_height(height);
                 let mut accumulated_height: f32 = 0.;
                 let populating_cache = !layout_cache::has_cache(cache_key, ids.len())
-                    || scroll_to.is_some_and(|x| ids.iter().any(|y| *y == x));
+                    || scroll_to.is_some_and(|x| ids.contains(&x));
 
                 for item_id in ids.iter() {
                     let element_height = layout_cache::get_item_height(cache_key, *item_id);

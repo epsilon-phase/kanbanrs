@@ -52,7 +52,7 @@ impl PriorityEditor {
         ScrollArea::vertical().id_salt("priorities").show(ui, |ui| {
             for (name, priority) in items.iter() {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{} - {}", name, priority));
+                    ui.label(format!("{name} - {priority}"));
                     if ui.button("+").clicked() {
                         *document.priorities.get_mut(name).unwrap() += 1;
                         needs_change = true;

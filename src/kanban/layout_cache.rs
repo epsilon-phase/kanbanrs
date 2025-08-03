@@ -41,7 +41,7 @@ pub fn get_item_height(id: egui::Id, task_id: KanbanId) -> Option<f32> {
 pub fn cached_total_height(id: egui::Id) -> f32 {
     ITEM_POSITION_CACHE.with_borrow(|cache| {
         if let Some(cache) = cache.get(&id) {
-            cache.iter().map(|(_id, height)| height).fold(0.0, Add::add)
+            cache.values().fold(0.0, Add::add)
         } else {
             //Hopefully more pixels than the end user will have to deal with
             1e6
