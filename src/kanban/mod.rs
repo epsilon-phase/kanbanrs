@@ -941,16 +941,24 @@ pub mod tests {
         }
     }
 }
+/// The information necessary to style a kanban task.
 #[derive(Serialize, Deserialize, Default, PartialEq, Copy, Clone)]
 pub struct KanbanCategoryStyle {
+    /// The outline thickness of the summary/node
     pub panel_stroke_width: Option<f32>,
+    ///The outline color
     pub panel_stroke_color: Option<[u8; 4]>,
+    /// The fill color of the summary/node
     pub panel_fill: Option<[u8; 4]>,
+    /// The color of the summary/node's text
     pub text_color: Option<[u8; 4]>,
+    /// Should children of a given task inherit the category
+    /// on their creation
     #[serde(default)]
     pub children_inherit_category: bool,
 }
 impl KanbanCategoryStyle {
+    /// Apply the style to the given variables
     pub fn apply_to(
         &self,
         stroke: &mut Stroke,
