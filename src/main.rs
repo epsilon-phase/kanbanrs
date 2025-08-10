@@ -657,7 +657,10 @@ impl KanbanRS {
             "{'autosave':{'secs':60,'nanos':0},'store_undo_history_for_files':false}".to_string(),
         );
         if let Ok(x) = serde_json::from_str(&str) {
-            self.preferences = x;
+            // If we do the old assignment i.e. self.preferences=x
+            // then we don't modify it in place, we just assign
+            // a different instance to the arc.
+            self.preferences.write().clone_from(&x);
         }
         // If the layout is specified in the preferences, and unspecified
         // otherwise, then change it

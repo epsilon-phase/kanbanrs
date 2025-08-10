@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 
+use crate::preferences::PREFERENCES;
+
 use super::*;
 
 use eframe::egui::Scene;
@@ -783,6 +785,7 @@ fn add_item_to_graph<G>(
     if i.completed.is_some() {
         text += " (Completed)";
     }
+    println!("Preferences node length {}", PREFERENCES.read().node_width);
     NAME_BUFFER.with_borrow_mut(|buffer| {
         wrap_string(
             buffer,
