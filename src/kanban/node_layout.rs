@@ -743,8 +743,7 @@ thread_local! {
     ///A buffer used to wrap the nodes without reallocating memory constantly.
     static  NAME_BUFFER:RefCell<String>=const{RefCell::new(String::new())};
 }
-///The number of characters to wrap a node at.
-const NODE_WRAP_LENGTH: usize = 50;
+
 /// Add an item to the layout-rs graph, mostly a convenience function
 /// as it's kinda heavy to do inline
 fn add_item_to_graph<G>(
@@ -785,7 +784,11 @@ fn add_item_to_graph<G>(
         text += " (Completed)";
     }
     NAME_BUFFER.with_borrow_mut(|buffer| {
-        wrap_string(buffer, &text, NODE_WRAP_LENGTH);
+        wrap_string(
+            buffer,
+            &text,
+            crate::preferences::PREFERENCES.read().node_width,
+        );
         let shape = ShapeKind::new_box(buffer);
         let mut sz = get_shape_size(
             layout::core::base::Orientation::LeftToRight,

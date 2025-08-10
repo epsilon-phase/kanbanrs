@@ -1,8 +1,11 @@
+use crate::StartupLayout;
 use eframe::egui::*;
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::StartupLayout;
 ///Preferences to be stored between invocations of the program across
 ///all documents
 #[derive(Serialize, Deserialize, Copy, Clone, Default)]
@@ -17,9 +20,18 @@ pub struct Preferences {
     ///The startup layout to open a document with if not specified
     #[serde(default)]
     pub startup_layout: StartupLayout,
+    ///The length number of characters to wrap nodes at.
+    #[serde(default = "Preferences::default_node_width")]
+    pub node_width: usize,
 }
-
+lazy_static! {
+    pub static ref PREFERENCES: Arc<RwLock<Preferences>> =
+        Arc::new(RwLock::new(Preferences::default()));
+}
 impl Preferences {
+    fn default_node_width() -> usize {
+        50
+    }
     pub fn show_ui(&mut self, ui: &mut Ui) -> Response {
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
@@ -68,6 +80,13 @@ Currently this doesn't do anything");
                             ui.selectable_value(&mut self.startup_layout, StartupLayout::Node, "Node");
                             ui.selectable_value(&mut self.startup_layout, StartupLayout::TreeOutline, "Tree Outline");
                         }).response
+                }).inner
+            ).union(
+                ui.horizontal(|ui|{
+                    ui.label("Node width");
+                    let resp = ui.add(DragValue::new(&mut self.node_width).range(25..=120));
+                    ui.label(format!("{}", self.node_width));
+                    resp
                 }).inner
             )
         })

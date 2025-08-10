@@ -1,9 +1,14 @@
 # v0.2.6
 
+## UI Improvements
+
+* Node text wrap length is now configurable on the preferences screen.
+
 ## Refactoring
 
 * Updated packages
 * Fixed missing parameters introduced in newer version of layout-rs
+* Make the preferences object a singleton
 
 # v0.2.5
 

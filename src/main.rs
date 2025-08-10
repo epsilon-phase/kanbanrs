@@ -51,7 +51,7 @@ struct KanbanRS {
     // It may be ideal to actually return the result type instead, so that the main thread may
     // report on the success of the saving.
     save_thread: Option<JoinHandle<()>>,
-    preferences: preferences::Preferences,
+    preferences: Arc<RwLock<preferences::Preferences>>,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -80,7 +80,7 @@ impl KanbanRS {
             messages: Vec::new(),
             save_thread: None,
             // This needs to be initialized from storage
-            preferences: Preferences::default(),
+            preferences: preferences::PREFERENCES.clone(),
         }
     }
 }
@@ -305,7 +305,7 @@ impl eframe::App for KanbanRS {
                         self.write_dot();
                     }
                     if ui.button("Preferences").clicked() {
-                        self.preferences.showing_preference = true;
+                        self.preferences.write().showing_preference = true;
                     }
                     if ui.button("Quit").clicked() {
                         self.close_application = true;
@@ -613,19 +613,22 @@ impl eframe::App for KanbanRS {
                     },
                 );
             }
-            if self.preferences.showing_preference {
-                ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("preferences window"),
-                    ViewportBuilder::default(),
-                    |ctx, _class| {
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            self.preferences.showing_preference = false;
-                        }
-                        egui::CentralPanel::default().show(ctx, |ui| {
-                            self.preferences.show_ui(ui);
-                        });
-                    },
-                );
+            {
+                let preferences = &mut self.preferences.write();
+                if preferences.showing_preference {
+                    ui.ctx().show_viewport_immediate(
+                        egui::ViewportId::from_hash_of("preferences window"),
+                        ViewportBuilder::default(),
+                        |ctx, _class| {
+                            if ctx.input(|i| i.viewport().close_requested()) {
+                                preferences.showing_preference = false;
+                            }
+                            egui::CentralPanel::default().show(ctx, |ui| {
+                                preferences.show_ui(ui);
+                            });
+                        },
+                    );
+                }
             }
         });
     }
@@ -633,16 +636,17 @@ impl eframe::App for KanbanRS {
         log::debug!("Save function called");
         _storage.set_string(
             "preferences",
-            serde_json::to_string(&self.preferences).unwrap(),
+            serde_json::to_string(&*self.preferences.read()).unwrap(),
         );
-        if self.preferences.autosave.is_some() && self.save_file_name.is_some() {
+
+        if self.preferences.read().autosave.is_some() && self.save_file_name.is_some() {
             log::info!("Saving file");
             self.save_file(false)
         }
     }
     fn auto_save_interval(&self) -> std::time::Duration {
         let default_interval = std::time::Duration::from_secs(6);
-        self.preferences.autosave.unwrap_or(default_interval)
+        self.preferences.read().autosave.unwrap_or(default_interval)
     }
 }
 
@@ -661,7 +665,7 @@ impl KanbanRS {
             self.current_layout.layout,
             KanbanDocumentLayoutType::Unloaded
         ) {
-            self.current_layout = self.preferences.startup_layout.into();
+            self.current_layout = self.preferences.read().startup_layout.into();
             self.layout_cache_needs_updating = true;
         }
     }
