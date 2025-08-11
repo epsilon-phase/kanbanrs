@@ -10,7 +10,6 @@ use kanban::{
     SummaryAction,
 };
 use parking_lot::RwLock;
-use preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use std::{
     borrow::BorrowMut,
@@ -34,7 +33,8 @@ struct KanbanRS {
     #[cfg(unix)]
     base_dirs: xdg::BaseDirectories,
     hovered_task: Option<i32>,
-    close_application: bool,
+    close_requested: bool,
+    close_confirmed: bool,
     layout_cache_needs_updating: bool,
     // Both of these might merit renaming at some point
     summary_actions_pending: Vec<SummaryAction>,
@@ -65,7 +65,8 @@ impl KanbanRS {
             #[cfg(unix)]
             base_dirs: xdg::BaseDirectories::with_prefix("kanbanrs").unwrap(),
             hovered_task: None,
-            close_application: false,
+            close_requested: false,
+            close_confirmed: false,
             layout_cache_needs_updating: true,
             summary_actions_pending: Vec::new(),
             sorting_type: kanban::sorting::ItemSort::None,
@@ -166,39 +167,6 @@ impl eframe::App for KanbanRS {
             }
             debug!("Joined save thread");
         }
-        if self.close_application {
-            let mut confirmed = false;
-            if self.modified_since_last_saved {
-                ctx.show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("Save confirmation"),
-                    egui::ViewportBuilder::default()
-                        .with_inner_size(Vec2::new(300., 100.))
-                        .with_window_type(egui::X11WindowType::Dialog)
-                        .with_always_on_top(),
-                    |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
-                            ui.label("You may lose information if you don't save, do you want to?");
-                            if ui.button("Save").clicked() {
-                                self.save_file(false);
-                                confirmed = true;
-                            }
-                            if ui.button("Don't save").clicked() {
-                                confirmed = true;
-                            }
-                            if ui.button("Cancel").clicked() {
-                                self.close_application = false;
-                            }
-                        });
-                    },
-                );
-            } else {
-                confirmed = true;
-            }
-            if confirmed {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                return;
-            }
-        }
 
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(
@@ -252,10 +220,55 @@ impl eframe::App for KanbanRS {
                 self.current_layout.layout = KanbanDocumentLayoutType::Search(SearchState::new());
                 self.layout_cache_needs_updating = true;
                 println!("FINDING");
-            })
+            });
         });
         self.hovered_task = None;
         egui::CentralPanel::default().show(ctx, |ui| {
+            if ui
+                .ctx()
+                .input(|i| i.viewport().close_requested() && !self.close_confirmed)
+            {
+                self.close_requested = true;
+                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+            }
+            if self.close_requested {
+                let mut confirmed = false;
+                if self.modified_since_last_saved {
+                    ctx.show_viewport_immediate(
+                        egui::ViewportId::from_hash_of("Save confirmation"),
+                        egui::ViewportBuilder::default()
+                            .with_inner_size(Vec2::new(300., 100.))
+                            .with_window_type(egui::X11WindowType::Dialog)
+                            .with_always_on_top(),
+                        |ctx, _class| {
+                            egui::CentralPanel::default().show(ctx, |ui| {
+                                ui.label(
+                                    "You may lose information if you don't save, do you want to?",
+                                );
+                                if ui.button("Save").clicked() {
+                                    self.save_file(false);
+                                    self.close_confirmed = true;
+                                    confirmed = true;
+                                }
+                                if ui.button("Don't save").clicked() {
+                                    self.close_confirmed = true;
+                                    confirmed = true;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.close_requested = false;
+                                }
+                            });
+                        },
+                    );
+                } else {
+                    self.close_confirmed = true;
+                    confirmed = true;
+                }
+                if confirmed {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    return;
+                }
+            }
             let current_rect = Rect {
                 min: egui::Pos2 { x: 0., y: 0. },
                 max: ui.available_size().to_pos2(),
@@ -267,6 +280,16 @@ impl eframe::App for KanbanRS {
             }
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        self.document
+                            .write()
+                            .clone_from(&self.preferences.read().template);
+                        // If we don't do this then the cache will crash us.
+                        // Sure bounded access would prevent that, but honestly
+                        // the speed hit isn't worth it, minor as it is.
+                        self.current_layout = self.preferences.read().startup_layout.into();
+                        ui.close_menu();
+                    }
                     if ui.button("Save").clicked() {
                         // Save to already existing file, as most applications tend to do.
                         self.save_file(false);
@@ -308,7 +331,7 @@ impl eframe::App for KanbanRS {
                         self.preferences.write().showing_preference = true;
                     }
                     if ui.button("Quit").clicked() {
-                        self.close_application = true;
+                        ctx.send_viewport_cmd(ViewportCommand::Close);
                     }
                 });
                 ui.menu_button("Edit", |ui| {
@@ -671,6 +694,14 @@ impl KanbanRS {
             self.current_layout = self.preferences.read().startup_layout.into();
             self.layout_cache_needs_updating = true;
         }
+        // If the document is not already populated by this point, we can
+        // assume that it's not loaded anything, and thus perfect for initializing
+        // from the template
+        if self.document.read().is_empty() {
+            self.document
+                .write()
+                .clone_from(&self.preferences.read().template)
+        }
     }
     fn from_args(args: KanbanArgs) -> Self {
         let mut result = KanbanRS::new();
@@ -678,6 +709,7 @@ impl KanbanRS {
             result.open_file(&PathBuf::from(filename));
         }
         result.current_layout = args.default_view.into();
+
         result
     }
     fn handle_summary_action(&mut self, action: &SummaryAction) {

@@ -12,6 +12,7 @@ pub enum EditorAction {
     ///Nothing has changed 🙂
     Nothing,
 }
+#[derive(Clone, Default)]
 pub struct State {
     ///The category style being edited, a copy at this point
     style: KanbanCategoryStyle,

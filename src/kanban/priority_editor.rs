@@ -1,5 +1,6 @@
 use super::*;
 ///The state used for the priority editor
+#[derive(Clone, Default)]
 pub struct PriorityEditor {
     ///The name of the priority being editor
     pub name: String,

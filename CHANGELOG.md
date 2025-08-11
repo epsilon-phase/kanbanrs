@@ -3,6 +3,10 @@
 ## UI Improvements
 
 * Node text wrap length is now configurable on the preferences screen.
+* Preferences now include a document template whose categories and
+  priorities may be edited.
+* There is now a new menu command in the file menu.
+* Closing the window will now trigger the save confirmation dialog
 
 ## Refactoring
 

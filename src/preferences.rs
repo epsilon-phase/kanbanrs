@@ -1,5 +1,7 @@
-use crate::StartupLayout;
-use eframe::egui::*;
+use crate::kanban::category_editor;
+use crate::kanban::priority_editor::PriorityEditor;
+use crate::{KanbanDocument, StartupLayout};
+use eframe::egui::{self, *};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -8,7 +10,7 @@ use std::time::Duration;
 
 ///Preferences to be stored between invocations of the program across
 ///all documents
-#[derive(Serialize, Deserialize, Copy, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Preferences {
     ///Does nothing right now, not sure it ever will.
     pub store_undo_history_for_files: bool,
@@ -17,12 +19,17 @@ pub struct Preferences {
     ///Whether or not to display the preference UI
     #[serde(skip)]
     pub showing_preference: bool,
+    #[serde(skip)]
+    category_editor_state: category_editor::State,
+    #[serde(skip)]
+    priority_editor_state: PriorityEditor,
     ///The startup layout to open a document with if not specified
     #[serde(default)]
     pub startup_layout: StartupLayout,
     ///The length number of characters to wrap nodes at.
     #[serde(default = "Preferences::default_node_width")]
     pub node_width: usize,
+    pub template: KanbanDocument,
 }
 lazy_static! {
     pub static ref PREFERENCES: Arc<RwLock<Preferences>> =
@@ -33,7 +40,65 @@ impl Preferences {
         50
     }
     pub fn show_ui(&mut self, ui: &mut Ui) -> Response {
+        if self.category_editor_state.open {
+            ui.ctx().show_viewport_immediate(
+                egui::ViewportId::from_hash_of("template category editor"),
+                egui::ViewportBuilder::default(),
+                |ctx, _class| {
+                    // This may be a good candidate for refactoring later
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        match self.category_editor_state.show(ui, &self.template) {
+                            category_editor::EditorAction::ApplyStyle(name, style) => {
+                                self.template.replace_category_style(&name, style);
+                            }
+                            category_editor::EditorAction::CreateCategory(name, style) => {
+                                self.template.replace_category_style(&name, style);
+                            }
+                            category_editor::EditorAction::Nothing => {}
+                        }
+                    });
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.category_editor_state.open = false;
+                    }
+                },
+            )
+        }
+        if self.priority_editor_state.open {
+            ui.ctx().show_viewport_immediate(
+                egui::ViewportId::from_hash_of("template priority editor"),
+                egui::ViewportBuilder::default(),
+                |ctx, _class| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        self.priority_editor_state.show(&mut self.template, ui);
+                    });
+                    if ctx.input(|i| i.viewport().close_requested()) {
+                        self.priority_editor_state.open = false;
+                    }
+                },
+            )
+        }
         ui.vertical_centered(|ui| {
+            ui.group(|ui|{
+                ui.heading("Template");
+                ui.horizontal(|ui|{
+                    if ui.button("Edit template categories").clicked(){
+                        self.category_editor_state.open=true;
+                    }
+                    if ui.button("Edit template priorities").clicked(){
+                        self.priority_editor_state.open=true;
+                    }
+                });
+                ui.columns(2, |columns|{
+                    columns[0].heading("Categories");
+                    for i in self.template.get_categories(){
+                        columns[0].label(format!("{}",i.0));
+                    }
+                    columns[1].heading("Priorities");
+                    for i in self.template.get_sorted_priorities(){
+                        columns[1].label(format!("{} - {}",i.0,i.1));
+                    }
+                })
+            });
             ui.horizontal(|ui| {
                 let mut enabled = self.autosave.is_some();
                 let mut response = ui.checkbox(&mut enabled, "Enable autosave");
@@ -89,6 +154,7 @@ Currently this doesn't do anything");
                     resp
                 }).inner
             )
+
         })
         .inner
     }

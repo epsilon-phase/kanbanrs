@@ -785,7 +785,6 @@ fn add_item_to_graph<G>(
     if i.completed.is_some() {
         text += " (Completed)";
     }
-    println!("Preferences node length {}", PREFERENCES.read().node_width);
     NAME_BUFFER.with_borrow_mut(|buffer| {
         wrap_string(
             buffer,

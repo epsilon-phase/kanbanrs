@@ -110,6 +110,10 @@ impl KanbanDocument {
         }
         !found
     }
+    pub fn get_categories(&self) -> &HashMap<String, KanbanCategoryStyle> {
+        &self.categories
+    }
+
     pub fn get_next_id(&self) -> KanbanId {
         let next = *self.next_id.read();
         let start = if next == KanbanId::MAX {
@@ -280,14 +284,18 @@ impl KanbanDocument {
 }
 
 impl KanbanDocument {
-    //! Produce a vertical layout scrolling downwards.
-    //!
-    //! * `self` - the document, you silly goose
-    //! * `ui` - The ui to apply this list into
-    //! * `range` - the range of indices to render
-    //! * `hovered_task` - The task being hovered over by the user, may be set here
-    //! * `event_collector` - The list of actions being collected.
-    //! * `scroll_to` - The id of an action to scroll to
+    pub fn is_empty(&self) -> bool {
+        self.categories.is_empty() && self.tasks.is_empty() && self.priorities.is_empty()
+    }
+
+    /// Produce a vertical layout scrolling downwards.
+    ///
+    /// * `self` - the document, you silly goose
+    /// * `ui` - The ui to apply this list into
+    /// * `range` - the range of indices to render
+    /// * `hovered_task` - The task being hovered over by the user, may be set here
+    /// * `event_collector` - The list of actions being collected.
+    /// * `scroll_to` - The id of an action to scroll to
     pub fn layout_id_list(
         &self,
         ui: &mut egui::Ui,
