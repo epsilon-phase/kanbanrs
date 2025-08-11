@@ -12,7 +12,7 @@ pub enum EditorAction {
     ///Nothing has changed 🙂
     Nothing,
 }
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct State {
     ///The category style being edited, a copy at this point
     style: KanbanCategoryStyle,
@@ -27,6 +27,11 @@ pub struct State {
     pub open: bool,
     ///A test document used to display the current category's style
     dummy_document: KanbanDocument,
+}
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl State {
     pub fn new() -> Self {
