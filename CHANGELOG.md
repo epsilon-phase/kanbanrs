@@ -7,6 +7,10 @@
   priorities may be edited.
 * There is now a new menu command in the file menu.
 * Closing the window will now trigger the save confirmation dialog
+* The new file command will ask if you want to save the existing
+  document before resetting everything.
+* The Save file confirmation dialog is now titled and lays out
+  the buttons in a more customary fashion
 
 ## Refactoring
 

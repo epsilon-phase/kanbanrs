@@ -2,7 +2,9 @@ mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
 use clap::*;
-use eframe::egui::{self, ComboBox, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand};
+use eframe::egui::{
+    self, ComboBox, Modifiers, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand,
+};
 use kanban::{
     category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
@@ -35,6 +37,7 @@ struct KanbanRS {
     hovered_task: Option<i32>,
     close_requested: bool,
     close_confirmed: bool,
+    asking_for_new_file: bool,
     layout_cache_needs_updating: bool,
     // Both of these might merit renaming at some point
     summary_actions_pending: Vec<SummaryAction>,
@@ -80,6 +83,7 @@ impl KanbanRS {
             last_rect: None,
             messages: Vec::new(),
             save_thread: None,
+            asking_for_new_file: false,
             // This needs to be initialized from storage
             preferences: preferences::PREFERENCES.clone(),
         }
@@ -180,26 +184,58 @@ impl eframe::App for KanbanRS {
             self.layout_cache_needs_updating = false;
         }
         ctx.input_mut(|i| {
+            let new_shortcut = egui::KeyboardShortcut {
+                modifiers: Modifiers {
+                    alt: false,
+                    #[cfg(target_os = "macos")]
+                    ctrl: false,
+                    #[cfg(not(target_os = "macos"))]
+                    ctrl: true,
+                    #[cfg(target_os = "macos")]
+                    mac_cmd: true,
+                    #[cfg(not(target_os = "macos"))]
+                    mac_cmd: false,
+                    shift: false,
+                    command: true,
+                },
+                logical_key: egui::Key::N,
+            };
             let save_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
+                    #[cfg(target_os = "macos")]
+                    ctrl: false,
+                    #[cfg(not(target_os = "macos"))]
                     ctrl: true,
-                    shift: false,
+                    #[cfg(target_os = "macos")]
+                    mac_cmd: true,
+                    #[cfg(not(target_os = "macos"))]
                     mac_cmd: false,
-                    command: false,
+                    shift: false,
+                    command: true,
                 },
                 logical_key: egui::Key::S,
             };
             let save_as_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
+                    #[cfg(target_os = "macos")]
+                    ctrl: false,
+                    #[cfg(not(target_os = "macos"))]
                     ctrl: true,
                     shift: true,
+                    #[cfg(target_os = "macos")]
+                    mac_cmd: true,
+                    #[cfg(not(target_os = "macos"))]
                     mac_cmd: false,
-                    command: false,
+                    command: true,
                 },
                 logical_key: egui::Key::S,
             };
+            i.consume_shortcut(&new_shortcut).then(|| {
+                // self.new_file();
+                self.asking_for_new_file = true;
+            });
             i.consume_shortcut(&save_as_shortcut).then(|| {
                 self.save_file(true);
             });
@@ -209,9 +245,15 @@ impl eframe::App for KanbanRS {
             let find_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
+                    #[cfg(target_os = "macos")]
+                    ctrl: false,
+                    #[cfg(not(target_os = "macos"))]
                     ctrl: true,
-                    shift: false,
+                    #[cfg(target_os = "macos")]
+                    mac_cmd: true,
+                    #[cfg(not(target_os = "macos"))]
                     mac_cmd: false,
+                    shift: false,
                     command: false,
                 },
                 logical_key: egui::Key::F,
@@ -222,6 +264,39 @@ impl eframe::App for KanbanRS {
                 println!("FINDING");
             });
         });
+        if self.asking_for_new_file {
+            let mut confirmed = false;
+            if *self.document.read() != self.preferences.read().template {
+                ctx.show_viewport_immediate(
+                    egui::ViewportId::from_hash_of("new file confirmation"),
+                    egui::ViewportBuilder::default()
+                        .with_inner_size(Vec2::new(300., 100.))
+                        .with_window_type(egui::X11WindowType::Dialog)
+                        .with_always_on_top()
+                        .with_title("Save before creating new file"),
+                    |ctx, _class| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            ui.label("You may lose information if you don't save, do you want to?");
+                            ui.horizontal(|ui| {
+                                if ui.button("Save").clicked() {
+                                    self.save_file(false);
+                                    confirmed = true;
+                                }
+                                if ui.button("Don't save").clicked() {
+                                    confirmed = true;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.asking_for_new_file = false;
+                                }
+                            });
+                        });
+                    },
+                );
+                if self.asking_for_new_file && confirmed {
+                    self.new_file();
+                }
+            }
+        }
         self.hovered_task = None;
         egui::CentralPanel::default().show(ctx, |ui| {
             if ui
@@ -239,24 +314,27 @@ impl eframe::App for KanbanRS {
                         egui::ViewportBuilder::default()
                             .with_inner_size(Vec2::new(300., 100.))
                             .with_window_type(egui::X11WindowType::Dialog)
-                            .with_always_on_top(),
+                            .with_always_on_top()
+                            .with_title("Save before closing"),
                         |ctx, _class| {
                             egui::CentralPanel::default().show(ctx, |ui| {
                                 ui.label(
                                     "You may lose information if you don't save, do you want to?",
                                 );
-                                if ui.button("Save").clicked() {
-                                    self.save_file(false);
-                                    self.close_confirmed = true;
-                                    confirmed = true;
-                                }
-                                if ui.button("Don't save").clicked() {
-                                    self.close_confirmed = true;
-                                    confirmed = true;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    self.close_requested = false;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button("Save").clicked() {
+                                        self.save_file(false);
+                                        self.close_confirmed = true;
+                                        confirmed = true;
+                                    }
+                                    if ui.button("Don't save").clicked() {
+                                        self.close_confirmed = true;
+                                        confirmed = true;
+                                    }
+                                    if ui.button("Cancel").clicked() {
+                                        self.close_requested = false;
+                                    }
+                                });
                             });
                         },
                     );
@@ -281,13 +359,7 @@ impl eframe::App for KanbanRS {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
-                        self.document
-                            .write()
-                            .clone_from(&self.preferences.read().template);
-                        // If we don't do this then the cache will crash us.
-                        // Sure bounded access would prevent that, but honestly
-                        // the speed hit isn't worth it, minor as it is.
-                        self.current_layout = self.preferences.read().startup_layout.into();
+                        self.asking_for_new_file = true;
                         ui.close_menu();
                     }
                     if ui.button("Save").clicked() {
@@ -698,10 +770,15 @@ impl KanbanRS {
         // assume that it's not loaded anything, and thus perfect for initializing
         // from the template
         if self.document.read().is_empty() {
-            self.document
-                .write()
-                .clone_from(&self.preferences.read().template)
+            self.new_file();
         }
+    }
+    fn new_file(&mut self) {
+        self.document
+            .write()
+            .clone_from(&self.preferences.read().template);
+        self.current_layout = self.preferences.read().startup_layout.into();
+        self.asking_for_new_file = false;
     }
     fn from_args(args: KanbanArgs) -> Self {
         let mut result = KanbanRS::new();

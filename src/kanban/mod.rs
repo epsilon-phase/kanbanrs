@@ -47,6 +47,13 @@ pub struct KanbanDocument {
     ///The id the next task will be created with.
     next_id: RwLock<KanbanId>,
 }
+impl PartialEq for KanbanDocument {
+    fn eq(&self, other: &Self) -> bool {
+        self.tasks == other.tasks
+            && self.priorities == other.priorities
+            && self.categories == other.categories
+    }
+}
 impl Clone for KanbanDocument {
     fn clone(&self) -> Self {
         let mut r = Self::new();
@@ -380,7 +387,7 @@ pub enum TaskRelation {
     TheItemItself,
 }
 /// A kanban task
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug, PartialEq)]
 pub struct KanbanItem {
     ///The id of the task
     pub id: KanbanId,

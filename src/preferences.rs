@@ -1,6 +1,7 @@
 use crate::kanban::category_editor;
 use crate::kanban::priority_editor::PriorityEditor;
 use crate::{KanbanDocument, StartupLayout};
+use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{self, *};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
@@ -78,8 +79,9 @@ impl Preferences {
             )
         }
         ui.vertical_centered(|ui| {
-            ui.group(|ui|{
-                ui.heading("Template");
+            CollapsingState::load_with_default_open(ui.ctx(),"Template".into(),false)
+                .show_header(ui, |ui|ui.heading("Template"))
+                .body(|ui|{
                 ui.horizontal(|ui|{
                     if ui.button("Edit template categories").clicked(){
                         self.category_editor_state.open=true;

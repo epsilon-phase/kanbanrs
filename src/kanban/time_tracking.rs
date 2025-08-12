@@ -67,7 +67,7 @@ impl TimeEntry {
     }
 }
 ///A container for the time records in a task
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TimeRecords {
     ///An association between time entries and, optionally, a string
     ///describing how the time was spent
