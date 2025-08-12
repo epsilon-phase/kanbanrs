@@ -93,7 +93,7 @@ impl Preferences {
                 ui.columns(2, |columns|{
                     columns[0].heading("Categories");
                     for i in self.template.get_categories(){
-                        columns[0].label(format!("{}",i.0));
+                        columns[0].label(i.0);
                     }
                     columns[1].heading("Priorities");
                     for i in self.template.get_sorted_priorities(){
