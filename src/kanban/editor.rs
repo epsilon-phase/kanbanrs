@@ -1,7 +1,7 @@
 use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
-use std::sync::mpsc::Sender;
+use std::{collections::BTreeSet, sync::mpsc::Sender};
 ///The task editor's state
 #[derive(Clone)]
 pub struct State {
@@ -223,7 +223,7 @@ impl State {
                         });
                         ui.separator();
                         if self.is_on_tag_view {
-                            self.display_tags(ui);
+                            self.display_tags(ui, &document.tags);
                         } else {
                             self.show_time_records(ui, document);
                         }
@@ -296,11 +296,18 @@ impl State {
         needs_update
     }
 
-    fn display_tags(self: &mut State, ui: &mut egui::Ui) {
+    fn display_tags(self: &mut State, ui: &mut egui::Ui, tags: &BTreeSet<String>) {
         ui.label("Tags");
         let mut removed_tag: Option<String> = None;
         ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.new_tag);
+            ui.vertical(|ui| {
+                ui.text_edit_singleline(&mut self.new_tag);
+                ComboBox::new("TagSelector", "").show_ui(ui, |ui| {
+                    for i in tags.iter() {
+                        ui.selectable_value(&mut self.new_tag, i.clone(), i);
+                    }
+                });
+            });
             if !self.item_copy.tags.contains(&self.new_tag) && ui.button("Add tag").clicked() {
                 self.item_copy.tags.push(self.new_tag.clone());
                 self.new_tag.clear();

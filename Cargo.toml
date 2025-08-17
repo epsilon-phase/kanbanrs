@@ -15,8 +15,8 @@ license = false
 eula = false
 
 [dependencies]
-eframe = { version = "0.31.1", features = ["persistence"] }
-epaint = "0.31.1"
+eframe = { version = "0.32.1", features = ["persistence"] }
+epaint = "0.32.1"
 chrono = { version = "0.4.39", features = ["serde"] }
 env_logger = { version = "0.10", default-features = false, features = [
     "auto-color",

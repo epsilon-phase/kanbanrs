@@ -1,12 +1,11 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 
+use std::process::Command;
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use lazy_static::lazy_static;
-
-use crate::preferences::PREFERENCES;
 
 use super::*;
 
@@ -163,7 +162,11 @@ impl DrawCommand {
         }
     }
 }
-
+type NodeJoinHandle = (
+    VisualGraph,
+    BTreeMap<KanbanId, NodeHandle>,
+    CommandContainer,
+);
 #[derive(Default)]
 struct CommandContainer {
     commands: Vec<DrawCommand>,
@@ -198,13 +201,7 @@ pub struct NodeLayout {
     drag_linger: Option<std::time::Instant>,
     ///A thread handle that returns the necessary state to build the update
     ///on the main thread and displayed
-    layout_handle: Option<
-        JoinHandle<(
-            VisualGraph,
-            BTreeMap<KanbanId, NodeHandle>,
-            CommandContainer,
-        )>,
-    >,
+    layout_handle: Option<JoinHandle<NodeJoinHandle>>,
     ///The number of frames since the layout thread was spawned, state
     ///used to determine when the waiting modal must be displayed
     frames_in_update: u32,

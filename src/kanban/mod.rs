@@ -44,6 +44,8 @@ pub struct KanbanDocument {
     ///if a category is not mentioned, then you can't be sure the category
     ///doesn't exist
     categories: HashMap<String, KanbanCategoryStyle>,
+    #[serde(skip)]
+    tags: BTreeSet<String>,
     ///The id the next task will be created with.
     next_id: RwLock<KanbanId>,
 }
@@ -76,6 +78,7 @@ impl KanbanDocument {
                 ("Medium".to_owned(), 5),
                 ("Low".to_owned(), 1),
             ]),
+            tags: BTreeSet::new(),
             categories: HashMap::new(),
             next_id: RwLock::new(0),
         }
@@ -198,6 +201,7 @@ impl KanbanDocument {
                 KanbanCategoryStyle::default(),
             );
         }
+        self.collect_tags_from_item(item.id);
         result
     }
     pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
@@ -281,6 +285,20 @@ impl KanbanDocument {
     }
     pub fn get_task_mut(&mut self, id: KanbanId) -> Option<&mut KanbanItem> {
         self.tasks.get_mut(&id)
+    }
+    fn collect_tags_from_item(&mut self, item: KanbanId) {
+        for i in self.tasks[&item].tags.iter() {
+            self.tags.insert(i.clone());
+        }
+    }
+    pub fn collect_tags(&mut self) {
+        let task_ids: Vec<KanbanId> = self.tasks.keys().cloned().collect();
+        for i in task_ids.iter() {
+            self.collect_tags_from_item(*i);
+        }
+    }
+    pub fn get_tags(&self) -> &BTreeSet<String> {
+        &self.tags
     }
 }
 /// Category functions
@@ -628,11 +646,11 @@ impl KanbanItem {
                                 let button = ui.button("Edit");
                                 if button.clicked() {
                                     action = SummaryAction::OpenEditor(self.id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 if ui.button("Add Child").clicked() {
                                     action = SummaryAction::CreateChildOf(self.id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 if ui
                                     .button(if self.completed.is_some() {
@@ -643,11 +661,11 @@ impl KanbanItem {
                                     .clicked()
                                 {
                                     action = SummaryAction::MarkCompleted(self.id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                                 if ui.button("focus").clicked() {
                                     action = SummaryAction::FocusOn(self.id);
-                                    ui.close_menu();
+                                    ui.close();
                                 }
                             });
 

@@ -11,6 +11,7 @@
   document before resetting everything.
 * The Save file confirmation dialog is now titled and lays out
   the buttons in a more customary fashion
+* Allow selecting a tag from the tags already used in the document
 
 ## Refactoring
 

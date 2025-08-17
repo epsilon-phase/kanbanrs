@@ -139,16 +139,17 @@ struct KanbanArgs {
     #[arg(short,long,value_enum,default_value_t=StartupLayout::NotSelected)]
     default_view: StartupLayout,
 }
-
+static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
 fn main() {
     env_logger::init();
+    let icon = eframe::icon_data::from_png_bytes(ICON_DATA).expect("Must be a valid icon");
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 240.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([640.0, 240.0])
+            .with_icon(icon),
 
         ..Default::default()
     };
-    let duration = std::time::Duration::from_secs(60);
-    println!("{}", serde_json::to_string(&duration).unwrap());
     let args = KanbanArgs::parse();
     let app = KanbanRS::from_args(args);
     if let Err(x) = eframe::run_native(
@@ -356,20 +357,20 @@ impl eframe::App for KanbanRS {
                 kanban::layout_cache::clear_layout_cache();
                 self.last_rect = Some(current_rect);
             }
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
                         self.asking_for_new_file = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Save").clicked() {
                         // Save to already existing file, as most applications tend to do.
                         self.save_file(false);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Save As").clicked() {
                         self.save_file(true);
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Open").clicked() {
                         let filename = rfd::FileDialog::new()
@@ -384,14 +385,14 @@ impl eframe::App for KanbanRS {
                             ui.style(),
                             &self.filter,
                         );
-                        ui.close_menu();
+                        ui.close();
                     }
                     ui.menu_button("Recently Used", |ui| {
                         for i in self.read_recents() {
                             let s: String = String::from(i.to_str().unwrap());
                             if fs::exists(&s).is_ok_and(|x| x) && ui.button(&s).clicked() {
                                 self.open_file(&i);
-                                ui.close_menu();
+                                ui.close();
                                 self.layout_cache_needs_updating = true;
                             }
                         }
@@ -415,11 +416,11 @@ impl eframe::App for KanbanRS {
                     });
                     if ui.button("Category style editor").clicked() {
                         self.category_editor.open = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui.button("Priority editor").clicked() {
                         self.priority_editor.open = true;
-                        ui.close_menu();
+                        ui.close();
                     }
                     if ui
                         .button("Open recording tasks")
@@ -440,7 +441,7 @@ impl eframe::App for KanbanRS {
                         if !editor_opened {
                             self.messages.push("No open tasks".into());
                         }
-                        ui.close_menu();
+                        ui.close();
                     }
                 });
                 ui.menu_button("Window", |ui| {
@@ -461,7 +462,7 @@ impl eframe::App for KanbanRS {
                                             ),
                                         );
                                         ctx.request_repaint_of(editor.viewport_id);
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                     ui.separator();
                                     if ui.button("Close").clicked() {
@@ -469,7 +470,7 @@ impl eframe::App for KanbanRS {
                                             editor.viewport_id,
                                             ViewportCommand::Close,
                                         );
-                                        ui.close_menu();
+                                        ui.close();
                                     }
                                 });
                             }
@@ -916,9 +917,17 @@ impl KanbanRS {
                 self.current_layout.inform_of_new_items();
             }
             kanban::editor::EditorRequest::Update(item) => {
-                let undo = self.document.write().replace_task(item);
+                let undo = {
+                    let document = &mut self.document.write();
+                    self.modified_since_last_saved = if let Some(x) = document.get_task(item.id) {
+                        x != item
+                    } else {
+                        true
+                    };
+                    document.replace_task(item)
+                };
+
                 self.record_undo(undo);
-                self.modified_since_last_saved = true;
                 self.layout_cache_needs_updating = true;
             }
             kanban::editor::EditorRequest::FinishTimeRecording(id) => {
@@ -1027,6 +1036,7 @@ impl KanbanRS {
     fn open_file(&mut self, path: &PathBuf) {
         let file = fs::File::open(path).unwrap();
         *self.document.write() = serde_json::from_reader(file).unwrap();
+        self.document.write().collect_tags();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
     }
