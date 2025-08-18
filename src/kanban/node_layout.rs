@@ -162,6 +162,11 @@ impl DrawCommand {
         }
     }
 }
+/// The thread join handle.
+///
+/// 1. Contains a complete node layout
+/// 2. An association between node handles and a kanban id
+/// 3. A list of draw commands.
 type NodeJoinHandle = (
     VisualGraph,
     BTreeMap<KanbanId, NodeHandle>,
