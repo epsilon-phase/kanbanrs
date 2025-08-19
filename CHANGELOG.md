@@ -20,6 +20,8 @@
 * Updated packages
 * Fixed missing parameters introduced in newer version of layout-rs
 * Make the preferences object a singleton
+* Added fast_allocator feature to enable mimalloc, which may provide a 20%
+  speedup on egui code.
 
 # v0.2.5
 
