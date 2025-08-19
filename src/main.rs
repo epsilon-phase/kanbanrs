@@ -25,7 +25,8 @@ mod document_layout;
 mod preferences;
 use document_layout::*;
 use log::{debug, error};
-
+#[cfg(target_os = "linux")]
+mod desktop_file_creator;
 struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
     task_name: String,
@@ -139,8 +140,10 @@ struct KanbanArgs {
     #[arg(short,long,value_enum,default_value_t=StartupLayout::NotSelected)]
     default_view: StartupLayout,
 }
-static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
+pub static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
 fn main() {
+    #[cfg(target_os = "linux")]
+    let thing = desktop_file_creator::create_dot_desktop_file();
     env_logger::init();
     let icon = eframe::icon_data::from_png_bytes(ICON_DATA).expect("Must be a valid icon");
     let options = eframe::NativeOptions {

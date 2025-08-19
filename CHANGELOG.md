@@ -12,6 +12,8 @@
 * The Save file confirmation dialog is now titled and lays out
   the buttons in a more customary fashion
 * Allow selecting a tag from the tags already used in the document
+* Setting the window icon is implemented and works(tm) in spite of wayland
+  not making it easy
 
 ## Refactoring
 
