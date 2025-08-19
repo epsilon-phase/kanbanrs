@@ -32,6 +32,10 @@ clap = { version = "4.5.19", features = ["derive"] }
 parking_lot = { version = "0.12.3", features = ["serde"] }
 circular-buffer = "0.1.9"
 log = "0.4.22"
+mimalloc = { version = "*", optional = true }
+
+[features]
+fast_allocator = ["dep:mimalloc"]
 
 [target.'cfg(unix)'.dependencies]
 xdg = "~2.5.0"

@@ -27,6 +27,13 @@ use document_layout::*;
 use log::{debug, error};
 #[cfg(target_os = "linux")]
 mod desktop_file_creator;
+#[cfg(feature = "fast_allocator")]
+use mimalloc::MiMalloc;
+
+#[cfg(feature = "fast_allocator")]
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
     task_name: String,

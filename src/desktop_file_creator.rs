@@ -1,4 +1,6 @@
 use std::{fs::File, io::Write};
+const ICON_PATH: &str = "icons/kanbanrs_icon.png";
+const DESKTOP_FILE_PATH: &str = "applications/kanbanrs.desktop";
 pub fn needs_desktop_file() -> bool {
     let exec_path: String = std::env::current_exe()
         .expect("Could not get current executable path")
@@ -14,7 +16,7 @@ pub fn needs_desktop_file() -> bool {
         })
     } else {
         let xdg = xdg::BaseDirectories::new().expect("Could not get xdg directories");
-        let local_desktop_file = xdg.find_data_file("applications/kanbanrs.desktop");
+        let local_desktop_file = xdg.find_data_file(DESKTOP_FILE_PATH);
         if let Some(ldf) = local_desktop_file {
             std::fs::read(ldf).is_ok_and(|x| {
                 let x: &str = str::from_utf8(&x).expect("Could not decode desktop file");
@@ -27,8 +29,8 @@ pub fn needs_desktop_file() -> bool {
 }
 fn cleanup_temporary_desktop_files() {
     let xdg = xdg::BaseDirectories::new().expect("Could not get xdg directories");
-    std::fs::remove_file(xdg.find_data_file("applications/kanbanrs.desktop").unwrap()).unwrap();
-    std::fs::remove_file(xdg.find_data_file("icons/kanbanrs_icon.png").unwrap()).unwrap();
+    std::fs::remove_file(xdg.find_data_file(DESKTOP_FILE_PATH).unwrap()).unwrap();
+    std::fs::remove_file(xdg.find_data_file(ICON_PATH).unwrap()).unwrap();
 }
 pub struct TemporaryDesktopCleanupHandle {
     needs_cleanup: bool,
@@ -46,14 +48,12 @@ pub fn create_dot_desktop_file() -> TemporaryDesktopCleanupHandle {
         needs_cleanup: !needs_desktop_file(),
     };
     if ret_val.needs_cleanup {
-        let icon_path = xdg.place_data_file("icon/kanbanrs_icon.png").unwrap();
+        let icon_path = xdg.place_data_file(ICON_PATH).unwrap();
         let mut icon_file = File::create(&icon_path).unwrap();
         icon_file
             .write_all(crate::ICON_DATA)
             .expect("Could not write icon file");
-        let desktop_file_path = xdg
-            .place_data_file("applications/kanbanrs.desktop")
-            .unwrap();
+        let desktop_file_path = xdg.place_data_file(DESKTOP_FILE_PATH).unwrap();
         let mut desktop_file = File::create(&desktop_file_path).unwrap();
         desktop_file
             .write_fmt(format_args!(
