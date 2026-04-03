@@ -175,7 +175,7 @@ fn main() {
     }
 }
 impl eframe::App for KanbanRS {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
             if let Err(e) = self.save_thread.take().unwrap().join() {
                 self.messages.push(format!("{e:?}"));
@@ -187,14 +187,14 @@ impl eframe::App for KanbanRS {
             self.current_layout.update_cache(
                 &self.document.read(),
                 &self.sorting_type,
-                ctx.style().as_ref(),
+                ui.style().as_ref(),
                 &self.filter,
             );
             self.current_layout
                 .sort_cache(&self.document.read(), &self.sorting_type);
             self.layout_cache_needs_updating = false;
         }
-        ctx.input_mut(|i| {
+        ui.input_mut(|i| {
             let new_shortcut = egui::KeyboardShortcut {
                 modifiers: Modifiers {
                     alt: false,
@@ -278,15 +278,15 @@ impl eframe::App for KanbanRS {
         if self.asking_for_new_file {
             let mut confirmed = false;
             if *self.document.read() != self.preferences.read().template {
-                ctx.show_viewport_immediate(
+                ui.show_viewport_immediate(
                     egui::ViewportId::from_hash_of("new file confirmation"),
                     egui::ViewportBuilder::default()
                         .with_inner_size(Vec2::new(300., 100.))
                         .with_window_type(egui::X11WindowType::Dialog)
                         .with_always_on_top()
                         .with_title("Save before creating new file"),
-                    |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                    |ui, _class| {
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
                             ui.label("You may lose information if you don't save, do you want to?");
                             ui.horizontal(|ui| {
                                 if ui.button("Save").clicked() {
@@ -309,26 +309,27 @@ impl eframe::App for KanbanRS {
             }
         }
         self.hovered_task = None;
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             if ui
                 .ctx()
                 .input(|i| i.viewport().close_requested() && !self.close_confirmed)
             {
                 self.close_requested = true;
-                ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+                ui.send_viewport_cmd(ViewportCommand::CancelClose);
             }
+            let ctx = ui.ctx().clone();
             if self.close_requested {
                 let mut confirmed = false;
                 if self.modified_since_last_saved {
-                    ctx.show_viewport_immediate(
+                    ui.show_viewport_immediate(
                         egui::ViewportId::from_hash_of("Save confirmation"),
                         egui::ViewportBuilder::default()
                             .with_inner_size(Vec2::new(300., 100.))
                             .with_window_type(egui::X11WindowType::Dialog)
                             .with_always_on_top()
                             .with_title("Save before closing"),
-                        |ctx, _class| {
-                            egui::CentralPanel::default().show(ctx, |ui| {
+                        |ui, _class| {
+                            egui::CentralPanel::default().show_inside(ui, |ui| {
                                 ui.label(
                                     "You may lose information if you don't save, do you want to?",
                                 );

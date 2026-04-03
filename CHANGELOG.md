@@ -14,6 +14,8 @@
 * Allow selecting a tag from the tags already used in the document
 * Setting the window icon is implemented and works(tm) in spite of wayland
   not making it easy
+* Update egui to 34.1, providing various improvements, most noticable of which 
+  is the font hinting
 
 ## Refactoring
 
