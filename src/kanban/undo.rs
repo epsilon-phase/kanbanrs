@@ -45,12 +45,44 @@ impl ModificationEvent {
         document.replace_task(&self.former_item);
     }
 }
+/// Represents a change to a category's style
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CategoryStyleEvent {
+    pub name: String,
+    /// The style before the change, or None if the category was newly created
+    pub former_style: Option<KanbanCategoryStyle>,
+}
+impl CategoryStyleEvent {
+    pub fn undo(&self, document: &mut KanbanDocument) {
+        match self.former_style {
+            Some(style) => document.replace_category_style(&self.name, style),
+            None => document.remove_category(&self.name),
+        }
+    }
+}
+/// Represents a change to a priority's value
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PriorityEvent {
+    pub name: String,
+    /// The value before the change, or None if the priority was newly created
+    pub former_value: Option<i32>,
+}
+impl PriorityEvent {
+    pub fn undo(&self, document: &mut KanbanDocument) {
+        match self.former_value {
+            Some(value) => document.set_priority(self.name.clone(), value),
+            None => document.remove_priority(&self.name),
+        }
+    }
+}
 ///The various types of events
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UndoItem {
     Create(CreationEvent),
     Delete(DeletionEvent),
     Modification(ModificationEvent),
+    CategoryStyle(CategoryStyleEvent),
+    Priority(PriorityEvent),
 }
 impl UndoItem {
     pub fn undo(&self, document: &mut KanbanDocument) {
@@ -59,6 +91,8 @@ impl UndoItem {
             UndoItem::Create(ce) => ce.undo(document),
             UndoItem::Delete(de) => de.undo(document),
             UndoItem::Modification(me) => me.undo(document),
+            UndoItem::CategoryStyle(ce) => ce.undo(document),
+            UndoItem::Priority(pe) => pe.undo(document),
         }
     }
     pub fn merge(&self, other: &Self) -> Option<Self> {

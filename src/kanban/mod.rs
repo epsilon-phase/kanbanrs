@@ -207,6 +207,15 @@ impl KanbanDocument {
     pub fn set_priority(&mut self, name: String, value: i32) {
         self.priorities.insert(name, value);
     }
+    pub fn remove_priority(&mut self, name: &str) {
+        self.priorities.remove(name);
+    }
+    pub fn get_category_style(&self, name: &str) -> Option<KanbanCategoryStyle> {
+        self.categories.get(name).copied()
+    }
+    pub fn remove_category(&mut self, name: &str) {
+        self.categories.remove(name);
+    }
     pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
         let mut i: Vec<(&'a String, &'a i32)> = self.priorities.iter().collect();
         i.sort_by(|a, b| a.1.cmp(b.1));

@@ -898,11 +898,25 @@ impl KanbanRS {
                 self.modified_since_last_saved = true;
             }
             AppCommand::ReplaceCategory(name, style) => {
+                let former_style = self.document.read().get_category_style(&name);
                 self.document.write().replace_category_style(&name, style);
+                self.record_undo(kanban::undo::UndoItem::CategoryStyle(
+                    kanban::undo::CategoryStyleEvent { name, former_style },
+                ));
                 self.modified_since_last_saved = true;
             }
             AppCommand::SetPriority(name, value) => {
-                self.document.write().set_priority(name, value);
+                let former_value = self
+                    .document
+                    .read()
+                    .get_sorted_priorities()
+                    .into_iter()
+                    .find(|(n, _)| *n == &name)
+                    .map(|(_, v)| *v);
+                self.document.write().set_priority(name.clone(), value);
+                self.record_undo(kanban::undo::UndoItem::Priority(
+                    kanban::undo::PriorityEvent { name, former_value },
+                ));
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
             }
