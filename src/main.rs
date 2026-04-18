@@ -60,7 +60,7 @@ struct KanbanRS {
     messages: Vec<String>,
     // It may be ideal to actually return the result type instead, so that the main thread may
     // report on the success of the saving.
-    save_thread: Option<JoinHandle<()>>,
+    save_thread: Option<JoinHandle<Result<(), String>>>,
     preferences: Arc<RwLock<preferences::Preferences>>,
 }
 impl KanbanRS {
@@ -178,8 +178,10 @@ fn main() {
 impl eframe::App for KanbanRS {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
-            if let Err(e) = self.save_thread.take().unwrap().join() {
-                self.messages.push(format!("{e:?}"));
+            match self.save_thread.take().unwrap().join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => self.messages.push(format!("Save failed: {e}")),
+                Err(_) => self.messages.push("Save thread panicked".to_string()),
             }
             debug!("Joined save thread");
         }
@@ -656,8 +658,12 @@ impl eframe::App for KanbanRS {
                         .with_resizable(false),
                     |ctx, _class| {
                         egui::CentralPanel::default().show_inside(ctx, |ui| {
-                            ui.label(x);
-                            ui.button("")
+                            ui.vertical_centered(|ui| {
+                                ui.label(x);
+                                if ui.button("Close").clicked() {
+                                    keep = false;
+                                }
+                            });
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
                             keep = false;
@@ -1037,8 +1043,19 @@ impl KanbanRS {
         }
     }
     fn open_file(&mut self, path: &PathBuf) {
-        let file = fs::File::open(path).unwrap();
-        *self.document.write() = serde_json::from_reader(file).unwrap();
+        let file = fs::File::open(path);
+        if let Err(x) = file {
+            self.messages.push(x.to_string());
+            return;
+        }
+        let file = file.unwrap();
+        let read_result = serde_json::from_reader(file);
+        if let Err(x) = read_result {
+            self.messages.push(x.to_string());
+        } else if let Ok(read_result) = read_result {
+            *self.document.write() = read_result;
+        }
+
         self.document.write().collect_tags();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
@@ -1099,12 +1116,9 @@ impl KanbanRS {
         let cloned = self.document.try_read().unwrap().clone();
         let save_file_name = self.save_file_name.clone().unwrap();
         self.save_thread = Some(thread::spawn(move || {
-            if let Err(x) = serde_json::to_writer(file.unwrap(), &cloned) {
-                error!("Error on saving: {x}");
-            }
-            if let Err(x) = fs::rename(&tmp_path, save_file_name) {
-                error!("Error! {x}");
-            }
+            serde_json::to_writer(file.unwrap(), &cloned).map_err(|e| e.to_string())?;
+            fs::rename(&tmp_path, save_file_name).map_err(|e| e.to_string())?;
+            Ok(())
         }));
 
         self.modified_since_last_saved = false;
