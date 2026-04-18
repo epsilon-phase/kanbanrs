@@ -481,7 +481,6 @@ impl NodeLayout {
     pub fn scroll_to(&mut self, id: KanbanId) {
         let target_rect = self.sense_regions.iter().find(|x| x.0 == id);
         if let Some(target_rect) = target_rect {
-            // self.scene_rect.set_center(target_rect.1.center());
             self.scroll_target = Some((target_rect.1.center(), true));
         }
     }
