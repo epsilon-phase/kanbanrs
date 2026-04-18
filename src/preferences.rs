@@ -1,6 +1,6 @@
 use crate::kanban::category_editor;
 use crate::kanban::priority_editor::PriorityEditor;
-use crate::{KanbanDocument, StartupLayout};
+use crate::{AppCommand, KanbanDocument, StartupLayout};
 use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{self, *};
 use lazy_static::lazy_static;
@@ -48,14 +48,10 @@ impl Preferences {
                 |ctx, _class| {
                     // This may be a good candidate for refactoring later
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        match self.category_editor_state.show(ui, &self.template) {
-                            category_editor::EditorAction::ApplyStyle(name, style) => {
-                                self.template.replace_category_style(&name, style);
-                            }
-                            category_editor::EditorAction::CreateCategory(name, style) => {
-                                self.template.replace_category_style(&name, style);
-                            }
-                            category_editor::EditorAction::Nothing => {}
+                        if let Some(AppCommand::ReplaceCategory(name, style)) =
+                            self.category_editor_state.show(ui, &self.template)
+                        {
+                            self.template.replace_category_style(&name, style);
                         }
                     });
                     if ctx.input(|i| i.viewport().close_requested()) {
@@ -70,7 +66,11 @@ impl Preferences {
                 egui::ViewportBuilder::default(),
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        self.priority_editor_state.show(&mut self.template, ui);
+                        if let Some(AppCommand::SetPriority(name, value)) =
+                            self.priority_editor_state.show(&self.template, ui)
+                        {
+                            self.template.set_priority(name, value);
+                        }
                     });
                     if ctx.input(|i| i.viewport().close_requested()) {
                         self.priority_editor_state.open = false;

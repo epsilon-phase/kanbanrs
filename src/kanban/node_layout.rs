@@ -489,7 +489,7 @@ impl NodeLayout {
         &mut self,
         _document: &KanbanDocument,
         ui: &mut egui::Ui,
-        actions: &mut Vec<SummaryAction>,
+        actions: &mut Vec<AppCommand>,
     ) -> bool {
         if self.layout_handle.is_some() {
             if !self.layout_handle.as_ref().unwrap().is_finished() {
@@ -594,14 +594,16 @@ impl NodeLayout {
                 let senses = senses.on_hover_ui(|ui| {
                     let task = _document.get_task(*task_id).unwrap();
                     let mut nothing: Option<KanbanId> = None;
-                    actions.push(task.summary(_document, &mut nothing, ui, true, 0));
+                    if let Some(cmd) = task.summary(_document, &mut nothing, ui, true, 0) {
+                        actions.push(cmd);
+                    }
                 });
                 if senses.middle_clicked() {
                     self.focus = Some(*task_id);
-                    actions.push(SummaryAction::FocusOn(*task_id));
+                    actions.push(AppCommand::FocusOn(*task_id));
                 }
                 if senses.clicked() {
-                    actions.push(SummaryAction::OpenEditor(*task_id));
+                    actions.push(AppCommand::OpenEditor(*task_id));
                 }
                 if senses.secondary_clicked() {
                     if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
@@ -699,9 +701,9 @@ impl NodeLayout {
                         .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
                     {
                         if is_on_left_side(region, start) {
-                            actions.push(SummaryAction::AddChildTo(*x, *task_id));
+                            actions.push(AppCommand::AddChildTo(*x, *task_id));
                         } else {
-                            actions.push(SummaryAction::AddChildTo(*task_id, *x));
+                            actions.push(AppCommand::AddChildTo(*task_id, *x));
                         }
                     }
                 }

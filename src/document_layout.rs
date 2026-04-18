@@ -175,7 +175,7 @@ impl KanbanRS {
                     &mut columns[0],
                     &cache[0],
                     &mut self.hovered_task,
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     "ReadyScrollArea",
                     None,
                 );
@@ -184,7 +184,7 @@ impl KanbanRS {
                     &mut columns[1],
                     &cache[1],
                     &mut self.hovered_task,
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     "BlockedScrollArea",
                     self.current_layout.scroll_to,
                 );
@@ -194,7 +194,7 @@ impl KanbanRS {
                     &mut columns[2],
                     &cache[2],
                     &mut self.hovered_task,
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     "CompletedScrollArea",
                     self.current_layout.scroll_to,
                 );
@@ -214,7 +214,7 @@ impl KanbanRS {
                 ui,
                 &qs.cached_ready,
                 &mut self.hovered_task,
-                &mut self.summary_actions_pending,
+                &mut self.pending_commands,
                 "Queue",
                 self.current_layout.scroll_to,
             );
@@ -236,7 +236,7 @@ impl KanbanRS {
                 ui,
                 &search_state.matched_ids,
                 &mut self.hovered_task,
-                &mut self.summary_actions_pending,
+                &mut self.pending_commands,
                 "SearchArea",
                 self.current_layout.scroll_to,
             );
@@ -251,20 +251,18 @@ impl KanbanRS {
                 if let Some(target) = focus.cares_about {
                     let doc = self.document.read();
                     let task = doc.get_task(target).unwrap();
-                    self.summary_actions_pending.push(task.summary(
-                        &doc,
-                        &mut self.hovered_task,
-                        &mut columns[1],
-                        true,
-                        0,
-                    ));
+                    if let Some(cmd) =
+                        task.summary(&doc, &mut self.hovered_task, &mut columns[1], true, 0)
+                    {
+                        self.pending_commands.push(cmd);
+                    }
                 }
 
                 self.document.read().layout_id_list(
                     &mut columns[0],
                     &focus.children,
                     &mut self.hovered_task,
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     "ChildScroller",
                     self.current_layout.scroll_to,
                 );
@@ -273,7 +271,7 @@ impl KanbanRS {
                     &mut columns[2],
                     &focus.ancestors,
                     &mut self.hovered_task,
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     "ParentScroller",
                     self.current_layout.scroll_to,
                 );

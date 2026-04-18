@@ -204,6 +204,9 @@ impl KanbanDocument {
         self.collect_tags_from_item(item.id);
         result
     }
+    pub fn set_priority(&mut self, name: String, value: i32) {
+        self.priorities.insert(name, value);
+    }
     pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
         let mut i: Vec<(&'a String, &'a i32)> = self.priorities.iter().collect();
         i.sort_by(|a, b| a.1.cmp(b.1));
@@ -326,7 +329,7 @@ impl KanbanDocument {
         ui: &mut egui::Ui,
         ids: &[KanbanId],
         hovered_task: &mut Option<i32>,
-        event_collector: &mut Vec<SummaryAction>,
+        event_collector: &mut Vec<AppCommand>,
         id_salt: impl std::hash::Hash,
         scroll_to: Option<KanbanId>,
     ) {
@@ -370,8 +373,9 @@ impl KanbanDocument {
                     // inserted by the layout
                     let start = ui.cursor().min.y;
                     let item = &self.tasks[item_id];
-                    let action = item.summary(self, hovered_task, ui, true, 0);
-                    event_collector.push(action);
+                    if let Some(action) = item.summary(self, hovered_task, ui, true, 0) {
+                        event_collector.push(action);
+                    }
                     let end = ui.cursor().min.y;
 
                     // This *might* be the cause of an error when scrolled down
@@ -541,22 +545,36 @@ impl KanbanItem {
         }
     }
 }
-///An action that is produced by interaction with the task summary
-#[derive(Clone, Copy)]
-pub enum SummaryAction {
-    ///No changes
-    NoAction,
-    ///Open the task in the editor
+/// A command emitted by UI interactions, processed by the main app loop.
+#[derive(Clone, Debug)]
+pub enum AppCommand {
+    /// Open the task in the editor by id
     OpenEditor(KanbanId),
-    ///Create a child task on this one
+    /// Open a specific KanbanItem in another editor (sent from an editor viewport)
+    OpenTask(KanbanItem),
+    /// Create a new child task on this one
     CreateChildOf(KanbanId),
-    ///Mark the specified task as completed, or uncomplete it.
+    /// Create a new task as a child (parent, new_child) — sent from an editor viewport
+    CreateTask(KanbanItem, KanbanItem),
+    /// Replace a task in the document with an updated version
+    UpdateTask(KanbanItem),
+    /// Delete the specified kanban item from the document
+    DeleteTask(KanbanItem),
+    /// Mark the specified task as completed, or uncomplete it
     MarkCompleted(KanbanId),
-    ///Focus on the specified task
-    FocusOn(KanbanId),
-    ///Add an extant task as a child to another task
+    /// Add an extant task as a child to another task
     AddChildTo(KanbanId, KanbanId),
-    ///Signal that the layout must be updated
+    /// Toggle time recording for a given item
+    FinishTimeRecording(KanbanId),
+    /// Set or replace a category's style
+    ReplaceCategory(String, KanbanCategoryStyle),
+    /// Set a priority's numeric value
+    SetPriority(String, i32),
+    /// Focus on the specified task
+    FocusOn(KanbanId),
+    /// Scroll the main document view to the given item
+    ScrollTo(KanbanId),
+    /// Signal that the layout must be updated
     UpdateLayout,
 }
 impl KanbanItem {
@@ -567,8 +585,8 @@ impl KanbanItem {
         ui: &mut egui::Ui,
         start_open: bool,
         idx: usize,
-    ) -> SummaryAction {
-        let mut action = SummaryAction::NoAction;
+    ) -> Option<AppCommand> {
+        let mut action: Option<AppCommand> = None;
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
         let mut panel_fill = style.panel_fill;
@@ -614,7 +632,7 @@ impl KanbanItem {
             .stroke(stroke);
 
         let text = RichText::new(&self.name).heading().color(name_color);
-
+        let mut close = false;
         frame.show(ui, |ui| {
             let mut nearest_acceptable_layout = *ui.layout();
             nearest_acceptable_layout.main_dir = Direction::TopDown;
@@ -626,7 +644,7 @@ impl KanbanItem {
                         ui.vertical(|ui| {
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                             if ui.label(text).double_clicked() {
-                                action = SummaryAction::OpenEditor(self.id);
+                                action = Some(AppCommand::OpenEditor(self.id));
                             }
                         });
                     })
@@ -645,12 +663,12 @@ impl KanbanItem {
                             ui.horizontal_wrapped(|ui| {
                                 let button = ui.button("Edit");
                                 if button.clicked() {
-                                    action = SummaryAction::OpenEditor(self.id);
-                                    ui.close();
+                                    action = Some(AppCommand::OpenEditor(self.id));
+                                    close = true;
                                 }
                                 if ui.button("Add Child").clicked() {
-                                    action = SummaryAction::CreateChildOf(self.id);
-                                    ui.close();
+                                    action = Some(AppCommand::CreateChildOf(self.id));
+                                    close = true;
                                 }
                                 if ui
                                     .button(if self.completed.is_some() {
@@ -660,12 +678,12 @@ impl KanbanItem {
                                     })
                                     .clicked()
                                 {
-                                    action = SummaryAction::MarkCompleted(self.id);
-                                    ui.close();
+                                    action = Some(AppCommand::MarkCompleted(self.id));
+                                    close = true;
                                 }
                                 if ui.button("focus").clicked() {
-                                    action = SummaryAction::FocusOn(self.id);
-                                    ui.close();
+                                    action = Some(AppCommand::FocusOn(self.id));
+                                    close = true;
                                 }
                             });
 
@@ -676,8 +694,11 @@ impl KanbanItem {
                         })
                     });
             });
-            action
+            action.clone()
         });
+        if close {
+            ui.close();
+        }
         action
     }
 }
@@ -975,7 +996,7 @@ pub mod tests {
     }
 }
 /// The information necessary to style a kanban task.
-#[derive(Serialize, Deserialize, Default, PartialEq, Copy, Clone)]
+#[derive(Serialize, Deserialize, Default, PartialEq, Copy, Clone, Debug)]
 pub struct KanbanCategoryStyle {
     /// The outline thickness of the summary/node
     pub panel_stroke_width: Option<f32>,

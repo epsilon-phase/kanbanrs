@@ -6,10 +6,10 @@ use eframe::egui::{
     self, ComboBox, Modifiers, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand,
 };
 use kanban::{
-    category_editor::State, editor::EditorRequest, filter::KanbanFilter, node_layout::NodeLayout,
+    category_editor::State, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
-    sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, KanbanDocument,
-    SummaryAction,
+    sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand,
+    KanbanDocument,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -47,14 +47,13 @@ struct KanbanRS {
     close_confirmed: bool,
     asking_for_new_file: bool,
     layout_cache_needs_updating: bool,
-    // Both of these might merit renaming at some point
-    summary_actions_pending: Vec<SummaryAction>,
+    pending_commands: Vec<AppCommand>,
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
     modified_since_last_saved: bool,
-    editor_rx: std::sync::mpsc::Receiver<EditorRequest>,
-    editor_tx: std::sync::mpsc::Sender<EditorRequest>,
+    editor_rx: std::sync::mpsc::Receiver<AppCommand>,
+    editor_tx: std::sync::mpsc::Sender<AppCommand>,
     undo_buffer: CircularBuffer<35, kanban::undo::UndoItem>,
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
@@ -79,7 +78,7 @@ impl KanbanRS {
             close_requested: false,
             close_confirmed: false,
             layout_cache_needs_updating: true,
-            summary_actions_pending: Vec::new(),
+            pending_commands: Vec::new(),
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
@@ -598,32 +597,28 @@ impl eframe::App for KanbanRS {
                 tr.show(
                     ui,
                     &self.document.read(),
-                    &mut self.summary_actions_pending,
+                    &mut self.pending_commands,
                     &mut self.hovered_task,
                     &self.current_layout.scroll_to,
                 )
             } else if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout
             {
                 self.layout_cache_needs_updating |=
-                    nl.show(&self.document.read(), ui, &mut self.summary_actions_pending);
+                    nl.show(&self.document.read(), ui, &mut self.pending_commands);
             } else {
                 self.layout_queue(ui);
             }
             // Should be cleared after each layout update.
             self.current_layout.scroll_to = None;
-            let mut undo_items: Vec<kanban::undo::UndoItem> = Vec::new();
-            self.open_editors
+            let closed_updates: Vec<kanban::KanbanItem> = self
+                .open_editors
                 .iter()
-                .filter(|editor| !editor.read().open)
-                .for_each(|editor| {
-                    if !editor.read().cancelled {
-                        let undo = self.document.write().replace_task(&editor.read().item_copy);
-                        undo_items.push(undo);
-                        self.layout_cache_needs_updating = true;
-                        self.modified_since_last_saved = true;
-                    }
-                });
-            undo_items.drain(..).for_each(|x| self.record_undo(x));
+                .filter(|editor| !editor.read().open && !editor.read().cancelled)
+                .map(|editor| editor.read().item_copy.clone())
+                .collect();
+            for item in closed_updates {
+                self.handle_command(AppCommand::UpdateTask(item));
+            }
             self.open_editors.retain(|editor| editor.read().open);
             for editor in self.open_editors.iter_mut() {
                 let viewport_id = ui.ctx().viewport_id();
@@ -669,8 +664,9 @@ impl eframe::App for KanbanRS {
                 keep
             });
 
-            while let Some(x) = self.summary_actions_pending.pop() {
-                self.handle_summary_action(&x);
+            let pending = std::mem::take(&mut self.pending_commands);
+            for cmd in pending {
+                self.handle_command(cmd);
             }
 
             if self.category_editor.open {
@@ -679,20 +675,9 @@ impl eframe::App for KanbanRS {
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            let action = self.category_editor.show(ui, &self.document.read());
-                            match action {
-                                kanban::category_editor::EditorAction::CreateCategory(
-                                    name,
-                                    style,
-                                ) => {
-                                    self.document.write().replace_category_style(&name, style);
-                                    self.modified_since_last_saved = true;
-                                }
-                                kanban::category_editor::EditorAction::ApplyStyle(name, style) => {
-                                    self.document.write().replace_category_style(&name, style);
-                                    self.modified_since_last_saved = true;
-                                }
-                                kanban::category_editor::EditorAction::Nothing => (),
+                            let cmd = self.category_editor.show(ui, &self.document.read());
+                            if let Some(cmd) = cmd {
+                                self.handle_command(cmd);
                             }
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
@@ -701,18 +686,19 @@ impl eframe::App for KanbanRS {
                     },
                 );
             }
-            while let Ok(mut x) = self.editor_rx.try_recv() {
-                println!("Received");
-                self.handle_editor_request(&mut x);
+            while let Ok(cmd) = self.editor_rx.try_recv() {
+                self.handle_command(cmd);
             }
             if self.priority_editor.open {
                 ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("Category Editor"),
+                    egui::ViewportId::from_hash_of("Priority Editor"),
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
                         egui::CentralPanel::default().show(ctx, |ui| {
-                            self.layout_cache_needs_updating |=
-                                self.priority_editor.show(&mut self.document.write(), ui);
+                            let cmd = self.priority_editor.show(&self.document.read(), ui);
+                            if let Some(cmd) = cmd {
+                                self.handle_command(cmd);
+                            }
                         });
                         if ctx.input(|i| i.viewport().close_requested()) {
                             self.priority_editor.open = false;
@@ -801,78 +787,99 @@ impl KanbanRS {
 
         result
     }
-    fn handle_summary_action(&mut self, action: &SummaryAction) {
-        match action {
-            SummaryAction::NoAction => (),
-            SummaryAction::OpenEditor(id) => {
+    fn handle_command(&mut self, cmd: AppCommand) {
+        match cmd {
+            AppCommand::OpenEditor(id) => {
                 let mut editor = kanban::editor::state_from(
-                    self.document.read().get_task(*id).unwrap(),
+                    self.document.read().get_task(id).unwrap(),
                     self.editor_tx.clone(),
                 );
                 editor.open = true;
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
             }
-            SummaryAction::CreateChildOf(id) => {
+            AppCommand::OpenTask(item) => {
+                self.open_editors
+                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
+                        &item,
+                        self.editor_tx.clone(),
+                    ))));
+            }
+            AppCommand::CreateChildOf(id) => {
                 let (child_creation, new_task, mut task_copy) = {
                     let mut document = self.document.write();
                     let mut new_task = document.get_new_task();
-                    let task_copy = document.get_task(*id).unwrap().clone();
+                    let task_copy = document.get_task(id).unwrap().clone();
                     new_task.inherit(&task_copy, &document);
                     (document.replace_task(&new_task), new_task, task_copy)
                 };
-
                 task_copy.add_child(&new_task);
                 let editor = kanban::editor::state_from(&new_task, self.editor_tx.clone());
                 self.undo_buffer
                     .push_back(self.document.write().replace_task(&task_copy));
                 self.record_undo(child_creation);
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
-
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();
             }
-            SummaryAction::MarkCompleted(id) => {
-                let (new, mut task) = {
-                    let document = self.document.read();
-                    let task = document.get_task(*id).unwrap().clone();
-                    (
-                        match task.completed {
-                            Some(_) => None,
-                            None => Some(Utc::now()),
-                        },
-                        task,
-                    )
+            AppCommand::CreateTask(parent, mut new_task) => {
+                self.record_undo({
+                    let mut document = self.document.write();
+                    new_task.inherit(&parent, &document);
+                    document.replace_task(&new_task)
+                });
+                self.open_editors
+                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
+                        &new_task,
+                        self.editor_tx.clone(),
+                    ))));
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
+                self.current_layout.inform_of_new_items();
+            }
+            AppCommand::UpdateTask(item) => {
+                let undo = {
+                    let document = &mut self.document.write();
+                    self.modified_since_last_saved = if let Some(x) = document.get_task(item.id) {
+                        x != &item
+                    } else {
+                        true
+                    };
+                    document.replace_task(&item)
                 };
-                task.completed = new;
-                let undo = self.document.write().replace_task(&task);
                 self.record_undo(undo);
                 self.layout_cache_needs_updating = true;
             }
-            SummaryAction::FocusOn(id) => {
-                if let KanbanDocumentLayoutType::TreeOutline(t_o) = &mut self.current_layout.layout
-                {
-                    t_o.set_focus(*id);
-                } else if let KanbanDocumentLayoutType::NodeLayout(nl) =
-                    &mut self.current_layout.layout
-                {
-                    nl.set_focus(id);
-                    //This shouldn't trigger a switch to the focused view
-                } else {
-                    self.current_layout.layout =
-                        KanbanDocumentLayoutType::Focused(kanban::focused_layout::Focus::new(*id));
+            AppCommand::DeleteTask(to_delete) => {
+                let undo = self.document.write().remove_task(&to_delete);
+                self.record_undo(undo);
+                for editor in self.open_editors.iter() {
+                    editor.write().item_copy.remove_child(&to_delete);
                 }
                 self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
+                self.current_layout.inform_of_new_items();
             }
-            SummaryAction::AddChildTo(parent, child) => {
+            AppCommand::MarkCompleted(id) => {
+                let mut task = self.document.read().get_task(id).unwrap().clone();
+                task.completed = match task.completed {
+                    Some(_) => None,
+                    None => Some(Utc::now()),
+                };
+                let undo = self.document.write().replace_task(&task);
+                self.record_undo(undo);
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
+            }
+            AppCommand::AddChildTo(parent, child) => {
                 let undoitem = {
                     let mut document = self.document.write();
                     if document.can_add_as_child(
-                        document.get_task(*parent).unwrap(),
-                        document.get_task(*child).unwrap(),
+                        document.get_task(parent).unwrap(),
+                        document.get_task(child).unwrap(),
                     ) {
-                        let mut task = document.get_task(*parent).unwrap().clone();
-                        task.child_tasks.insert(*child);
+                        let mut task = document.get_task(parent).unwrap().clone();
+                        task.child_tasks.insert(child);
                         Some(document.replace_task(&task))
                     } else {
                         None
@@ -884,75 +891,43 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
             }
-            SummaryAction::UpdateLayout => {
-                self.layout_cache_needs_updating = true;
-            }
-        }
-    }
-    fn handle_editor_request(&mut self, request: &mut EditorRequest) {
-        match request {
-            kanban::editor::EditorRequest::New(parent, new_task) => {
-                self.record_undo({
-                    let mut document = self.document.write();
-                    new_task.inherit(parent, &document);
-                    document.replace_task(new_task)
-                });
-                self.open_editors
-                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
-                        new_task,
-                        self.editor_tx.clone(),
-                    ))));
-
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-                self.current_layout.inform_of_new_items();
-            }
-            // The main distinction between the two is that opening an
-            // existing task shouldn't change the state of the item in the
-            // document.
-            kanban::editor::EditorRequest::Open(item_to_open) => {
-                self.open_editors
-                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
-                        item_to_open,
-                        self.editor_tx.clone(),
-                    ))));
-            }
-            kanban::editor::EditorRequest::Delete(to_delete) => {
-                let undo = self.document.write().remove_task(to_delete);
-                self.record_undo(undo);
-                for editor in self.open_editors.iter() {
-                    editor.write().item_copy.remove_child(to_delete);
-                }
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-                self.current_layout.inform_of_new_items();
-            }
-            kanban::editor::EditorRequest::Update(item) => {
-                let undo = {
-                    let document = &mut self.document.write();
-                    self.modified_since_last_saved = if let Some(x) = document.get_task(item.id) {
-                        x != item
-                    } else {
-                        true
-                    };
-                    document.replace_task(item)
-                };
-
-                self.record_undo(undo);
-                self.layout_cache_needs_updating = true;
-            }
-            kanban::editor::EditorRequest::FinishTimeRecording(id) => {
+            AppCommand::FinishTimeRecording(id) => {
                 let mut doc = self.document.write();
-                let task = doc.get_task_mut(*id).unwrap();
+                let task = doc.get_task_mut(id).unwrap();
                 task.time_records.handle_record_request(None);
+                self.modified_since_last_saved = true;
             }
-            kanban::editor::EditorRequest::ScrollTo(id) => {
-                self.current_layout.scroll_to = Some(*id);
-                if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout {
-                    //This needs to happen here because the scrolling works differently
-                    //in the node layout than the scrollarea based containers.
-                    nl.scroll_to(*id);
+            AppCommand::ReplaceCategory(name, style) => {
+                self.document.write().replace_category_style(&name, style);
+                self.modified_since_last_saved = true;
+            }
+            AppCommand::SetPriority(name, value) => {
+                self.document.write().set_priority(name, value);
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
+            }
+            AppCommand::FocusOn(id) => {
+                if let KanbanDocumentLayoutType::TreeOutline(t_o) = &mut self.current_layout.layout
+                {
+                    t_o.set_focus(id);
+                } else if let KanbanDocumentLayoutType::NodeLayout(nl) =
+                    &mut self.current_layout.layout
+                {
+                    nl.set_focus(&id);
+                } else {
+                    self.current_layout.layout =
+                        KanbanDocumentLayoutType::Focused(kanban::focused_layout::Focus::new(id));
                 }
+                self.layout_cache_needs_updating = true;
+            }
+            AppCommand::ScrollTo(id) => {
+                self.current_layout.scroll_to = Some(id);
+                if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout {
+                    nl.scroll_to(id);
+                }
+            }
+            AppCommand::UpdateLayout => {
+                self.layout_cache_needs_updating = true;
             }
         }
     }

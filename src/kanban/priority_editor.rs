@@ -18,15 +18,14 @@ impl PriorityEditor {
         }
     }
     /// Show the PriorityEditor
-    /// * `document` the document to operate on
+    /// * `document` the document to read priorities from
     /// * `ui` The UI instance
     ///
-    /// returns true if the layout needs to be updated due to user action.
-    pub fn show(&mut self, document: &mut KanbanDocument, ui: &mut egui::Ui) -> bool {
-        let mut needs_change = false;
+    /// Returns a command if the user made a change, otherwise None.
+    pub fn show(&mut self, document: &KanbanDocument, ui: &mut egui::Ui) -> Option<AppCommand> {
         let mut items: Vec<(String, i32)> = document
-            .priorities
-            .iter()
+            .get_sorted_priorities()
+            .into_iter()
             .map(|(name, priority)| (name.clone(), *priority))
             .collect();
         items.sort_by(|a, b| a.1.cmp(&b.1));
@@ -34,6 +33,7 @@ impl PriorityEditor {
             ui.label("Priority name");
             ui.text_edit_singleline(&mut self.name);
         });
+        let mut command: Option<AppCommand> = None;
         ui.horizontal(|ui| {
             let mut s = self.current_value.to_string();
             ui.label("Priority(higher is more important)");
@@ -42,29 +42,30 @@ impl PriorityEditor {
                 self.current_value = x;
             }
             if !self.name.is_empty() && ui.button("Add").clicked() {
-                document
-                    .priorities
-                    .insert(self.name.clone(), self.current_value);
+                command = Some(AppCommand::SetPriority(
+                    self.name.clone(),
+                    self.current_value,
+                ));
                 self.name.clear();
                 self.current_value = 0;
-                needs_change = true;
             }
         });
+        if command.is_some() {
+            return command;
+        }
         ScrollArea::vertical().id_salt("priorities").show(ui, |ui| {
             for (name, priority) in items.iter() {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} - {priority}"));
                     if ui.button("+").clicked() {
-                        *document.priorities.get_mut(name).unwrap() += 1;
-                        needs_change = true;
+                        command = Some(AppCommand::SetPriority(name.clone(), priority + 1));
                     }
                     if ui.button("-").clicked() {
-                        *document.priorities.get_mut(name).unwrap() -= 1;
-                        needs_change = true;
+                        command = Some(AppCommand::SetPriority(name.clone(), priority - 1));
                     }
                 });
             }
         });
-        needs_change
+        command
     }
 }

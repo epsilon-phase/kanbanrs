@@ -1,17 +1,6 @@
 use egui::{ComboBox, Ui, Widget};
 
 use super::*;
-///Signals to send representing the category information
-#[derive(PartialEq)]
-pub enum EditorAction {
-    ///Create a category and add it to the document, associated with a style
-    ///which will be applied to the display of any tasks assigned to it.
-    CreateCategory(String, KanbanCategoryStyle),
-    ///Update the style of a category
-    ApplyStyle(String, KanbanCategoryStyle),
-    ///Nothing has changed 🙂
-    Nothing,
-}
 #[derive(Clone)]
 pub struct State {
     ///The category style being edited, a copy at this point
@@ -49,11 +38,11 @@ impl State {
         result.dummy_document.replace_task(&task);
         result
     }
-    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> EditorAction {
-        let mut action = EditorAction::Nothing;
+    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> Option<AppCommand> {
+        let mut action: Option<AppCommand> = None;
 
         if !self.open {
-            return EditorAction::Nothing;
+            return None;
         }
         ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
             if self.current_category_name != self.selected_category_name {
@@ -67,10 +56,10 @@ impl State {
 
                     if ui.button("Add new Category").clicked() {
                         self.selected_category_name = self.new_category_name.clone();
-                        action = EditorAction::CreateCategory(
+                        action = Some(AppCommand::ReplaceCategory(
                             self.selected_category_name.clone(),
                             KanbanCategoryStyle::default(),
-                        );
+                        ));
                     }
                 });
                 ComboBox::new("Style select", "Select Category")
@@ -158,7 +147,10 @@ impl State {
             i.summary(&self.dummy_document, &mut hovered, ui, true, 0);
         }
         if ui.button("Apply style").clicked() {
-            action = EditorAction::ApplyStyle(self.current_category_name.clone(), self.style);
+            action = Some(AppCommand::ReplaceCategory(
+                self.current_category_name.clone(),
+                self.style,
+            ));
         }
         action
     }

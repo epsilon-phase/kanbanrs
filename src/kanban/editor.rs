@@ -1,4 +1,4 @@
-use super::{time_tracking, KanbanDocument, KanbanId, KanbanItem};
+use super::{time_tracking, AppCommand, KanbanDocument, KanbanId, KanbanItem};
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
 use std::{collections::BTreeSet, sync::mpsc::Sender};
@@ -34,12 +34,12 @@ pub struct State {
     ///The index of the time entry being edited
     time_entry_under_edit: Option<usize>,
     ///A pipe to the main thread to send information to
-    transmitter: Sender<EditorRequest>,
+    transmitter: Sender<AppCommand>,
     ///Set to true if the editor is displaying a warning about another task
     ///having a time entry currently recording
     show_time_rec_modal: bool,
 }
-pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
+pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
     State {
         open: true,
         cancelled: false,
@@ -57,15 +57,6 @@ pub fn state_from(item: &KanbanItem, tx: Sender<EditorRequest>) -> State {
         editing_category: false,
         show_time_rec_modal: false,
     }
-}
-#[derive(Clone, Debug)]
-pub enum EditorRequest {
-    New(KanbanItem, KanbanItem),
-    Open(KanbanItem),
-    Delete(KanbanItem),
-    Update(KanbanItem),
-    FinishTimeRecording(KanbanId),
-    ScrollTo(KanbanId),
 }
 impl State {
     pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
@@ -88,7 +79,7 @@ impl State {
                     }
                     if ui.button("Scroll to").clicked() {
                         self.transmitter
-                            .send(EditorRequest::ScrollTo(self.item_copy.id))
+                            .send(AppCommand::ScrollTo(self.item_copy.id))
                             .unwrap();
                     }
                 });
@@ -271,24 +262,24 @@ impl State {
             open_task.is_some() || create_child || update_task || delete_task.is_some();
         if update_task {
             self.transmitter
-                .send(EditorRequest::Update(self.item_copy.clone()))
+                .send(AppCommand::UpdateTask(self.item_copy.clone()))
                 .unwrap();
         }
         if let Some(to_delete) = delete_task {
             self.transmitter
-                .send(EditorRequest::Delete(to_delete))
+                .send(AppCommand::DeleteTask(to_delete))
                 .unwrap();
         }
         if create_child {
             let new_child = KanbanItem::new(document);
             self.item_copy.add_child(&new_child);
             self.transmitter
-                .send(EditorRequest::New(self.item_copy.clone(), new_child))
+                .send(AppCommand::CreateTask(self.item_copy.clone(), new_child))
                 .unwrap();
         }
         if let Some(task_to_edit) = open_task {
             self.transmitter
-                .send(EditorRequest::Open(
+                .send(AppCommand::OpenTask(
                     document.get_task(task_to_edit).cloned().unwrap(),
                 ))
                 .unwrap();
@@ -366,9 +357,7 @@ impl State {
                             removed_task = Some(*child);
                         }
                         if ui.button("scroll to").clicked() {
-                            self.transmitter
-                                .send(EditorRequest::ScrollTo(*child))
-                                .unwrap();
+                            self.transmitter.send(AppCommand::ScrollTo(*child)).unwrap();
                         }
                     });
                 }
@@ -527,7 +516,7 @@ impl State {
                         .nth(0)
                     {
                         self.transmitter
-                            .send(EditorRequest::FinishTimeRecording(x))
+                            .send(AppCommand::FinishTimeRecording(x))
                             .unwrap();
                         let desc = if self.new_time_descr.is_empty() {
                             None
