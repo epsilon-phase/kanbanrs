@@ -1,3 +1,9 @@
+/// This is used to get around limitations that wayland creates in terms of displaying
+/// an application's icon.
+///
+/// It is pretty simple, if the file doesn't exist, then it will create a temporary one
+/// in the user's local xdg directory. If it *does* exist, then it will not delete
+/// the file
 use std::{fs::File, io::Write};
 const ICON_PATH: &str = "icons/kanbanrs_icon.png";
 const DESKTOP_FILE_PATH: &str = "applications/kanbanrs.desktop";

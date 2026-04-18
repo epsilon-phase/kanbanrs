@@ -4,8 +4,9 @@ use std::cell::RefCell;
 
 use super::*;
 ///A kanbanfilter
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Default)]
 pub enum KanbanFilter {
+    #[default]
     ///Matches every task
     None,
     ///Matches tasks which contain a specific string
@@ -26,11 +27,6 @@ pub enum KanbanFilter {
     ExactMatch(String),
 }
 
-impl Default for KanbanFilter {
-    fn default() -> Self {
-        Self::None
-    }
-}
 thread_local! {
     ///The fuzzy matcher state.
     static NUCLEO_MATCHER:RefCell<nucleo_matcher::Matcher> = RefCell::new(nucleo_matcher::Matcher::new(nucleo_matcher::Config::DEFAULT));

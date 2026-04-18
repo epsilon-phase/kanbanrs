@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 
-use std::process::Command;
 use std::thread::JoinHandle;
 use std::time::Instant;
 

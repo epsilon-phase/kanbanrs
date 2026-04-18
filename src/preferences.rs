@@ -47,7 +47,7 @@ impl Preferences {
                 egui::ViewportBuilder::default(),
                 |ctx, _class| {
                     // This may be a good candidate for refactoring later
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::CentralPanel::default().show_inside(ctx, |ui| {
                         if let Some(AppCommand::ReplaceCategory(name, style)) =
                             self.category_editor_state.show(ui, &self.template)
                         {
@@ -65,7 +65,7 @@ impl Preferences {
                 egui::ViewportId::from_hash_of("template priority editor"),
                 egui::ViewportBuilder::default(),
                 |ctx, _class| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::CentralPanel::default().show_inside(ctx, |ui| {
                         if let Some(AppCommand::SetPriority(name, value)) =
                             self.priority_editor_state.show(&self.template, ui)
                         {

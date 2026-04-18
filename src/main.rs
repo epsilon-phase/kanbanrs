@@ -148,8 +148,10 @@ struct KanbanArgs {
 }
 pub static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
 fn main() {
+    // This is used to clean up the desktop file at the end.
     #[cfg(target_os = "linux")]
-    let thing = desktop_file_creator::create_dot_desktop_file();
+    let _thing = desktop_file_creator::create_dot_desktop_file();
+
     env_logger::init();
     let icon = eframe::icon_data::from_png_bytes(ICON_DATA).expect("Must be a valid icon");
     let options = eframe::NativeOptions {
@@ -631,15 +633,16 @@ impl eframe::App for KanbanRS {
                     egui::ViewportBuilder::default()
                         .with_window_type(egui::X11WindowType::Dialog)
                         .with_title(&window_title),
-                    move |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                    move |ui, _class| {
+                        let ctx = ui.ctx().clone();
+                        if ctx.input(|i| i.viewport().close_requested()) {
+                            editor.write().open = false;
+                        }
+                        egui::CentralPanel::default().show_inside(ui, |ui| {
                             if editor.write().borrow_mut().editor(ui, &document.read()) {
                                 ctx.request_repaint_of(viewport_id);
                             }
                         });
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            editor.write().open = false;
-                        }
                     },
                 );
             }
@@ -652,7 +655,7 @@ impl eframe::App for KanbanRS {
                         .with_window_type(egui::X11WindowType::Notification)
                         .with_resizable(false),
                     |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::CentralPanel::default().show_inside(ctx, |ui| {
                             ui.label(x);
                             ui.button("")
                         });
@@ -674,7 +677,7 @@ impl eframe::App for KanbanRS {
                     egui::ViewportId::from_hash_of("Category Editor"),
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::CentralPanel::default().show_inside(ctx, |ui| {
                             let cmd = self.category_editor.show(ui, &self.document.read());
                             if let Some(cmd) = cmd {
                                 self.handle_command(cmd);
@@ -694,7 +697,7 @@ impl eframe::App for KanbanRS {
                     egui::ViewportId::from_hash_of("Priority Editor"),
                     egui::ViewportBuilder::default(),
                     |ctx, _class| {
-                        egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::CentralPanel::default().show_inside(ctx, |ui| {
                             let cmd = self.priority_editor.show(&self.document.read(), ui);
                             if let Some(cmd) = cmd {
                                 self.handle_command(cmd);
@@ -716,7 +719,7 @@ impl eframe::App for KanbanRS {
                             if ctx.input(|i| i.viewport().close_requested()) {
                                 preferences.showing_preference = false;
                             }
-                            egui::CentralPanel::default().show(ctx, |ui| {
+                            egui::CentralPanel::default().show_inside(ctx, |ui| {
                                 preferences.show_ui(ui);
                             });
                         },
