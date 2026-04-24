@@ -14,6 +14,7 @@ use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
 pub mod filter;
 pub mod focused_layout;
+pub mod force_directed;
 pub mod layout_cache;
 pub mod node_layout;
 pub mod priority_editor;

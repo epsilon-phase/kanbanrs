@@ -6,6 +6,7 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 
+use super::force_directed::{estimate_node_size, force_atlas2, rect_edge_point};
 use super::*;
 
 use eframe::egui::Scene;
@@ -134,20 +135,24 @@ impl DrawCommand {
                     ));
                 }
                 if ao.head.1 {
-                    paint.circle(
-                        *ao.path.last().unwrap() + offset,
-                        style.noninteractive().fg_stroke.width * 3. + 5.,
-                        Color32::TRANSPARENT,
-                        style.noninteractive().fg_stroke,
-                    );
+                    let tip = *ao.path.last().unwrap() + offset;
+                    // layout-rs sometimes repeats the endpoint, so find the last distinct point
+                    let from = (0..ao.path.len() - 1)
+                        .rev()
+                        .find(|&i| ao.path[i].distance(*ao.path.last().unwrap()) > 0.5)
+                        .map(|i| ao.path[i] + offset);
+                    if let Some(from) = from {
+                        draw_arrowhead(paint, tip, from, style.noninteractive().fg_stroke);
+                    }
                 }
                 if ao.head.0 {
-                    paint.circle(
-                        *ao.path.first().unwrap() + offset,
-                        style.noninteractive().fg_stroke.width * 3.,
-                        Color32::TRANSPARENT,
-                        style.noninteractive().fg_stroke,
-                    );
+                    let tip = *ao.path.first().unwrap() + offset;
+                    let from = (1..ao.path.len())
+                        .find(|&i| ao.path[i].distance(*ao.path.first().unwrap()) > 0.5)
+                        .map(|i| ao.path[i] + offset);
+                    if let Some(from) = from {
+                        draw_arrowhead(paint, tip, from, style.noninteractive().fg_stroke);
+                    }
                 }
             }
             DrawCommand::Circle(center, size) => {
@@ -161,16 +166,14 @@ impl DrawCommand {
         }
     }
 }
-/// The thread join handle.
-///
-/// 1. Contains a complete node layout
-/// 2. An association between node handles and a kanban id
-/// 3. A list of draw commands.
-type NodeJoinHandle = (
-    VisualGraph,
-    BTreeMap<KanbanId, NodeHandle>,
-    CommandContainer,
-);
+enum LayoutResult {
+    Hierarchical(
+        VisualGraph,
+        BTreeMap<KanbanId, NodeHandle>,
+        CommandContainer,
+    ),
+    ForceDirected(BTreeMap<KanbanId, Rect>, CommandContainer),
+}
 #[derive(Default)]
 struct CommandContainer {
     commands: Vec<DrawCommand>,
@@ -205,10 +208,16 @@ pub struct NodeLayout {
     drag_linger: Option<std::time::Instant>,
     ///A thread handle that returns the necessary state to build the update
     ///on the main thread and displayed
-    layout_handle: Option<JoinHandle<NodeJoinHandle>>,
+    layout_handle: Option<JoinHandle<LayoutResult>>,
     ///The number of frames since the layout thread was spawned, state
     ///used to determine when the waiting modal must be displayed
     frames_in_update: u32,
+    ///Whether to use Fruchterman-Reingold force-directed layout instead of hierarchical
+    use_fr_layout: bool,
+    ///Stable node positions from previous F-R layout iteration, used as warm start
+    fr_stable_positions: BTreeMap<KanbanId, Pos2>,
+    ///Set to true when switching to F-R so the viewport scrolls to the graph center on completion
+    scroll_to_center_on_complete: bool,
 }
 impl Default for NodeLayout {
     fn default() -> Self {
@@ -237,6 +246,9 @@ impl NodeLayout {
             dragged_item: Option::None,
             collapsed: Vec::new(),
             frames_in_update: 0,
+            use_fr_layout: false,
+            fr_stable_positions: BTreeMap::new(),
+            scroll_to_center_on_complete: false,
         }
     }
 }
@@ -389,10 +401,6 @@ impl NodeLayout {
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         self.commands.commands.clear();
-        let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
-        let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
-        let mut arrow = Arrow::simple("");
-        arrow.end = LineEndKind::Arrow;
         let tasks: Vec<&KanbanItem> = if let Some(focused_id) = self.focus {
             document
                 .get_tasks()
@@ -417,64 +425,161 @@ impl NodeLayout {
                 .filter(|x| !self.is_collapsed(document, x))
                 .collect()
         };
-        tasks
-            .iter()
-            .for_each(|x| add_item_to_graph(x, document, style, &mut vg, &mut handles));
-        for id in handles.keys() {
-            let i = document.get_task(*id).unwrap();
-            let mut tasks: Vec<KanbanId> = i.child_tasks.iter().copied().collect();
-            sort.sort_by(&mut tasks, document);
-            for c in tasks.iter() {
-                if handles.contains_key(c) {
-                    vg.add_edge(arrow.clone(), handles[id], handles[c]);
+
+        if self.use_fr_layout {
+            let node_data: Vec<(KanbanId, String, StyleAttr, Vec2)> = tasks
+                .iter()
+                .map(|item| {
+                    let mut text = item.name.clone();
+                    if item.completed.is_some() {
+                        text += " (Completed)";
+                    }
+                    let mut look = StyleAttr::simple();
+                    look.fill_color = None;
+                    look.line_width = style.noninteractive().bg_stroke.width as usize;
+                    if let Some(category) = &item.category {
+                        if let Some(this_style) = document.categories.get(category) {
+                            if let Some(color) = &this_style.panel_stroke_color {
+                                look.line_color = from_color32(Color32::from_rgba_unmultiplied(
+                                    color[0], color[1], color[2], color[3],
+                                ));
+                            }
+                            look.fill_color = this_style.panel_fill.map(|x| {
+                                from_color32(Color32::from_rgba_unmultiplied(
+                                    x[0], x[1], x[2], x[3],
+                                ))
+                            });
+                            look.line_width = this_style
+                                .panel_stroke_width
+                                .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
+                                    x as usize
+                                });
+                        }
+                    } else {
+                        look.line_color = from_color32(style.noninteractive().fg_stroke.color);
+                    }
+                    let wrapped = NAME_BUFFER.with_borrow_mut(|buffer| {
+                        wrap_string(
+                            buffer,
+                            &text,
+                            crate::preferences::PREFERENCES.read().node_width,
+                        );
+                        buffer.clone()
+                    });
+                    let size = estimate_node_size(&wrapped, 15.0);
+                    (item.id, wrapped, look, size)
+                })
+                .collect();
+
+            let fr_task_ids: Vec<KanbanId> = node_data.iter().map(|(id, _, _, _)| *id).collect();
+            let mut edge_list: Vec<(KanbanId, KanbanId)> = Vec::new();
+            for (id, _, _, _) in &node_data {
+                let item = document.get_task(*id).unwrap();
+                let mut children: Vec<KanbanId> = item.child_tasks.iter().copied().collect();
+                sort.sort_by(&mut children, document);
+                for child_id in children {
+                    if fr_task_ids.contains(&child_id) {
+                        edge_list.push((*id, child_id));
+                    }
                 }
             }
-        }
 
-        if handles.is_empty() {
-            return;
+            if node_data.is_empty() {
+                return;
+            }
+
+            let stable = self.fr_stable_positions.clone();
+            self.layout_handle = Some(std::thread::spawn(move || {
+                let mut centers = force_atlas2(&node_data, &edge_list, 150, &stable);
+                let min_x = centers.values().map(|p| p.x).fold(f32::INFINITY, f32::min);
+                let min_y = centers.values().map(|p| p.y).fold(f32::INFINITY, f32::min);
+                for p in centers.values_mut() {
+                    p.x = p.x - min_x + 50.0;
+                    p.y = p.y - min_y + 50.0;
+                }
+                let (commands, rects) = build_fr_draw_commands(&centers, &node_data, &edge_list);
+                LayoutResult::ForceDirected(rects, commands)
+            }));
+        } else {
+            let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
+            let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
+            let mut arrow = Arrow::simple("");
+            arrow.end = LineEndKind::Arrow;
+            tasks
+                .iter()
+                .for_each(|x| add_item_to_graph(x, document, style, &mut vg, &mut handles));
+            for id in handles.keys() {
+                let i = document.get_task(*id).unwrap();
+                let mut tasks: Vec<KanbanId> = i.child_tasks.iter().copied().collect();
+                sort.sort_by(&mut tasks, document);
+                for c in tasks.iter() {
+                    if handles.contains_key(c) {
+                        vg.add_edge(arrow.clone(), handles[id], handles[c]);
+                    }
+                }
+            }
+
+            if handles.is_empty() {
+                return;
+            }
+            let capacity = self.commands.commands.len();
+            self.layout_handle = Some(std::thread::spawn(move || {
+                let mut commands = CommandContainer {
+                    commands: Vec::with_capacity(capacity),
+                };
+                vg.do_it(false, false, false, &mut commands);
+                LayoutResult::Hierarchical(vg, handles, commands)
+            }));
         }
-        let capacity = self.commands.commands.len();
-        self.layout_handle = Some(std::thread::spawn(move || {
-            let mut commands = CommandContainer {
-                // Starting with this capacity is probably a good idea
-                commands: Vec::with_capacity(capacity),
-            };
-            vg.do_it(false, false, false, &mut commands);
-            (vg, handles, commands)
-        }));
     }
-    fn incorporate_update(
-        &mut self,
-        vg: VisualGraph,
-        handles: BTreeMap<KanbanId, NodeHandle>,
-        commands: CommandContainer,
-    ) {
-        self.commands = commands;
-        self.commands
-            .commands
-            .sort_by(|a, b| a.partial_cmp(b).unwrap());
-        self.sense_regions.clear();
-        for (task_id, node_handle) in handles.iter() {
-            let element = vg.element(*node_handle);
-            let start_x = element.pos.left(false) as f32;
-            let start_y = element.pos.top(false) as f32;
-            let end_x = element.pos.right(false) as f32;
-            let end_y = element.pos.bottom(false) as f32;
-            self.max.x = self.max.x.max(end_x + 50.);
-            self.max.y = self.max.y.max(end_y + 90.);
-            self.min.x = self.min.x.min(start_x);
-            self.min.y = self.min.y.min(start_y);
-            self.sense_regions.push((
-                *task_id,
-                Rect::from_min_max(
-                    Pos2 {
-                        x: start_x,
-                        y: start_y,
-                    },
-                    Pos2 { x: end_x, y: end_y },
-                ),
-            ));
+    fn incorporate_update(&mut self, result: LayoutResult) {
+        match result {
+            LayoutResult::Hierarchical(vg, handles, commands) => {
+                self.commands = commands;
+                self.commands
+                    .commands
+                    .sort_by(|a, b| a.partial_cmp(b).unwrap());
+                self.sense_regions.clear();
+                for (task_id, node_handle) in handles.iter() {
+                    let element = vg.element(*node_handle);
+                    let start_x = element.pos.left(false) as f32;
+                    let start_y = element.pos.top(false) as f32;
+                    let end_x = element.pos.right(false) as f32;
+                    let end_y = element.pos.bottom(false) as f32;
+                    self.max.x = self.max.x.max(end_x + 50.);
+                    self.max.y = self.max.y.max(end_y + 90.);
+                    self.min.x = self.min.x.min(start_x);
+                    self.min.y = self.min.y.min(start_y);
+                    self.sense_regions.push((
+                        *task_id,
+                        Rect::from_min_max(
+                            Pos2 {
+                                x: start_x,
+                                y: start_y,
+                            },
+                            Pos2 { x: end_x, y: end_y },
+                        ),
+                    ));
+                }
+            }
+            LayoutResult::ForceDirected(rects, commands) => {
+                self.fr_stable_positions = rects
+                    .iter()
+                    .map(|(id, rect)| (*id, rect.center()))
+                    .collect();
+                self.commands = commands;
+                self.commands
+                    .commands
+                    .sort_by(|a, b| a.partial_cmp(b).unwrap());
+                self.sense_regions.clear();
+                for (task_id, rect) in &rects {
+                    self.max.x = self.max.x.max(rect.max.x + 50.);
+                    self.max.y = self.max.y.max(rect.max.y + 90.);
+                    self.min.x = self.min.x.min(rect.min.x);
+                    self.min.y = self.min.y.min(rect.min.y);
+                    self.sense_regions.push((*task_id, *rect));
+                }
+            }
         }
     }
     pub fn scroll_to(&mut self, id: KanbanId) {
@@ -506,14 +611,14 @@ impl NodeLayout {
                 }
                 self.frames_in_update = 0;
                 let handle = self.layout_handle.take().unwrap();
-                let (vg, handles, commands) = handle.join().unwrap();
-                self.incorporate_update(vg, handles, commands);
+                let result = handle.join().unwrap();
+                self.incorporate_update(result);
                 let min_max_rect = Rect {
                     min: self.min,
                     max: self.max,
                 };
 
-                if !self.scene_rect.intersects(min_max_rect) {
+                if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
                     // Reset the scene rectangle to include the start of the
                     // layout.
                     self.scene_rect = Rect {
@@ -521,6 +626,22 @@ impl NodeLayout {
                         max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2())
                             .to_pos2(),
                     };
+                }
+
+                if self.scroll_to_center_on_complete {
+                    self.scroll_to_center_on_complete = false;
+                    let centroid = Pos2::new(
+                        (self.min.x + self.max.x) / 2.0,
+                        (self.min.y + self.max.y) / 2.0,
+                    );
+                    if let Some((_, rect)) = self.sense_regions.iter().min_by(|a, b| {
+                        a.1.center()
+                            .distance(centroid)
+                            .partial_cmp(&b.1.center().distance(centroid))
+                            .unwrap()
+                    }) {
+                        self.scroll_target = Some((rect.center(), true));
+                    }
                 }
             }
         }
@@ -530,6 +651,13 @@ impl NodeLayout {
             needs_update |= ui
                 .checkbox(&mut self.exclude_completed, "Hide completed tasks")
                 .changed();
+            let old_fr = self.use_fr_layout;
+            needs_update |= ui
+                .checkbox(&mut self.use_fr_layout, "Force-directed layout")
+                .changed();
+            if !old_fr && self.use_fr_layout {
+                self.scroll_to_center_on_complete = true;
+            }
             if self.focus.is_some() && ui.button("Clear focus").clicked() {
                 self.focus = None;
                 needs_update = true;
@@ -746,6 +874,74 @@ fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &
 thread_local! {
     ///A buffer used to wrap the nodes without reallocating memory constantly.
     static  NAME_BUFFER:RefCell<String>=const{RefCell::new(String::new())};
+}
+
+fn draw_arrowhead(paint: &egui::Painter, tip: Pos2, from: Pos2, stroke: egui::Stroke) {
+    let dir = (tip - from).normalized();
+    let perp = Vec2::new(-dir.y, dir.x);
+    let length = stroke.width * 3.0 + 8.0;
+    let width = stroke.width * 1.5 + 4.0;
+    let base = tip - dir * length;
+    paint.add(egui::Shape::convex_polygon(
+        vec![tip, base + perp * width, base - perp * width],
+        stroke.color,
+        egui::Stroke::NONE,
+    ));
+}
+
+fn build_fr_draw_commands(
+    centers: &BTreeMap<KanbanId, Pos2>,
+    node_data: &[(KanbanId, String, StyleAttr, Vec2)],
+    edges: &[(KanbanId, KanbanId)],
+) -> (CommandContainer, BTreeMap<KanbanId, Rect>) {
+    let rects: BTreeMap<KanbanId, Rect> = node_data
+        .iter()
+        .filter_map(|(id, _, _, size)| {
+            centers
+                .get(id)
+                .map(|&center| (*id, Rect::from_center_size(center, *size)))
+        })
+        .collect();
+
+    let mut commands = CommandContainer {
+        commands: Vec::new(),
+    };
+
+    for &(src, dst) in edges {
+        if let (Some(src_rect), Some(dst_rect)) = (rects.get(&src), rects.get(&dst)) {
+            let start = rect_edge_point(src_rect.center(), dst_rect.center(), *src_rect);
+            let end = rect_edge_point(dst_rect.center(), src_rect.center(), *dst_rect);
+            let ctrl1 = start + (end.to_vec2() - start.to_vec2()) * 0.33;
+            let ctrl2 = start + (end.to_vec2() - start.to_vec2()) * 0.67;
+            commands.commands.push(DrawCommand::Arrow(ArrowOptions {
+                path: vec![start, ctrl1, ctrl2, end],
+                dashed: false,
+                head: (false, true),
+                text: String::new(),
+            }));
+        }
+    }
+
+    for (id, text, look, _size) in node_data {
+        if let Some(&rect) = rects.get(id) {
+            let stroke_color =
+                Color32::from_hex(&look.line_color.to_web_color()).unwrap_or(Color32::WHITE);
+            let fill = look
+                .fill_color
+                .map(|c| Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT));
+            commands.commands.push(DrawCommand::Rect(
+                rect,
+                stroke_color,
+                fill,
+                look.line_width as f32,
+            ));
+            commands
+                .commands
+                .push(DrawCommand::Text(rect.center(), text.clone(), 15.0));
+        }
+    }
+
+    (commands, rects)
 }
 
 /// Add an item to the layout-rs graph, mostly a convenience function
