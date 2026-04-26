@@ -42,16 +42,6 @@ pub fn rect_edge_point(from_center: Pos2, to_center: Pos2, rect: Rect) -> Pos2 {
     }
 }
 
-pub fn estimate_node_size(wrapped_text: &str, font_size: f32) -> Vec2 {
-    let char_width = font_size * 0.55;
-    let line_height = font_size * 1.5;
-    let lines: Vec<&str> = wrapped_text.lines().collect();
-    let max_line_len = lines.iter().map(|l| l.chars().count()).max().unwrap_or(1);
-    Vec2::new(
-        max_line_len as f32 * char_width + 20.0,
-        lines.len().max(1) as f32 * line_height + 16.0,
-    )
-}
 
 //  Barnes-Hut quadtree
 

@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use lazy_static::lazy_static;
 
-use super::force_directed::{estimate_node_size, force_atlas2, rect_edge_point};
+use super::force_directed::{force_atlas2, rect_edge_point};
 use super::*;
 
 use eframe::egui::Scene;
@@ -430,59 +430,13 @@ impl NodeLayout {
             let node_data: Vec<(KanbanId, String, StyleAttr, Vec2)> = tasks
                 .iter()
                 .map(|item| {
-                    let mut text = item.name.clone();
-                    if item.completed.is_some() {
-                        text += " (Completed)";
-                    }
-                    let mut look = StyleAttr::simple();
-                    look.fill_color = None;
-                    look.line_width = style.noninteractive().bg_stroke.width as usize;
-                    if let Some(category) = &item.category {
-                        if let Some(this_style) = document.categories.get(category) {
-                            if let Some(color) = &this_style.panel_stroke_color {
-                                look.line_color = from_color32(Color32::from_rgba_unmultiplied(
-                                    color[0], color[1], color[2], color[3],
-                                ));
-                            }
-                            look.fill_color = this_style.panel_fill.map(|x| {
-                                from_color32(Color32::from_rgba_unmultiplied(
-                                    x[0], x[1], x[2], x[3],
-                                ))
-                            });
-                            look.line_width = this_style
-                                .panel_stroke_width
-                                .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
-                                    x as usize
-                                });
-                        }
-                    } else {
-                        look.line_color = from_color32(style.noninteractive().fg_stroke.color);
-                    }
-                    let wrapped = NAME_BUFFER.with_borrow_mut(|buffer| {
-                        wrap_string(
-                            buffer,
-                            &text,
-                            crate::preferences::PREFERENCES.read().node_width,
-                        );
-                        buffer.clone()
-                    });
-                    let size = estimate_node_size(&wrapped, 15.0);
+                    let (wrapped, look, size) = prepare_node_display(item, document, style);
                     (item.id, wrapped, look, size)
                 })
                 .collect();
 
             let fr_task_ids: Vec<KanbanId> = node_data.iter().map(|(id, _, _, _)| *id).collect();
-            let mut edge_list: Vec<(KanbanId, KanbanId)> = Vec::new();
-            for (id, _, _, _) in &node_data {
-                let item = document.get_task(*id).unwrap();
-                let mut children: Vec<KanbanId> = item.child_tasks.iter().copied().collect();
-                sort.sort_by(&mut children, document);
-                for child_id in children {
-                    if fr_task_ids.contains(&child_id) {
-                        edge_list.push((*id, child_id));
-                    }
-                }
-            }
+            let edge_list = build_edge_list(&fr_task_ids, document, sort);
 
             if node_data.is_empty() {
                 return;
@@ -653,7 +607,10 @@ impl NodeLayout {
                 .changed();
             let old_fr = self.use_fr_layout;
             needs_update |= ui
-                .checkbox(&mut self.use_fr_layout, "Force-directed layout")
+                .selectable_value(&mut self.use_fr_layout, false, "Hierarchical")
+                .changed();
+            needs_update |= ui
+                .selectable_value(&mut self.use_fr_layout, true, "Force-directed")
                 .changed();
             if !old_fr && self.use_fr_layout {
                 self.scroll_to_center_on_complete = true;
@@ -853,6 +810,80 @@ impl NodeLayout {
 /// * **max_line_length** The number of characters(I think grapheme is the t)
 ///
 /// Returns a mutable reference to the buffer
+fn build_edge_list(
+    task_ids: &[KanbanId],
+    document: &KanbanDocument,
+    sort: &ItemSort,
+) -> Vec<(KanbanId, KanbanId)> {
+    let mut edges = Vec::new();
+    let id_set: std::collections::HashSet<_> = task_ids.iter().copied().collect();
+    for &id in task_ids {
+        let item = document.get_task(id).unwrap();
+        let mut children: Vec<KanbanId> = item.child_tasks.iter().copied().collect();
+        sort.sort_by(&mut children, document);
+        for child_id in children {
+            if id_set.contains(&child_id) {
+                edges.push((id, child_id));
+            }
+        }
+    }
+    edges
+}
+
+fn prepare_node_display(
+    item: &KanbanItem,
+    document: &KanbanDocument,
+    style: &egui::Style,
+) -> (String, StyleAttr, Vec2) {
+    let mut text = item.name.clone();
+    let mut look = StyleAttr::simple();
+    look.fill_color = None;
+    look.line_width = style.noninteractive().bg_stroke.width as usize;
+
+    if let Some(category) = &item.category {
+        if let Some(this_style) = document.categories.get(category) {
+            if let Some(color) = &this_style.panel_stroke_color {
+                look.line_color = from_color32(Color32::from_rgba_unmultiplied(
+                    color[0], color[1], color[2], color[3],
+                ));
+            }
+            look.fill_color = this_style.panel_fill.map(|x| {
+                from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3]))
+            });
+            look.line_width = this_style
+                .panel_stroke_width
+                .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
+                    x as usize
+                });
+        }
+    } else {
+        look.line_color = from_color32(style.noninteractive().fg_stroke.color);
+    }
+
+    if item.completed.is_some() {
+        text += " (Completed)";
+    }
+
+    let (wrapped, size) = NAME_BUFFER.with_borrow_mut(|buffer| {
+        wrap_string(
+            buffer,
+            &text,
+            crate::preferences::PREFERENCES.read().node_width,
+        );
+        let shape = ShapeKind::new_box(buffer);
+        let mut sz = get_shape_size(
+            layout::core::base::Orientation::LeftToRight,
+            &shape,
+            15,
+            false,
+        );
+        sz.x *= 0.7;
+        (buffer.clone(), Vec2::new(sz.x as f32, sz.y as f32))
+    });
+
+    (wrapped, look, size)
+}
+
 fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &'a mut String {
     buffer.clear();
     let mut line_size = 0;
@@ -956,54 +987,19 @@ fn add_item_to_graph<G>(
     G: Extend<(KanbanId, NodeHandle)>,
 {
     let id = i.id;
-    let mut text = i.name.clone();
-
-    let mut look0 = StyleAttr::simple();
-    look0.fill_color = None;
-    look0.line_width = style.noninteractive().bg_stroke.width as usize;
-    if let Some(category) = &i.category {
-        if let Some(this_style) = document.categories.get(category) {
-            if let Some(color) = &this_style.panel_stroke_color {
-                look0.line_color = from_color32(Color32::from_rgba_unmultiplied(
-                    color[0], color[1], color[2], color[3],
-                ));
-            }
-            look0.fill_color = this_style
-                .panel_fill
-                .map(|x| from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3])));
-            look0.line_width = this_style
-                .panel_stroke_width
-                .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
-                    x as usize
-                });
-        }
-    } else {
-        look0.line_color = from_color32(style.noninteractive().fg_stroke.color);
-    }
-    if i.completed.is_some() {
-        text += " (Completed)";
-    }
+    let (_wrapped, look, size) = prepare_node_display(i, document, style);
     NAME_BUFFER.with_borrow_mut(|buffer| {
         wrap_string(
             buffer,
-            &text,
+            &i.name,
             crate::preferences::PREFERENCES.read().node_width,
         );
         let shape = ShapeKind::new_box(buffer);
-        let mut sz = get_shape_size(
-            layout::core::base::Orientation::LeftToRight,
-            &shape,
-            15,
-            false,
-        );
-        // This value was determined to be acceptable experimentally. Don't think too hard if you need
-        // to change it
-        sz.x *= 0.7;
         let node = Element::create(
             shape,
-            look0.clone(),
+            look.clone(),
             layout::core::base::Orientation::LeftToRight,
-            sz,
+            layout::core::geometry::Point::new(size.x as f64, size.y as f64),
         );
         let handle = vg.add_node(node);
         handles.extend([(id, handle)].iter().cloned());
