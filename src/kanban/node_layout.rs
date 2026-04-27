@@ -2,7 +2,10 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use std::thread::JoinHandle;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use lazy_static::lazy_static;
 
@@ -203,7 +206,7 @@ pub struct NodeLayout {
     ///A container of every kanban task which is collapsed
     collapsed: Vec<KanbanId>,
     ///The instant during which the current drag target was selected
-    drag_linger: Option<std::time::Instant>,
+    drag_linger: Option<Instant>,
     ///A thread handle that returns the necessary state to build the update
     ///on the main thread and displayed
     layout_handle: Option<JoinHandle<LayoutResult>>,
@@ -465,9 +468,12 @@ impl NodeLayout {
             let stable = self.fr_stable_positions.clone();
             let (tx, rx) = std::sync::mpsc::channel();
             self.layout_rx = Some(rx);
+            #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 force_atlas2(&node_data, &edge_list, 500, &stable, &tx);
             });
+            #[cfg(target_arch = "wasm32")]
+            force_atlas2(&node_data, &edge_list, 150, &stable, &tx);
         } else {
             self.layout_rx = None; // drop any unread FR snapshots
             self.hier_node_data = tasks
@@ -497,17 +503,55 @@ impl NodeLayout {
 
             if handles.is_empty() {
                 return;
+
             }
             let capacity = self.commands.commands.len();
-            self.layout_handle = Some(std::thread::spawn(move || {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.layout_handle = Some(std::thread::spawn(move || {
+                    let mut commands = CommandContainer {
+                        commands: Vec::with_capacity(capacity),
+                    };
+                    vg.do_it(false, false, false, &mut commands);
+                    LayoutResult::Hierarchical(vg, handles, commands)
+                }));
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
                 let mut commands = CommandContainer {
                     commands: Vec::with_capacity(capacity),
                 };
                 vg.do_it(false, false, false, &mut commands);
-                LayoutResult::Hierarchical(vg, handles, commands)
-            }));
+                self.incorporate_update(LayoutResult::Hierarchical(vg, handles, commands));
+                self.reset_scene_rect_for_new_layout();
+            }
         }
     }
+    fn reset_scene_rect_for_new_layout(&mut self) {
+        let min_max_rect = Rect { min: self.min, max: self.max };
+        if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
+            self.scene_rect = Rect {
+                min: Pos2::new(0.0, 0.0),
+                max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2()).to_pos2(),
+            };
+        }
+        if self.scroll_to_center_on_complete {
+            self.scroll_to_center_on_complete = false;
+            let centroid = Pos2::new(
+                (self.min.x + self.max.x) / 2.0,
+                (self.min.y + self.max.y) / 2.0,
+            );
+            if let Some((_, rect)) = self.sense_regions.iter().min_by(|a, b| {
+                a.1.center()
+                    .distance(centroid)
+                    .partial_cmp(&b.1.center().distance(centroid))
+                    .unwrap()
+            }) {
+                self.scroll_target = Some((rect.center(), true));
+            }
+        }
+    }
+
     fn incorporate_update(&mut self, result: LayoutResult) {
         let LayoutResult::Hierarchical(vg, handles, commands) = result;
         self.commands = commands;
@@ -565,36 +609,7 @@ impl NodeLayout {
                 let handle = self.layout_handle.take().unwrap();
                 let result = handle.join().unwrap();
                 self.incorporate_update(result);
-                let min_max_rect = Rect {
-                    min: self.min,
-                    max: self.max,
-                };
-
-                if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
-                    // Reset the scene rectangle to include the start of the
-                    // layout.
-                    self.scene_rect = Rect {
-                        min: Pos2::new(0.0, 0.0),
-                        max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2())
-                            .to_pos2(),
-                    };
-                }
-
-                if self.scroll_to_center_on_complete {
-                    self.scroll_to_center_on_complete = false;
-                    let centroid = Pos2::new(
-                        (self.min.x + self.max.x) / 2.0,
-                        (self.min.y + self.max.y) / 2.0,
-                    );
-                    if let Some((_, rect)) = self.sense_regions.iter().min_by(|a, b| {
-                        a.1.center()
-                            .distance(centroid)
-                            .partial_cmp(&b.1.center().distance(centroid))
-                            .unwrap()
-                    }) {
-                        self.scroll_target = Some((rect.center(), true));
-                    }
-                }
+                self.reset_scene_rect_for_new_layout();
             }
         }
 
@@ -652,32 +667,7 @@ impl NodeLayout {
             }
             if disconnected {
                 self.layout_rx = None;
-                let min_max_rect = Rect {
-                    min: self.min,
-                    max: self.max,
-                };
-                if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
-                    self.scene_rect = Rect {
-                        min: Pos2::new(0.0, 0.0),
-                        max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2())
-                            .to_pos2(),
-                    };
-                }
-                if self.scroll_to_center_on_complete {
-                    self.scroll_to_center_on_complete = false;
-                    let centroid = Pos2::new(
-                        (self.min.x + self.max.x) / 2.0,
-                        (self.min.y + self.max.y) / 2.0,
-                    );
-                    if let Some((_, rect)) = self.sense_regions.iter().min_by(|a, b| {
-                        a.1.center()
-                            .distance(centroid)
-                            .partial_cmp(&b.1.center().distance(centroid))
-                            .unwrap()
-                    }) {
-                        self.scroll_target = Some((rect.center(), true));
-                    }
-                }
+                self.reset_scene_rect_for_new_layout();
             } else {
                 ui.ctx().request_repaint();
             }
@@ -1091,11 +1081,7 @@ fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &
     let mut line_size = 0;
     for i in s.chars() {
         if line_size > max_line_length && i.is_whitespace() {
-            #[cfg(unix)]
             buffer.push('\n');
-            // I don't know if this is necessary but I doubt it will hurt
-            #[cfg(windows)]
-            buffer.push_str("\r\n");
             line_size = 0;
         } else {
             buffer.push(i);

@@ -17,18 +17,13 @@ eula = false
 [dependencies]
 eframe = { version = "0.34.1", features = ["persistence"] }
 epaint = "0.34.1"
-chrono = { version = "0.4.39", features = ["serde"] }
-env_logger = { version = "0.10", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
+chrono = { version = "0.4.39", features = ["serde", "wasmbind"] }
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = { version = "~1.0" }
 rfd = { version = "0.14.1" }
 nucleo-matcher = { version = "0.3.1" }
 layout-rs = "0.1.2"
 lazy_static = "~1"
-clap = { version = "4.5.19", features = ["derive"] }
 parking_lot = { version = "0.12.3", features = ["serde"] }
 circular-buffer = "0.1.9"
 log = "0.4.22"
@@ -39,6 +34,18 @@ fast_allocator = ["dep:mimalloc"]
 
 [target.'cfg(unix)'.dependencies]
 xdg = "~2.5.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = { version = "0.10", default-features = false, features = [
+    "auto-color",
+    "humantime",
+] }
+clap = { version = "4.5.19", features = ["derive"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "Element", "HtmlCanvasElement"] }
+web-time = "1"
 
 
 [profile.small_as_can_be]

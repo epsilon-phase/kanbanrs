@@ -1,6 +1,7 @@
 mod kanban;
 use chrono::Utc;
 use circular_buffer::CircularBuffer;
+#[cfg(not(target_arch = "wasm32"))]
 use clap::*;
 use eframe::egui::{
     self, ComboBox, Modifiers, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand,
@@ -13,14 +14,9 @@ use kanban::{
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::BorrowMut,
-    fs,
-    io::Write,
-    path::PathBuf,
-    sync::{mpsc, Arc},
-    thread::{self, JoinHandle},
-};
+use std::{borrow::BorrowMut, sync::{mpsc, Arc}};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{fs, io::Write, path::PathBuf, thread::{self, JoinHandle}};
 mod document_layout;
 mod preferences;
 use document_layout::*;
@@ -38,6 +34,7 @@ struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
     task_name: String,
     open_editors: Vec<Arc<RwLock<kanban::editor::State>>>,
+    #[cfg(not(target_arch = "wasm32"))]
     save_file_name: Option<PathBuf>,
     current_layout: KanbanDocumentLayout,
     #[cfg(unix)]
@@ -58,10 +55,11 @@ struct KanbanRS {
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
     messages: Vec<String>,
-    // It may be ideal to actually return the result type instead, so that the main thread may
-    // report on the success of the saving.
+    #[cfg(not(target_arch = "wasm32"))]
     save_thread: Option<JoinHandle<Result<(), String>>>,
     preferences: Arc<RwLock<preferences::Preferences>>,
+    #[cfg(target_arch = "wasm32")]
+    pending_import: Arc<std::sync::Mutex<Option<Result<Vec<u8>, String>>>>,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -70,6 +68,7 @@ impl KanbanRS {
             document: Arc::new(RwLock::new(KanbanDocument::default())),
             task_name: String::new(),
             open_editors: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             save_file_name: None,
             current_layout: KanbanDocumentLayout::default(),
             #[cfg(unix)]
@@ -89,16 +88,17 @@ impl KanbanRS {
             filter: KanbanFilter::None,
             last_rect: None,
             messages: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             save_thread: None,
             asking_for_new_file: false,
-            // This needs to be initialized from storage
             preferences: preferences::PREFERENCES.clone(),
+            #[cfg(target_arch = "wasm32")]
+            pending_import: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
-#[derive(
-    clap::Parser, PartialEq, Eq, Clone, Copy, Debug, ValueEnum, Deserialize, Serialize, Default,
-)]
+#[cfg_attr(not(target_arch = "wasm32"), derive(clap::Parser, ValueEnum))]
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Deserialize, Serialize, Default)]
 /// The startup layout is used entirely in preferences and argument
 /// parsing to represent an empty layout.
 enum StartupLayout {
@@ -140,6 +140,7 @@ impl From<StartupLayout> for KanbanDocumentLayout {
         }
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(clap::Parser)]
 struct KanbanArgs {
     filename: Option<String>,
@@ -147,6 +148,8 @@ struct KanbanArgs {
     default_view: StartupLayout,
 }
 pub static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // This is used to clean up the desktop file at the end.
     #[cfg(target_os = "linux")]
@@ -175,8 +178,41 @@ fn main() {
         error!("{x}");
     }
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
+    let web_options = eframe::WebOptions::default();
+    wasm_bindgen_futures::spawn_local(async {
+        let canvas = web_sys::window()
+            .expect("no window")
+            .document()
+            .expect("no document")
+            .get_element_by_id("kanbanrs_canvas")
+            .expect("no element with id 'kanbanrs_canvas'")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("kanbanrs_canvas is not a HtmlCanvasElement");
+        eframe::WebRunner::new()
+            .start(
+                canvas,
+                web_options,
+                Box::new(|cc| {
+                    let mut app = KanbanRS::new();
+                    if let Some(storage) = cc.storage {
+                        app.initialize_preferences(storage);
+                    }
+                    Ok(Box::new(app))
+                }),
+            )
+            .await
+            .expect("failed to start eframe");
+    });
+}
+
 impl eframe::App for KanbanRS {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        #[cfg(not(target_arch = "wasm32"))]
         if self.save_thread.is_some() && self.save_thread.as_ref().unwrap().is_finished() {
             match self.save_thread.take().unwrap().join() {
                 Ok(Ok(())) => {}
@@ -184,6 +220,23 @@ impl eframe::App for KanbanRS {
                 Err(_) => self.messages.push("Save thread panicked".to_string()),
             }
             debug!("Joined save thread");
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if let Some(result) = self.pending_import.lock().unwrap().take() {
+            match result {
+                Ok(bytes) => match serde_json::from_slice::<KanbanDocument>(&bytes) {
+                    Ok(doc) => {
+                        *self.document.write() = doc;
+                        self.document.write().collect_tags();
+                        self.open_editors.clear();
+                        self.layout_cache_needs_updating = true;
+                        self.modified_since_last_saved = false;
+                    }
+                    Err(e) => self.messages.push(format!("Import failed: {e}")),
+                },
+                Err(e) => self.messages.push(format!("Import failed: {e}")),
+            }
         }
 
         if self.layout_cache_needs_updating {
@@ -214,6 +267,7 @@ impl eframe::App for KanbanRS {
                 },
                 logical_key: egui::Key::N,
             };
+            #[cfg(not(target_arch = "wasm32"))]
             let save_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
@@ -230,6 +284,7 @@ impl eframe::App for KanbanRS {
                 },
                 logical_key: egui::Key::S,
             };
+            #[cfg(not(target_arch = "wasm32"))]
             let save_as_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
@@ -247,15 +302,17 @@ impl eframe::App for KanbanRS {
                 logical_key: egui::Key::S,
             };
             i.consume_shortcut(&new_shortcut).then(|| {
-                // self.new_file();
                 self.asking_for_new_file = true;
             });
-            i.consume_shortcut(&save_as_shortcut).then(|| {
-                self.save_file(true);
-            });
-            i.consume_shortcut(&save_shortcut).then(|| {
-                self.save_file(false);
-            });
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                i.consume_shortcut(&save_as_shortcut).then(|| {
+                    self.save_file(true);
+                });
+                i.consume_shortcut(&save_shortcut).then(|| {
+                    self.save_file(false);
+                });
+            }
             let find_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
                     alt: false,
@@ -292,6 +349,7 @@ impl eframe::App for KanbanRS {
                         egui::CentralPanel::default().show_inside(ui, |ui| {
                             ui.label("You may lose information if you don't save, do you want to?");
                             ui.horizontal(|ui| {
+                                #[cfg(not(target_arch = "wasm32"))]
                                 if ui.button("Save").clicked() {
                                     self.save_file(false);
                                     confirmed = true;
@@ -313,53 +371,55 @@ impl eframe::App for KanbanRS {
         }
         self.hovered_task = None;
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            if ui
-                .ctx()
-                .input(|i| i.viewport().close_requested() && !self.close_confirmed)
+            #[cfg(not(target_arch = "wasm32"))]
             {
-                self.close_requested = true;
-                ui.send_viewport_cmd(ViewportCommand::CancelClose);
-            }
-            let ctx = ui.ctx().clone();
-            if self.close_requested {
-                let mut confirmed = false;
-                if self.modified_since_last_saved {
-                    ui.show_viewport_immediate(
-                        egui::ViewportId::from_hash_of("Save confirmation"),
-                        egui::ViewportBuilder::default()
-                            .with_inner_size(Vec2::new(300., 100.))
-                            .with_window_type(egui::X11WindowType::Dialog)
-                            .with_always_on_top()
-                            .with_title("Save before closing"),
-                        |ui, _class| {
-                            egui::CentralPanel::default().show_inside(ui, |ui| {
-                                ui.label(
-                                    "You may lose information if you don't save, do you want to?",
-                                );
-                                ui.horizontal(|ui| {
-                                    if ui.button("Save").clicked() {
-                                        self.save_file(false);
-                                        self.close_confirmed = true;
-                                        confirmed = true;
-                                    }
-                                    if ui.button("Don't save").clicked() {
-                                        self.close_confirmed = true;
-                                        confirmed = true;
-                                    }
-                                    if ui.button("Cancel").clicked() {
-                                        self.close_requested = false;
-                                    }
-                                });
-                            });
-                        },
-                    );
-                } else {
-                    self.close_confirmed = true;
-                    confirmed = true;
+                if ui
+                    .ctx()
+                    .input(|i| i.viewport().close_requested() && !self.close_confirmed)
+                {
+                    self.close_requested = true;
+                    ui.send_viewport_cmd(ViewportCommand::CancelClose);
                 }
-                if confirmed {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                    return;
+                if self.close_requested {
+                    let mut confirmed = false;
+                    if self.modified_since_last_saved {
+                        ui.show_viewport_immediate(
+                            egui::ViewportId::from_hash_of("Save confirmation"),
+                            egui::ViewportBuilder::default()
+                                .with_inner_size(Vec2::new(300., 100.))
+                                .with_window_type(egui::X11WindowType::Dialog)
+                                .with_always_on_top()
+                                .with_title("Save before closing"),
+                            |ui, _class| {
+                                egui::CentralPanel::default().show_inside(ui, |ui| {
+                                    ui.label(
+                                        "You may lose information if you don't save, do you want to?",
+                                    );
+                                    ui.horizontal(|ui| {
+                                        if ui.button("Save").clicked() {
+                                            self.save_file(false);
+                                            self.close_confirmed = true;
+                                            confirmed = true;
+                                        }
+                                        if ui.button("Don't save").clicked() {
+                                            self.close_confirmed = true;
+                                            confirmed = true;
+                                        }
+                                        if ui.button("Cancel").clicked() {
+                                            self.close_requested = false;
+                                        }
+                                    });
+                                });
+                            },
+                        );
+                    } else {
+                        self.close_confirmed = true;
+                        confirmed = true;
+                    }
+                    if confirmed {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                        return;
+                    }
                 }
             }
             let current_rect = Rect {
@@ -371,52 +431,67 @@ impl eframe::App for KanbanRS {
                 kanban::layout_cache::clear_layout_cache();
                 self.last_rect = Some(current_rect);
             }
+            let ctx = ui.ctx().clone();
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     if ui.button("New").clicked() {
                         self.asking_for_new_file = true;
                         ui.close();
                     }
-                    if ui.button("Save").clicked() {
-                        // Save to already existing file, as most applications tend to do.
-                        self.save_file(false);
-                        ui.close();
-                    }
-                    if ui.button("Save As").clicked() {
-                        self.save_file(true);
-                        ui.close();
-                    }
-                    if ui.button("Open").clicked() {
-                        let filename = rfd::FileDialog::new()
-                            .add_filter("Kanban", &["kan"])
-                            .pick_file();
-                        if let Some(filename) = filename {
-                            self.open_file(&filename);
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        if ui.button("Save").clicked() {
+                            self.save_file(false);
+                            ui.close();
                         }
-                        self.current_layout.update_cache(
-                            &self.document.read(),
-                            &self.sorting_type,
-                            ui.style(),
-                            &self.filter,
-                        );
-                        ui.close();
-                    }
-                    ui.menu_button("Recently Used", |ui| {
-                        for i in self.read_recents() {
-                            let s: String = String::from(i.to_str().unwrap());
-                            if fs::exists(&s).is_ok_and(|x| x) && ui.button(&s).clicked() {
-                                self.open_file(&i);
-                                ui.close();
-                                self.layout_cache_needs_updating = true;
+                        if ui.button("Save As").clicked() {
+                            self.save_file(true);
+                            ui.close();
+                        }
+                        if ui.button("Open").clicked() {
+                            let filename = rfd::FileDialog::new()
+                                .add_filter("Kanban", &["kan"])
+                                .pick_file();
+                            if let Some(filename) = filename {
+                                self.open_file(&filename);
                             }
+                            self.current_layout.update_cache(
+                                &self.document.read(),
+                                &self.sorting_type,
+                                ui.style(),
+                                &self.filter,
+                            );
+                            ui.close();
                         }
-                    });
-                    if ui.button("Export to graphviz").clicked() {
-                        self.write_dot();
+                        ui.menu_button("Recently Used", |ui| {
+                            for i in self.read_recents() {
+                                let s: String = String::from(i.to_str().unwrap());
+                                if fs::exists(&s).is_ok_and(|x| x) && ui.button(&s).clicked() {
+                                    self.open_file(&i);
+                                    ui.close();
+                                    self.layout_cache_needs_updating = true;
+                                }
+                            }
+                        });
+                        if ui.button("Export to graphviz").clicked() {
+                            self.write_dot();
+                        }
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        if ui.button("Export to file").clicked() {
+                            self.web_export_file();
+                            ui.close();
+                        }
+                        if ui.button("Import from file").clicked() {
+                            self.web_import_file();
+                            ui.close();
+                        }
                     }
                     if ui.button("Preferences").clicked() {
                         self.preferences.write().showing_preference = true;
                     }
+                    #[cfg(not(target_arch = "wasm32"))]
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(ViewportCommand::Close);
                     }
@@ -741,9 +816,16 @@ impl eframe::App for KanbanRS {
             serde_json::to_string(&*self.preferences.read()).unwrap(),
         );
 
+        #[cfg(not(target_arch = "wasm32"))]
         if self.preferences.read().autosave.is_some() && self.save_file_name.is_some() {
             log::info!("Saving file");
             self.save_file(false)
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        if let Ok(json) = serde_json::to_string(&*self.document.read()) {
+            _storage.set_string("document", json);
+            self.modified_since_last_saved = false;
         }
     }
     fn auto_save_interval(&self) -> std::time::Duration {
@@ -759,13 +841,8 @@ impl KanbanRS {
             "{'autosave':{'secs':60,'nanos':0},'store_undo_history_for_files':false}".to_string(),
         );
         if let Ok(x) = serde_json::from_str(&str) {
-            // If we do the old assignment i.e. self.preferences=x
-            // then we don't modify it in place, we just assign
-            // a different instance to the arc.
             self.preferences.write().clone_from(&x);
         }
-        // If the layout is specified in the preferences, and unspecified
-        // otherwise, then change it
         if matches!(
             self.current_layout.layout,
             KanbanDocumentLayoutType::Unloaded
@@ -773,9 +850,16 @@ impl KanbanRS {
             self.current_layout = self.preferences.read().startup_layout.into();
             self.layout_cache_needs_updating = true;
         }
-        // If the document is not already populated by this point, we can
-        // assume that it's not loaded anything, and thus perfect for initializing
-        // from the template
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(doc_json) = storage.get_string("document") {
+                if let Ok(doc) = serde_json::from_str::<KanbanDocument>(&doc_json) {
+                    *self.document.write() = doc;
+                    self.document.write().collect_tags();
+                    return;
+                }
+            }
+        }
         if self.document.read().is_empty() {
             self.new_file();
         }
@@ -787,6 +871,7 @@ impl KanbanRS {
         self.current_layout = self.preferences.read().startup_layout.into();
         self.asking_for_new_file = false;
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn from_args(args: KanbanArgs) -> Self {
         let mut result = KanbanRS::new();
         if let Some(filename) = args.filename {
@@ -972,6 +1057,7 @@ impl KanbanRS {
             self.undo_buffer.push_back(item);
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn get_recents_file(&self) -> Option<PathBuf> {
         #[cfg(unix)]
         return self.base_dirs.find_state_file("recent");
@@ -983,6 +1069,7 @@ impl KanbanRS {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn place_recents_file(&self) -> Result<PathBuf, std::io::Error> {
         #[cfg(unix)]
         return self.base_dirs.place_state_file("recent");
@@ -997,6 +1084,7 @@ impl KanbanRS {
             Ok("~/Application Data/Roaming/kanbanrs/recent".into())
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn read_recents(&self) -> Vec<PathBuf> {
         let recents_file = self.get_recents_file();
         if recents_file.is_none() {
@@ -1010,6 +1098,7 @@ impl KanbanRS {
             .map(|x| x.into())
             .collect()
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn write_recents(&self) {
         let recents_file = self
             .place_recents_file()
@@ -1042,6 +1131,7 @@ impl KanbanRS {
             std::process::abort();
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn open_file(&mut self, path: &PathBuf) {
         let file = fs::File::open(path);
         if let Err(x) = file {
@@ -1060,6 +1150,7 @@ impl KanbanRS {
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
     }
+    #[cfg(not(target_arch = "wasm32"))]
     fn write_dot(&self) {
         let filename = rfd::FileDialog::new()
             .add_filter("Graphviz", &["dot"])
@@ -1092,6 +1183,7 @@ impl KanbanRS {
             writeln!(&mut file, "}}").unwrap();
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn save_file(&mut self, force_choose_file: bool) {
         // Another file could be saved containing undo information.
         //
@@ -1129,5 +1221,43 @@ impl KanbanRS {
         if let Some(item) = self.undo_buffer.pop_back() {
             item.undo(&mut self.document.write());
         }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl KanbanRS {
+    fn web_export_file(&self) {
+        let doc = self.document.read().clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let json = match serde_json::to_string(&doc) {
+                Ok(j) => j,
+                Err(e) => {
+                    log::error!("Serialization failed: {e}");
+                    return;
+                }
+            };
+            if let Some(handle) = rfd::AsyncFileDialog::new()
+                .add_filter("Kanban", &["kan"])
+                .set_file_name("kanban.kan")
+                .save_file()
+                .await
+            {
+                handle.write(json.as_bytes()).await.ok();
+            }
+        });
+    }
+
+    fn web_import_file(&self) {
+        let pending = self.pending_import.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Some(handle) = rfd::AsyncFileDialog::new()
+                .add_filter("Kanban", &["kan"])
+                .pick_file()
+                .await
+            {
+                let bytes = handle.read().await;
+                *pending.lock().unwrap() = Some(Ok(bytes));
+            }
+        });
     }
 }
