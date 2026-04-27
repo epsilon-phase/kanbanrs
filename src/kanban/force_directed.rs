@@ -42,7 +42,6 @@ pub fn rect_edge_point(from_center: Pos2, to_center: Pos2, rect: Rect) -> Pos2 {
     }
 }
 
-
 //  Barnes-Hut quadtree
 
 enum QTContent {
@@ -198,15 +197,19 @@ impl QuadTree {
 ///   producing cleaner cluster separation (ForceAtlas2's defining feature)
 /// - Gap-corrected repulsion: force magnitude uses the empty space between
 ///   node edges rather than center-to-center distance
+const SEND_INTERVAL: u32 = 5;
+const CONVERGENCE_WINDOW: usize = 10;
+
 pub fn force_atlas2(
     node_data: &[(KanbanId, String, StyleAttr, Vec2)],
     edges: &[(KanbanId, KanbanId)],
-    iterations: u32,
+    max_iterations: u32,
     stable_positions: &BTreeMap<KanbanId, Pos2>,
-) -> BTreeMap<KanbanId, Pos2> {
+    tx: &std::sync::mpsc::Sender<BTreeMap<KanbanId, Pos2>>,
+) {
     let n = node_data.len();
     if n == 0 {
-        return BTreeMap::new();
+        return;
     }
 
     // k is the ideal spring length; base it on average node size so nodes
@@ -218,8 +221,11 @@ pub fn force_atlas2(
         / n as f32;
     let k = (avg_size * 1.5).max(150.0);
     let t0 = k * 2.0;
-    let cooling = t0 / iterations as f32;
+    let cooling = t0 / max_iterations as f32;
     const THETA: f32 = 0.5;
+    // Terminate early when total node movement per iteration drops below this.
+    // 1% of the spring length per node is a tight but reachable threshold.
+    let convergence_threshold = k * 0.01 * n as f32;
 
     // Degree of each node used as its "mass" — hubs repel more strongly,
     // producing the cluster separation ForceAtlas2 is known for.
@@ -252,7 +258,10 @@ pub fn force_atlas2(
             } else {
                 let angle = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
                 let r = k * (n as f32).sqrt().max(1.0);
-                (*id, Vec2::new(centroid.x + r * angle.cos(), centroid.y + r * angle.sin()))
+                (
+                    *id,
+                    Vec2::new(centroid.x + r * angle.cos(), centroid.y + r * angle.sin()),
+                )
             }
         })
         .collect();
@@ -265,16 +274,29 @@ pub fn force_atlas2(
         .map(|(id, _, _, sz)| (*id, sz.x.max(sz.y) * 0.5))
         .collect();
     let mut temp = t0;
+    let mut energy_window: std::collections::VecDeque<f32> =
+        std::collections::VecDeque::with_capacity(CONVERGENCE_WINDOW + 1);
 
-    for _ in 0..iterations {
-        let mut disp: BTreeMap<KanbanId, Vec2> =
-            ids.iter().map(|&id| (id, Vec2::ZERO)).collect();
+    for i in 0..max_iterations {
+        let mut disp: BTreeMap<KanbanId, Vec2> = ids.iter().map(|&id| (id, Vec2::ZERO)).collect();
 
         // Build quadtree for O(n log n) repulsion
-        let min_x = positions.values().map(|p| p.x).fold(f32::INFINITY, f32::min);
-        let min_y = positions.values().map(|p| p.y).fold(f32::INFINITY, f32::min);
-        let max_x = positions.values().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
-        let max_y = positions.values().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        let min_x = positions
+            .values()
+            .map(|p| p.x)
+            .fold(f32::INFINITY, f32::min);
+        let min_y = positions
+            .values()
+            .map(|p| p.y)
+            .fold(f32::INFINITY, f32::min);
+        let max_x = positions
+            .values()
+            .map(|p| p.x)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let max_y = positions
+            .values()
+            .map(|p| p.y)
+            .fold(f32::NEG_INFINITY, f32::max);
         let margin = k;
         let mut tree = QuadTree::new(
             Vec2::new(min_x - margin, min_y - margin),
@@ -310,22 +332,48 @@ pub fn force_atlas2(
             *disp.get_mut(&dst).unwrap() += f;
         }
 
-        // Apply displacements, clamped to temperature
+        // Apply displacements, clamped to temperature; accumulate actual movement.
+        let mut total_movement = 0.0f32;
         for &id in &ids {
             let d = disp[&id];
             let dist = d.length();
             if dist < 1.0 {
                 continue;
             }
-            let scale = dist.min(temp) / dist;
-            *positions.get_mut(&id).unwrap() += d * scale;
+            let clamped = dist.min(temp);
+            *positions.get_mut(&id).unwrap() += d * (clamped / dist);
+            total_movement += clamped;
         }
 
         temp = (temp - cooling).max(0.0);
+
+        // Update running average and check for convergence.
+        energy_window.push_back(total_movement);
+        if energy_window.len() > CONVERGENCE_WINDOW {
+            energy_window.pop_front();
+        }
+
+        if i % SEND_INTERVAL == 0 {
+            let snapshot = positions
+                .iter()
+                .map(|(&id, &v)| (id, v.to_pos2()))
+                .collect();
+            if tx.send(snapshot).is_err() {
+                return;
+            }
+        }
+
+        if energy_window.len() == CONVERGENCE_WINDOW {
+            let avg = energy_window.iter().sum::<f32>() / CONVERGENCE_WINDOW as f32;
+            if avg < convergence_threshold {
+                break;
+            }
+        }
     }
 
-    positions
+    let final_snapshot = positions
         .into_iter()
         .map(|(id, v)| (id, v.to_pos2()))
-        .collect()
+        .collect();
+    tx.send(final_snapshot).ok();
 }

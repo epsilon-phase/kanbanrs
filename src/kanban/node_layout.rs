@@ -17,7 +17,6 @@ use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
 use layout::core::geometry::Point;
 use layout::core::style::StyleAttr;
-use layout::std_shapes::render::get_shape_size;
 use layout::std_shapes::shapes::{Arrow, Element, LineEndKind, ShapeKind};
 use layout::topo::layout::VisualGraph;
 use sorting::ItemSort;
@@ -172,7 +171,6 @@ enum LayoutResult {
         BTreeMap<KanbanId, NodeHandle>,
         CommandContainer,
     ),
-    ForceDirected(BTreeMap<KanbanId, Rect>, CommandContainer),
 }
 #[derive(Default)]
 struct CommandContainer {
@@ -218,6 +216,18 @@ pub struct NodeLayout {
     fr_stable_positions: BTreeMap<KanbanId, Pos2>,
     ///Set to true when switching to F-R so the viewport scrolls to the graph center on completion
     scroll_to_center_on_complete: bool,
+    ///Channel receiver for streaming positions from the FR layout thread
+    layout_rx: Option<std::sync::mpsc::Receiver<BTreeMap<KanbanId, Pos2>>>,
+    ///Node data kept on the main thread for direct painting during FR layout
+    fr_node_data: Vec<(KanbanId, String, StyleAttr, Vec2)>,
+    ///Edge list kept on the main thread for direct painting during FR layout
+    fr_edge_list: Vec<(KanbanId, KanbanId)>,
+    ///Current node bounding boxes for FR layout, updated each time positions arrive
+    fr_rects: BTreeMap<KanbanId, Rect>,
+    ///Node display data for hierarchical layout, kept for direct rendering
+    hier_node_data: Vec<(KanbanId, String, StyleAttr, Vec2)>,
+    ///Node bounding boxes for hierarchical layout, populated from layout-rs positions
+    hier_rects: BTreeMap<KanbanId, Rect>,
 }
 impl Default for NodeLayout {
     fn default() -> Self {
@@ -249,6 +259,12 @@ impl NodeLayout {
             use_fr_layout: false,
             fr_stable_positions: BTreeMap::new(),
             scroll_to_center_on_complete: false,
+            layout_rx: None,
+            fr_node_data: Vec::new(),
+            fr_edge_list: Vec::new(),
+            fr_rects: BTreeMap::new(),
+            hier_node_data: Vec::new(),
+            hier_rects: BTreeMap::new(),
         }
     }
 }
@@ -427,6 +443,7 @@ impl NodeLayout {
         };
 
         if self.use_fr_layout {
+            self.layout_handle = None; // drop any in-progress hierarchical thread
             let node_data: Vec<(KanbanId, String, StyleAttr, Vec2)> = tasks
                 .iter()
                 .map(|item| {
@@ -442,26 +459,31 @@ impl NodeLayout {
                 return;
             }
 
+            self.fr_node_data = node_data.clone();
+            self.fr_edge_list = edge_list.clone();
+
             let stable = self.fr_stable_positions.clone();
-            self.layout_handle = Some(std::thread::spawn(move || {
-                let mut centers = force_atlas2(&node_data, &edge_list, 150, &stable);
-                let min_x = centers.values().map(|p| p.x).fold(f32::INFINITY, f32::min);
-                let min_y = centers.values().map(|p| p.y).fold(f32::INFINITY, f32::min);
-                for p in centers.values_mut() {
-                    p.x = p.x - min_x + 50.0;
-                    p.y = p.y - min_y + 50.0;
-                }
-                let (commands, rects) = build_fr_draw_commands(&centers, &node_data, &edge_list);
-                LayoutResult::ForceDirected(rects, commands)
-            }));
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.layout_rx = Some(rx);
+            std::thread::spawn(move || {
+                force_atlas2(&node_data, &edge_list, 500, &stable, &tx);
+            });
         } else {
+            self.layout_rx = None; // drop any unread FR snapshots
+            self.hier_node_data = tasks
+                .iter()
+                .map(|item| {
+                    let (wrapped, look, size) = prepare_node_display(item, document, style);
+                    (item.id, wrapped, look, size)
+                })
+                .collect();
             let mut vg = VisualGraph::new(layout::core::base::Orientation::LeftToRight);
             let mut handles: BTreeMap<KanbanId, NodeHandle> = BTreeMap::new();
             let mut arrow = Arrow::simple("");
             arrow.end = LineEndKind::Arrow;
-            tasks
-                .iter()
-                .for_each(|x| add_item_to_graph(x, document, style, &mut vg, &mut handles));
+            for (id, wrapped, look, size) in &self.hier_node_data {
+                add_item_to_graph(*id, wrapped, look.clone(), *size, &mut vg, &mut handles);
+            }
             for id in handles.keys() {
                 let i = document.get_task(*id).unwrap();
                 let mut tasks: Vec<KanbanId> = i.child_tasks.iter().copied().collect();
@@ -487,53 +509,29 @@ impl NodeLayout {
         }
     }
     fn incorporate_update(&mut self, result: LayoutResult) {
-        match result {
-            LayoutResult::Hierarchical(vg, handles, commands) => {
-                self.commands = commands;
-                self.commands
-                    .commands
-                    .sort_by(|a, b| a.partial_cmp(b).unwrap());
-                self.sense_regions.clear();
-                for (task_id, node_handle) in handles.iter() {
-                    let element = vg.element(*node_handle);
-                    let start_x = element.pos.left(false) as f32;
-                    let start_y = element.pos.top(false) as f32;
-                    let end_x = element.pos.right(false) as f32;
-                    let end_y = element.pos.bottom(false) as f32;
-                    self.max.x = self.max.x.max(end_x + 50.);
-                    self.max.y = self.max.y.max(end_y + 90.);
-                    self.min.x = self.min.x.min(start_x);
-                    self.min.y = self.min.y.min(start_y);
-                    self.sense_regions.push((
-                        *task_id,
-                        Rect::from_min_max(
-                            Pos2 {
-                                x: start_x,
-                                y: start_y,
-                            },
-                            Pos2 { x: end_x, y: end_y },
-                        ),
-                    ));
-                }
-            }
-            LayoutResult::ForceDirected(rects, commands) => {
-                self.fr_stable_positions = rects
-                    .iter()
-                    .map(|(id, rect)| (*id, rect.center()))
-                    .collect();
-                self.commands = commands;
-                self.commands
-                    .commands
-                    .sort_by(|a, b| a.partial_cmp(b).unwrap());
-                self.sense_regions.clear();
-                for (task_id, rect) in &rects {
-                    self.max.x = self.max.x.max(rect.max.x + 50.);
-                    self.max.y = self.max.y.max(rect.max.y + 90.);
-                    self.min.x = self.min.x.min(rect.min.x);
-                    self.min.y = self.min.y.min(rect.min.y);
-                    self.sense_regions.push((*task_id, *rect));
-                }
-            }
+        let LayoutResult::Hierarchical(vg, handles, commands) = result;
+        self.commands = commands;
+        self.sense_regions.clear();
+        self.hier_rects.clear();
+        for (task_id, node_handle) in handles.iter() {
+            let element = vg.element(*node_handle);
+            let start_x = element.pos.left(false) as f32;
+            let start_y = element.pos.top(false) as f32;
+            let end_x = element.pos.right(false) as f32;
+            let end_y = element.pos.bottom(false) as f32;
+            self.max.x = self.max.x.max(end_x + 50.);
+            self.max.y = self.max.y.max(end_y + 90.);
+            self.min.x = self.min.x.min(start_x);
+            self.min.y = self.min.y.min(start_y);
+            let rect = Rect::from_min_max(
+                Pos2 {
+                    x: start_x,
+                    y: start_y,
+                },
+                Pos2 { x: end_x, y: end_y },
+            );
+            self.sense_regions.push((*task_id, rect));
+            self.hier_rects.insert(*task_id, rect);
         }
     }
     pub fn scroll_to(&mut self, id: KanbanId) {
@@ -600,6 +598,91 @@ impl NodeLayout {
             }
         }
 
+        if self.layout_rx.is_some() {
+            let mut latest = None;
+            let mut disconnected = false;
+            match self.layout_rx.as_ref().unwrap().try_recv() {
+                Ok(positions) => latest = Some(positions),
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => disconnected = true,
+            }
+            if let Some(centers) = latest {
+                let min_x = centers.values().map(|p| p.x).fold(f32::INFINITY, f32::min);
+                let min_y = centers.values().map(|p| p.y).fold(f32::INFINITY, f32::min);
+                // Build rects with center-based normalization (leftmost center → x=50)
+                let mut temp: BTreeMap<KanbanId, Rect> = self
+                    .fr_node_data
+                    .iter()
+                    .filter_map(|(id, _, _, size)| {
+                        centers.get(id).map(|&c| {
+                            let c = Pos2::new(c.x - min_x + 50.0, c.y - min_y + 50.0);
+                            (*id, Rect::from_center_size(c, *size))
+                        })
+                    })
+                    .collect();
+                // Shift so the minimum left/top *edge* is at least 10px from scene origin,
+                // preventing wide nodes from being clipped by the painter's clip rect.
+                let edge_min_x = temp.values().map(|r| r.min.x).fold(f32::INFINITY, f32::min);
+                let edge_min_y = temp.values().map(|r| r.min.y).fold(f32::INFINITY, f32::min);
+                const EDGE_PAD: f32 = 10.0;
+                let shift = Vec2::new(
+                    (EDGE_PAD - edge_min_x).max(0.0),
+                    (EDGE_PAD - edge_min_y).max(0.0),
+                );
+                if shift != Vec2::ZERO {
+                    for r in temp.values_mut() {
+                        *r = r.translate(shift);
+                    }
+                }
+                self.fr_rects = temp;
+                self.sense_regions.clear();
+                // Pin min at scene origin so the painter starts at (0,0) and covers [0, max].
+                self.min = Pos2::ZERO;
+                self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+                for (&id, &rect) in &self.fr_rects {
+                    self.sense_regions.push((id, rect));
+                    self.max.x = self.max.x.max(rect.max.x + 50.0);
+                    self.max.y = self.max.y.max(rect.max.y + 90.0);
+                }
+                self.fr_stable_positions = self
+                    .fr_rects
+                    .iter()
+                    .map(|(id, rect)| (*id, rect.center()))
+                    .collect();
+            }
+            if disconnected {
+                self.layout_rx = None;
+                let min_max_rect = Rect {
+                    min: self.min,
+                    max: self.max,
+                };
+                if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
+                    self.scene_rect = Rect {
+                        min: Pos2::new(0.0, 0.0),
+                        max: (self.scene_rect.max.to_vec2() - self.scene_rect.min.to_vec2())
+                            .to_pos2(),
+                    };
+                }
+                if self.scroll_to_center_on_complete {
+                    self.scroll_to_center_on_complete = false;
+                    let centroid = Pos2::new(
+                        (self.min.x + self.max.x) / 2.0,
+                        (self.min.y + self.max.y) / 2.0,
+                    );
+                    if let Some((_, rect)) = self.sense_regions.iter().min_by(|a, b| {
+                        a.1.center()
+                            .distance(centroid)
+                            .partial_cmp(&b.1.center().distance(centroid))
+                            .unwrap()
+                    }) {
+                        self.scroll_target = Some((rect.center(), true));
+                    }
+                }
+            } else {
+                ui.ctx().request_repaint();
+            }
+        }
+
         let mut needs_update = false;
         ui.horizontal(|ui| {
             needs_update |= ui
@@ -663,11 +746,111 @@ impl NodeLayout {
             );
 
             let start = response.rect.min;
+            let style = ui.style().clone();
 
-            self.commands
-                .commands
-                .iter()
-                .for_each(|x| x.operate_on(&paint, ui.style(), response.rect));
+            if self.use_fr_layout {
+                // Pass 1: edges
+                for &(src, dst) in &self.fr_edge_list {
+                    if let (Some(&sr), Some(&dr)) =
+                        (self.fr_rects.get(&src), self.fr_rects.get(&dst))
+                    {
+                        let sr = offset_rect(sr, start.to_vec2());
+                        let dr = offset_rect(dr, start.to_vec2());
+                        let p0 = rect_edge_point(sr.center(), dr.center(), sr);
+                        let p3 = rect_edge_point(dr.center(), sr.center(), dr);
+                        let p1 = p0 + (p3 - p0) * 0.33;
+                        let p2 = p0 + (p3 - p0) * 0.67;
+                        paint.add(CubicBezierShape::from_points_stroke(
+                            [p0, p1, p2, p3],
+                            false,
+                            Color32::TRANSPARENT,
+                            style.noninteractive().fg_stroke,
+                        ));
+                        draw_arrowhead(&paint, p3, p2, style.noninteractive().fg_stroke);
+                    }
+                }
+                // Pass 2: node backgrounds
+                for (id, _, look, _) in &self.fr_node_data {
+                    if let Some(&rect) = self.fr_rects.get(id) {
+                        let rect = offset_rect(rect, start.to_vec2());
+                        let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
+                            .unwrap_or(Color32::WHITE);
+                        let fill = look
+                            .fill_color
+                            .map(|c| {
+                                Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT)
+                            })
+                            .unwrap_or(style.noninteractive().bg_fill);
+                        paint.rect(
+                            rect,
+                            0.0,
+                            fill,
+                            egui::Stroke::new(look.line_width as f32, stroke_color),
+                            egui::StrokeKind::Middle,
+                        );
+                    }
+                }
+                // Pass 3: labels
+                for (id, text, _, _) in &self.fr_node_data {
+                    if let Some(&rect) = self.fr_rects.get(id) {
+                        let rect = offset_rect(rect, start.to_vec2());
+                        paint.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            egui::FontId {
+                                size: 15.0,
+                                family: egui::FontFamily::Monospace,
+                            },
+                            style.noninteractive().text_color(),
+                        );
+                    }
+                }
+            } else {
+                // Pass 1: edges — only Arrow/Line commands from layout-rs
+                self.commands
+                    .commands
+                    .iter()
+                    .filter(|c| matches!(c, DrawCommand::Arrow(_) | DrawCommand::Line(_, _)))
+                    .for_each(|x| x.operate_on(&paint, &style, response.rect));
+                // Pass 2: node backgrounds
+                for (id, _, look, _) in &self.hier_node_data {
+                    if let Some(&rect) = self.hier_rects.get(id) {
+                        let rect = offset_rect(rect, start.to_vec2());
+                        let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
+                            .unwrap_or(Color32::WHITE);
+                        let fill = look
+                            .fill_color
+                            .map(|c| {
+                                Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT)
+                            })
+                            .unwrap_or(style.noninteractive().bg_fill);
+                        paint.rect(
+                            rect,
+                            0.0,
+                            fill,
+                            egui::Stroke::new(look.line_width as f32, stroke_color),
+                            egui::StrokeKind::Middle,
+                        );
+                    }
+                }
+                // Pass 3: labels
+                for (id, text, _, _) in &self.hier_node_data {
+                    if let Some(&rect) = self.hier_rects.get(id) {
+                        let rect = offset_rect(rect, start.to_vec2());
+                        paint.text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            egui::FontId {
+                                size: 15.0,
+                                family: egui::FontFamily::Monospace,
+                            },
+                            style.noninteractive().text_color(),
+                        );
+                    }
+                }
+            }
             let mut hovered = false;
             for (task_id, region) in self.sense_regions.iter() {
                 let senses = ui.allocate_rect(
@@ -735,7 +918,12 @@ impl NodeLayout {
                     );
                     hovered = true;
                     {
-                        let pointer_position = ui.ctx().pointer_latest_pos().unwrap();
+                        let pointer_global = ui.ctx().pointer_latest_pos().unwrap();
+                        let pointer_position = ui
+                            .ctx()
+                            .layer_transform_from_global(ui.layer_id())
+                            .map(|t| t * pointer_global)
+                            .unwrap_or(pointer_global);
                         let rect = offset_rect(*region, start.to_vec2());
 
                         let sign = if is_on_left_side(&rect, pointer_position) {
@@ -784,7 +972,14 @@ impl NodeLayout {
                         .drag_linger
                         .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
                     {
-                        if is_on_left_side(region, start) {
+                        let pointer_global = ui.ctx().pointer_latest_pos().unwrap_or_default();
+                        let pointer_pos = ui
+                            .ctx()
+                            .layer_transform_from_global(ui.layer_id())
+                            .map(|t| t * pointer_global)
+                            .unwrap_or(pointer_global);
+                        let local_rect = offset_rect(*region, start.to_vec2());
+                        if is_on_left_side(&local_rect, pointer_pos) {
                             actions.push(AppCommand::AddChildTo(*x, *task_id));
                         } else {
                             actions.push(AppCommand::AddChildTo(*task_id, *x));
@@ -847,9 +1042,9 @@ fn prepare_node_display(
                     color[0], color[1], color[2], color[3],
                 ));
             }
-            look.fill_color = this_style.panel_fill.map(|x| {
-                from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3]))
-            });
+            look.fill_color = this_style
+                .panel_fill
+                .map(|x| from_color32(Color32::from_rgba_unmultiplied(x[0], x[1], x[2], x[3])));
             look.line_width = this_style
                 .panel_stroke_width
                 .map_or(style.noninteractive().fg_stroke.width as usize, |x| {
@@ -864,26 +1059,33 @@ fn prepare_node_display(
         text += " (Completed)";
     }
 
+    const CHAR_W: f32 = 9.0;
+    const LINE_H: f32 = 20.0;
+    const PADDING: f32 = 12.0;
+    const MIN_SIDE: f32 = 80.0;
+
     let (wrapped, size) = NAME_BUFFER.with_borrow_mut(|buffer| {
-        wrap_string(
-            buffer,
-            &text,
-            crate::preferences::PREFERENCES.read().node_width,
-        );
-        let shape = ShapeKind::new_box(buffer);
-        let mut sz = get_shape_size(
-            layout::core::base::Orientation::LeftToRight,
-            &shape,
-            15,
-            false,
-        );
-        sz.x *= 0.7;
-        (buffer.clone(), Vec2::new(sz.x as f32, sz.y as f32))
+        let n = text.chars().count() as f32;
+        let col = ((n * LINE_H / CHAR_W).sqrt() as usize).max(6).min(40);
+        wrap_string(buffer, &text, col);
+        let n_lines = buffer.lines().count().max(1) as f32;
+        let max_chars = buffer
+            .lines()
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(col) as f32;
+        let w = (max_chars * CHAR_W + PADDING * 2.0).max(MIN_SIDE);
+        let h = (n_lines * LINE_H + PADDING * 2.0).max(MIN_SIDE);
+        (buffer.clone(), Vec2::new(w, h))
     });
 
     (wrapped, look, size)
 }
 
+/// Node sizing for the force-directed layout, in actual egui pixels.
+///
+/// Wraps the label text to a column width chosen so the resulting node is
+/// roughly square: optimal column = sqrt(N * LINE_H / CHAR_W).
 fn wrap_string<'a>(buffer: &'a mut String, s: &str, max_line_length: usize) -> &'a mut String {
     buffer.clear();
     let mut line_size = 0;
@@ -920,84 +1122,23 @@ fn draw_arrowhead(paint: &egui::Painter, tip: Pos2, from: Pos2, stroke: egui::St
     ));
 }
 
-fn build_fr_draw_commands(
-    centers: &BTreeMap<KanbanId, Pos2>,
-    node_data: &[(KanbanId, String, StyleAttr, Vec2)],
-    edges: &[(KanbanId, KanbanId)],
-) -> (CommandContainer, BTreeMap<KanbanId, Rect>) {
-    let rects: BTreeMap<KanbanId, Rect> = node_data
-        .iter()
-        .filter_map(|(id, _, _, size)| {
-            centers
-                .get(id)
-                .map(|&center| (*id, Rect::from_center_size(center, *size)))
-        })
-        .collect();
-
-    let mut commands = CommandContainer {
-        commands: Vec::new(),
-    };
-
-    for &(src, dst) in edges {
-        if let (Some(src_rect), Some(dst_rect)) = (rects.get(&src), rects.get(&dst)) {
-            let start = rect_edge_point(src_rect.center(), dst_rect.center(), *src_rect);
-            let end = rect_edge_point(dst_rect.center(), src_rect.center(), *dst_rect);
-            let ctrl1 = start + (end.to_vec2() - start.to_vec2()) * 0.33;
-            let ctrl2 = start + (end.to_vec2() - start.to_vec2()) * 0.67;
-            commands.commands.push(DrawCommand::Arrow(ArrowOptions {
-                path: vec![start, ctrl1, ctrl2, end],
-                dashed: false,
-                head: (false, true),
-                text: String::new(),
-            }));
-        }
-    }
-
-    for (id, text, look, _size) in node_data {
-        if let Some(&rect) = rects.get(id) {
-            let stroke_color =
-                Color32::from_hex(&look.line_color.to_web_color()).unwrap_or(Color32::WHITE);
-            let fill = look
-                .fill_color
-                .map(|c| Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT));
-            commands.commands.push(DrawCommand::Rect(
-                rect,
-                stroke_color,
-                fill,
-                look.line_width as f32,
-            ));
-            commands
-                .commands
-                .push(DrawCommand::Text(rect.center(), text.clone(), 15.0));
-        }
-    }
-
-    (commands, rects)
-}
-
-/// Add an item to the layout-rs graph, mostly a convenience function
-/// as it's kinda heavy to do inline
 fn add_item_to_graph<G>(
-    i: &KanbanItem,
-    document: &KanbanDocument,
-    style: &Style,
+    id: KanbanId,
+    wrapped: &str,
+    look: StyleAttr,
+    size: Vec2,
     vg: &mut VisualGraph,
-    handles: &mut G, //&mut HashMap<i32, NodeHandle>,
+    handles: &mut G,
 ) where
     G: Extend<(KanbanId, NodeHandle)>,
 {
-    let id = i.id;
-    let (_wrapped, look, size) = prepare_node_display(i, document, style);
     NAME_BUFFER.with_borrow_mut(|buffer| {
-        wrap_string(
-            buffer,
-            &i.name,
-            crate::preferences::PREFERENCES.read().node_width,
-        );
+        buffer.clear();
+        buffer.push_str(wrapped);
         let shape = ShapeKind::new_box(buffer);
         let node = Element::create(
             shape,
-            look.clone(),
+            look,
             layout::core::base::Orientation::LeftToRight,
             layout::core::geometry::Point::new(size.x as f64, size.y as f64),
         );
