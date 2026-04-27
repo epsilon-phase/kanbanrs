@@ -315,7 +315,8 @@ pub fn force_atlas2(
             *disp.get_mut(&id).unwrap() += f * own_mass;
         }
 
-        // Attraction — O(m), unchanged
+        // Attraction — degree-normalised (ForceAtlas2): divide by endpoint degree so
+        // hub nodes don't drag all their children into a tight cluster.
         for &(src, dst) in edges {
             if !positions.contains_key(&src) || !positions.contains_key(&dst) {
                 continue;
@@ -328,8 +329,10 @@ pub fn force_atlas2(
                 continue;
             }
             let f = d * (dist / k);
-            *disp.get_mut(&src).unwrap() -= f;
-            *disp.get_mut(&dst).unwrap() += f;
+            let src_deg = (degree[&src] + 1) as f32;
+            let dst_deg = (degree[&dst] + 1) as f32;
+            *disp.get_mut(&src).unwrap() -= f / src_deg;
+            *disp.get_mut(&dst).unwrap() += f / dst_deg;
         }
 
         // Apply displacements, clamped to temperature; accumulate actual movement.
@@ -376,4 +379,73 @@ pub fn force_atlas2(
         .map(|(id, v)| (id, v.to_pos2()))
         .collect();
     tx.send(final_snapshot).ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rect_edge_point;
+    use eframe::egui::{Pos2, Rect};
+
+    fn square() -> (Pos2, Rect) {
+        (Pos2::new(5.0, 5.0), Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(10.0, 10.0)))
+    }
+
+    fn near(a: Pos2, b: Pos2) -> bool {
+        (a.x - b.x).abs() < 0.01 && (a.y - b.y).abs() < 0.01
+    }
+
+    #[test]
+    fn test_exit_right() {
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, Pos2::new(100.0, 5.0), r), Pos2::new(10.0, 5.0)));
+    }
+
+    #[test]
+    fn test_exit_left() {
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, Pos2::new(-100.0, 5.0), r), Pos2::new(0.0, 5.0)));
+    }
+
+    #[test]
+    fn test_exit_bottom() {
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, Pos2::new(5.0, 100.0), r), Pos2::new(5.0, 10.0)));
+    }
+
+    #[test]
+    fn test_exit_top() {
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, Pos2::new(5.0, -100.0), r), Pos2::new(5.0, 0.0)));
+    }
+
+    #[test]
+    fn test_exit_diagonal_corner() {
+        // 45-degree from center toward bottom-right: exits at corner (10, 10)
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, Pos2::new(15.0, 15.0), r), Pos2::new(10.0, 10.0)));
+    }
+
+    #[test]
+    fn test_degenerate_same_point_returns_center() {
+        let (c, r) = square();
+        assert!(near(rect_edge_point(c, c, r), c));
+    }
+
+    #[test]
+    fn test_result_lies_on_boundary() {
+        // For any non-degenerate direction the exit point must touch one of the four edges.
+        let (c, r) = square();
+        let targets = [
+            Pos2::new(20.0, 7.0),
+            Pos2::new(-5.0, 12.0),
+            Pos2::new(3.0, -50.0),
+            Pos2::new(9.0, 30.0),
+        ];
+        for target in targets {
+            let p = rect_edge_point(c, target, r);
+            let on_x = (p.x - r.min.x).abs() < 0.01 || (p.x - r.max.x).abs() < 0.01;
+            let on_y = (p.y - r.min.y).abs() < 0.01 || (p.y - r.max.y).abs() < 0.01;
+            assert!(on_x || on_y, "point {p:?} not on rect boundary for target {target:?}");
+        }
+    }
 }

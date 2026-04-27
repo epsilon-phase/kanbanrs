@@ -1004,6 +1004,133 @@ pub mod tests {
             }
         }
     }
+
+    // --- task_status ---
+
+    #[test]
+    fn test_task_status_leaf_is_ready() {
+        let doc = make_document_easy(1, &[]);
+        assert_eq!(doc.task_status(&0), Status::Ready);
+    }
+
+    #[test]
+    fn test_task_status_blocked_by_uncompleted_child() {
+        let doc = make_document_easy(2, &[vec![1]]);
+        assert_eq!(doc.task_status(&0), Status::Blocked);
+        assert_eq!(doc.task_status(&1), Status::Ready);
+    }
+
+    #[test]
+    fn test_task_status_completed() {
+        let mut doc = make_document_easy(1, &[]);
+        let mut task = doc.get_task(0).unwrap().clone();
+        task.completed = Some(chrono::Utc::now());
+        doc.replace_task(&task);
+        assert_eq!(doc.task_status(&0), Status::Completed);
+    }
+
+    #[test]
+    fn test_task_status_unblocked_when_child_completed() {
+        let mut doc = make_document_easy(2, &[vec![1]]);
+        assert_eq!(doc.task_status(&0), Status::Blocked);
+        let mut child = doc.get_task(1).unwrap().clone();
+        child.completed = Some(chrono::Utc::now());
+        doc.replace_task(&child);
+        assert_eq!(doc.task_status(&0), Status::Ready);
+    }
+
+    // --- parents_of ---
+
+    #[test]
+    fn test_parents_of_no_parents() {
+        let doc = make_document_easy(1, &[]);
+        assert!(doc.parents_of(0).is_empty());
+    }
+
+    #[test]
+    fn test_parents_of_single_parent() {
+        let doc = make_document_easy(2, &[vec![1]]);
+        let parents = doc.parents_of(1);
+        assert_eq!(parents.len(), 1);
+        assert_eq!(parents[0].id, 0);
+    }
+
+    #[test]
+    fn test_parents_of_multiple_parents() {
+        // Tasks 0 and 1 both have task 2 as a child.
+        let doc = make_document_easy(3, &[vec![2], vec![2]]);
+        let mut parent_ids: Vec<KanbanId> = doc.parents_of(2).iter().map(|p| p.id).collect();
+        parent_ids.sort();
+        assert_eq!(parent_ids, vec![0, 1]);
+    }
+
+    // --- on_tree ---
+
+    #[test]
+    fn test_on_tree_visits_all_nodes() {
+        // 0 → [1, 2], 1 → [3]
+        let doc = make_document_easy(4, &[vec![1, 2], vec![3]]);
+        let mut visited = Vec::new();
+        doc.on_tree(0, 0, |_, id, _| visited.push(id));
+        visited.sort();
+        assert_eq!(visited, vec![0, 1, 2, 3]);
+    }
+
+    #[test]
+    fn test_on_tree_depth_increases_per_level() {
+        // Straight chain: 0 → 1 → 2
+        let doc = make_document_easy(3, &[vec![1], vec![2]]);
+        let mut depths: Vec<(KanbanId, u32)> = Vec::new();
+        doc.on_tree(0, 0, |_, id, depth| depths.push((id, depth)));
+        depths.sort();
+        assert_eq!(depths, vec![(0, 0), (1, 1), (2, 2)]);
+    }
+
+    // --- task_priority_value ---
+
+    #[test]
+    fn test_priority_value_no_priority_is_zero() {
+        let doc = make_document_easy(1, &[]);
+        assert_eq!(doc.task_priority_value(&0), 0);
+    }
+
+    #[test]
+    fn test_priority_value_known_priority() {
+        let mut doc = make_document_easy(1, &[]);
+        let mut task = doc.get_task(0).unwrap().clone();
+        task.priority = Some("High".to_owned());
+        doc.replace_task(&task);
+        assert_eq!(doc.task_priority_value(&0), 10); // High = 10 in KanbanDocument::new()
+    }
+
+    #[test]
+    fn test_priority_value_unknown_name_is_zero() {
+        let mut doc = make_document_easy(1, &[]);
+        let mut task = doc.get_task(0).unwrap().clone();
+        task.priority = Some("Nonexistent".to_owned());
+        doc.replace_task(&task);
+        assert_eq!(doc.task_priority_value(&0), 0);
+    }
+
+    // --- get_sorted_priorities ---
+
+    #[test]
+    fn test_sorted_priorities_ascending() {
+        let doc = KanbanDocument::new(); // High=10, Medium=5, Low=1
+        let sorted = doc.get_sorted_priorities();
+        let values: Vec<i32> = sorted.into_iter().map(|(_, v)| *v).collect();
+        assert_eq!(values, vec![1, 5, 10]);
+    }
+
+    // --- serialization ---
+
+    #[test]
+    fn test_serialization_round_trip() {
+        let doc = make_document_easy(3, &[vec![1], vec![2]]);
+        let json = serde_json::to_string(&doc).unwrap();
+        let decoded: KanbanDocument = serde_json::from_str(&json).unwrap();
+        assert!(doc == decoded);
+    }
 }
 /// The information necessary to style a kanban task.
 #[derive(Serialize, Deserialize, Default, PartialEq, Copy, Clone, Debug)]
