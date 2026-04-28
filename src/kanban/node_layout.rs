@@ -14,7 +14,7 @@ use super::*;
 
 use eframe::egui::Scene;
 use egui::epaint::CubicBezierShape;
-use egui::{Modal, Pos2, Rect, Style};
+use egui::{Modal, Pos2, Rect};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
@@ -503,7 +503,6 @@ impl NodeLayout {
 
             if handles.is_empty() {
                 return;
-
             }
             let capacity = self.commands.commands.len();
             #[cfg(not(target_arch = "wasm32"))]
@@ -528,7 +527,10 @@ impl NodeLayout {
         }
     }
     fn reset_scene_rect_for_new_layout(&mut self) {
-        let min_max_rect = Rect { min: self.min, max: self.max };
+        let min_max_rect = Rect {
+            min: self.min,
+            max: self.max,
+        };
         if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
             self.scene_rect = Rect {
                 min: Pos2::new(0.0, 0.0),

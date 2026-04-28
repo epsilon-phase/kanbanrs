@@ -14,11 +14,21 @@ use kanban::{
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{borrow::BorrowMut, sync::{mpsc, Arc}};
+use std::{
+    borrow::BorrowMut,
+    sync::{mpsc, Arc},
+};
 #[cfg(not(target_arch = "wasm32"))]
-use std::{fs, io::Write, path::PathBuf, thread::{self, JoinHandle}};
+use std::{
+    fs,
+    io::Write,
+    path::PathBuf,
+    thread::{self, JoinHandle},
+};
 mod document_layout;
 mod preferences;
+#[cfg(target_arch = "wasm32")]
+mod web_storage;
 use document_layout::*;
 use log::{debug, error};
 #[cfg(target_os = "linux")]
@@ -29,6 +39,29 @@ use mimalloc::MiMalloc;
 #[cfg(feature = "fast_allocator")]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
+
+#[cfg(target_arch = "wasm32")]
+struct WebState {
+    pending_import: Arc<std::sync::Mutex<Option<Result<Vec<u8>, String>>>>,
+    /// The localStorage name of the currently-open document, if it has been saved.
+    document_name: Option<String>,
+    show_file_browser: bool,
+    show_save_as_dialog: bool,
+    save_as_input: String,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Default for WebState {
+    fn default() -> Self {
+        WebState {
+            pending_import: Arc::new(std::sync::Mutex::new(None)),
+            document_name: None,
+            show_file_browser: false,
+            show_save_as_dialog: false,
+            save_as_input: String::new(),
+        }
+    }
+}
 
 struct KanbanRS {
     document: Arc<RwLock<KanbanDocument>>,
@@ -59,7 +92,7 @@ struct KanbanRS {
     save_thread: Option<JoinHandle<Result<(), String>>>,
     preferences: Arc<RwLock<preferences::Preferences>>,
     #[cfg(target_arch = "wasm32")]
-    pending_import: Arc<std::sync::Mutex<Option<Result<Vec<u8>, String>>>>,
+    web: WebState,
 }
 impl KanbanRS {
     fn new() -> Self {
@@ -93,7 +126,7 @@ impl KanbanRS {
             asking_for_new_file: false,
             preferences: preferences::PREFERENCES.clone(),
             #[cfg(target_arch = "wasm32")]
-            pending_import: Arc::new(std::sync::Mutex::new(None)),
+            web: WebState::default(),
         }
     }
 }
@@ -223,7 +256,7 @@ impl eframe::App for KanbanRS {
         }
 
         #[cfg(target_arch = "wasm32")]
-        if let Some(result) = self.pending_import.lock().unwrap().take() {
+        if let Some(result) = self.web.pending_import.lock().unwrap().take() {
             match result {
                 Ok(bytes) => match serde_json::from_slice::<KanbanDocument>(&bytes) {
                     Ok(doc) => {
@@ -232,12 +265,16 @@ impl eframe::App for KanbanRS {
                         self.open_editors.clear();
                         self.layout_cache_needs_updating = true;
                         self.modified_since_last_saved = false;
+                        self.web.document_name = None;
                     }
                     Err(e) => self.messages.push(format!("Import failed: {e}")),
                 },
                 Err(e) => self.messages.push(format!("Import failed: {e}")),
             }
         }
+
+        #[cfg(target_arch = "wasm32")]
+        self.show_web_modals(ui);
 
         if self.layout_cache_needs_updating {
             self.current_layout.update_cache(
@@ -312,6 +349,27 @@ impl eframe::App for KanbanRS {
                 i.consume_shortcut(&save_shortcut).then(|| {
                     self.save_file(false);
                 });
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let web_save_shortcut = egui::KeyboardShortcut {
+                    modifiers: egui::Modifiers::COMMAND,
+                    logical_key: egui::Key::S,
+                };
+                let web_save_as_shortcut = egui::KeyboardShortcut {
+                    modifiers: egui::Modifiers {
+                        shift: true,
+                        ..egui::Modifiers::COMMAND
+                    },
+                    logical_key: egui::Key::S,
+                };
+                if i.consume_shortcut(&web_save_shortcut) {
+                    self.web_save();
+                }
+                if i.consume_shortcut(&web_save_as_shortcut) {
+                    self.web.save_as_input = self.web.document_name.clone().unwrap_or_default();
+                    self.web.show_save_as_dialog = true;
+                }
             }
             let find_shortcut = egui::KeyboardShortcut {
                 modifiers: egui::Modifiers {
@@ -479,6 +537,21 @@ impl eframe::App for KanbanRS {
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
+                        if ui.button("Save").clicked() {
+                            self.web_save();
+                            ui.close();
+                        }
+                        if ui.button("Save As").clicked() {
+                            self.web.save_as_input =
+                                self.web.document_name.clone().unwrap_or_default();
+                            self.web.show_save_as_dialog = true;
+                            ui.close();
+                        }
+                        if ui.button("Open").clicked() {
+                            self.web.show_file_browser = true;
+                            ui.close();
+                        }
+                        ui.separator();
                         if ui.button("Export to file").clicked() {
                             self.web_export_file();
                             ui.close();
@@ -824,7 +897,12 @@ impl eframe::App for KanbanRS {
 
         #[cfg(target_arch = "wasm32")]
         if let Ok(json) = serde_json::to_string(&*self.document.read()) {
-            _storage.set_string("document", json);
+            if let Some(name) = &self.web.document_name.clone() {
+                web_storage::save_document(name, &json);
+                _storage.set_string("web_document_name", name.clone());
+            } else {
+                _storage.set_string("document", json);
+            }
             self.modified_since_last_saved = false;
         }
     }
@@ -852,10 +930,16 @@ impl KanbanRS {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            if let Some(doc_json) = storage.get_string("document") {
-                if let Ok(doc) = serde_json::from_str::<KanbanDocument>(&doc_json) {
+            let restored_name = storage.get_string("web_document_name");
+            let doc_json = restored_name
+                .as_deref()
+                .and_then(web_storage::load_document)
+                .or_else(|| storage.get_string("document"));
+            if let Some(json) = doc_json {
+                if let Ok(doc) = serde_json::from_str::<KanbanDocument>(&json) {
                     *self.document.write() = doc;
                     self.document.write().collect_tags();
+                    self.web.document_name = restored_name;
                     return;
                 }
             }
@@ -870,6 +954,10 @@ impl KanbanRS {
             .clone_from(&self.preferences.read().template);
         self.current_layout = self.preferences.read().startup_layout.into();
         self.asking_for_new_file = false;
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.web.document_name = None;
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn from_args(args: KanbanArgs) -> Self {
@@ -1225,7 +1313,143 @@ impl KanbanRS {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn show_doc_tree(nodes: &[web_storage::DocTreeNode], ui: &mut egui::Ui) -> Option<String> {
+    let mut selected = None;
+    for node in nodes {
+        if node.is_file {
+            if ui.selectable_label(false, &node.name).clicked() {
+                selected = Some(node.full_path.clone());
+            }
+        } else {
+            egui::CollapsingHeader::new(&node.name)
+                .default_open(false)
+                .id_salt(&node.full_path)
+                .show(ui, |ui| {
+                    if let Some(s) = show_doc_tree(&node.children, ui) {
+                        selected = Some(s);
+                    }
+                });
+        }
+    }
+    selected
+}
+
+#[cfg(target_arch = "wasm32")]
 impl KanbanRS {
+    fn web_save(&mut self) {
+        if let Some(name) = self.web.document_name.clone() {
+            self.web_save_to_name(&name);
+        } else {
+            self.web.save_as_input.clear();
+            self.web.show_save_as_dialog = true;
+        }
+    }
+
+    fn web_save_to_name(&mut self, name: &str) {
+        if let Ok(json) = serde_json::to_string(&*self.document.read()) {
+            web_storage::save_document(name, &json);
+            self.web.document_name = Some(name.to_string());
+            self.modified_since_last_saved = false;
+        }
+    }
+
+    fn web_open_document(&mut self, name: &str) {
+        match web_storage::load_document(name)
+            .and_then(|json| serde_json::from_str::<KanbanDocument>(&json).ok())
+        {
+            Some(doc) => {
+                *self.document.write() = doc;
+                self.document.write().collect_tags();
+                self.web.document_name = Some(name.to_string());
+                self.open_editors.clear();
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = false;
+            }
+            None => self.messages.push(format!("Failed to load '{name}'")),
+        }
+    }
+
+    /// Renders the file browser and save-as modals. Must be called every frame.
+    fn show_web_modals(&mut self, ui: &mut egui::Ui) {
+        if self.web.show_file_browser {
+            let docs = web_storage::list_documents();
+            let tree = web_storage::build_tree(&docs);
+            let mut selected: Option<String> = None;
+            let mut close = false;
+
+            egui::Modal::new("web_file_browser".into()).show(ui.ctx(), |ui| {
+                ui.set_min_width(280.0);
+                ui.heading("Open document");
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .max_height(400.0)
+                    .show(ui, |ui| {
+                        if docs.is_empty() {
+                            ui.label("No saved documents.");
+                        } else {
+                            selected = show_doc_tree(&tree, ui);
+                        }
+                    });
+                ui.separator();
+                if ui.button("Cancel").clicked() {
+                    close = true;
+                }
+            });
+
+            if let Some(name) = selected {
+                self.web_open_document(&name);
+                close = true;
+            }
+            if close {
+                self.web.show_file_browser = false;
+            }
+        }
+
+        if self.web.show_save_as_dialog {
+            let mut do_save: Option<String> = None;
+            let mut close = false;
+
+            egui::Modal::new("web_save_as".into()).show(ui.ctx(), |ui| {
+                ui.set_min_width(300.0);
+                ui.heading("Save As");
+                ui.separator();
+                ui.label("Name (use / for folders, e.g. work/my-project):");
+                let response = ui.text_edit_singleline(&mut self.web.save_as_input);
+                let name = self.web.save_as_input.trim().to_string();
+                let valid = !name.is_empty() && !name.starts_with('/') && !name.ends_with('/');
+                ui.add_space(4.0);
+                let already_exists = web_storage::list_documents().contains(&name);
+                if already_exists {
+                    ui.label(
+                        egui::RichText::new("A document with this name already exists.")
+                            .color(ui.visuals().warn_fg_color),
+                    );
+                }
+                ui.horizontal(|ui| {
+                    ui.add_enabled_ui(valid, |ui| {
+                        if ui.button("Save").clicked()
+                            || (response.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                && valid)
+                        {
+                            do_save = Some(name);
+                        }
+                    });
+                    if ui.button("Cancel").clicked() {
+                        close = true;
+                    }
+                });
+            });
+
+            if let Some(name) = do_save {
+                self.web_save_to_name(&name);
+                self.web.show_save_as_dialog = false;
+            } else if close {
+                self.web.show_save_as_dialog = false;
+            }
+        }
+    }
+
     fn web_export_file(&self) {
         let doc = self.document.read().clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -1248,7 +1472,7 @@ impl KanbanRS {
     }
 
     fn web_import_file(&self) {
-        let pending = self.pending_import.clone();
+        let pending = self.web.pending_import.clone();
         wasm_bindgen_futures::spawn_local(async move {
             if let Some(handle) = rfd::AsyncFileDialog::new()
                 .add_filter("Kanban", &["kan"])

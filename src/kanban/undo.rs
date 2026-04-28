@@ -127,7 +127,10 @@ mod tests {
     fn test_creation_undo_removes_task() {
         let (mut doc, task) = doc_with_task();
         assert!(doc.get_task(task.id).is_some());
-        let event = CreationEvent { parent_id: None, new_task: task.clone() };
+        let event = CreationEvent {
+            parent_id: None,
+            new_task: task.clone(),
+        };
         event.undo(&mut doc);
         assert!(doc.get_task(task.id).is_none());
     }
@@ -145,11 +148,19 @@ mod tests {
 
         let undo_item = doc.remove_task(&child);
         assert!(doc.get_task(child_id).is_none());
-        assert!(!doc.get_task(parent_id).unwrap().child_tasks.contains(&child_id));
+        assert!(!doc
+            .get_task(parent_id)
+            .unwrap()
+            .child_tasks
+            .contains(&child_id));
 
         undo_item.undo(&mut doc);
         assert!(doc.get_task(child_id).is_some());
-        assert!(doc.get_task(parent_id).unwrap().child_tasks.contains(&child_id));
+        assert!(doc
+            .get_task(parent_id)
+            .unwrap()
+            .child_tasks
+            .contains(&child_id));
     }
 
     #[test]
@@ -161,30 +172,57 @@ mod tests {
         doc.replace_task(&updated);
         assert_eq!(doc.get_task(id).unwrap().name, "Changed");
 
-        ModificationEvent { former_item: original }.undo(&mut doc);
+        ModificationEvent {
+            former_item: original,
+        }
+        .undo(&mut doc);
         assert_eq!(doc.get_task(id).unwrap().name, "");
     }
 
     #[test]
     fn test_category_style_undo_removes_newly_created() {
         let mut doc = KanbanDocument::new();
-        doc.replace_category_style("work", KanbanCategoryStyle { children_inherit_category: true, ..Default::default() });
+        doc.replace_category_style(
+            "work",
+            KanbanCategoryStyle {
+                children_inherit_category: true,
+                ..Default::default()
+            },
+        );
         assert!(doc.get_category_style("work").is_some());
 
-        CategoryStyleEvent { name: "work".to_owned(), former_style: None }.undo(&mut doc);
+        CategoryStyleEvent {
+            name: "work".to_owned(),
+            former_style: None,
+        }
+        .undo(&mut doc);
         assert!(doc.get_category_style("work").is_none());
     }
 
     #[test]
     fn test_category_style_undo_restores_previous() {
         let mut doc = KanbanDocument::new();
-        let old = KanbanCategoryStyle { children_inherit_category: false, ..Default::default() };
-        let new = KanbanCategoryStyle { children_inherit_category: true, ..Default::default() };
+        let old = KanbanCategoryStyle {
+            children_inherit_category: false,
+            ..Default::default()
+        };
+        let new = KanbanCategoryStyle {
+            children_inherit_category: true,
+            ..Default::default()
+        };
         doc.replace_category_style("work", old);
         doc.replace_category_style("work", new);
 
-        CategoryStyleEvent { name: "work".to_owned(), former_style: Some(old) }.undo(&mut doc);
-        assert!(!doc.get_category_style("work").unwrap().children_inherit_category);
+        CategoryStyleEvent {
+            name: "work".to_owned(),
+            former_style: Some(old),
+        }
+        .undo(&mut doc);
+        assert!(
+            !doc.get_category_style("work")
+                .unwrap()
+                .children_inherit_category
+        );
     }
 
     #[test]
@@ -192,8 +230,15 @@ mod tests {
         let mut doc = KanbanDocument::new();
         doc.set_priority("Urgent".to_owned(), 20);
 
-        PriorityEvent { name: "Urgent".to_owned(), former_value: None }.undo(&mut doc);
-        assert!(!doc.get_sorted_priorities().iter().any(|(n, _)| n.as_str() == "Urgent"));
+        PriorityEvent {
+            name: "Urgent".to_owned(),
+            former_value: None,
+        }
+        .undo(&mut doc);
+        assert!(!doc
+            .get_sorted_priorities()
+            .iter()
+            .any(|(n, _)| n.as_str() == "Urgent"));
     }
 
     #[test]
@@ -202,8 +247,14 @@ mod tests {
         doc.set_priority("Urgent".to_owned(), 20);
         doc.set_priority("Urgent".to_owned(), 99);
 
-        PriorityEvent { name: "Urgent".to_owned(), former_value: Some(20) }.undo(&mut doc);
-        let val = doc.get_sorted_priorities().into_iter()
+        PriorityEvent {
+            name: "Urgent".to_owned(),
+            former_value: Some(20),
+        }
+        .undo(&mut doc);
+        let val = doc
+            .get_sorted_priorities()
+            .into_iter()
             .find(|(n, _)| n.as_str() == "Urgent")
             .map(|(_, v)| *v);
         assert_eq!(val, Some(20));
@@ -211,12 +262,18 @@ mod tests {
 
     #[test]
     fn test_merge_create_then_modify_same_id() {
-        let blank = KanbanItem { id: 7, ..Default::default() };
+        let blank = KanbanItem {
+            id: 7,
+            ..Default::default()
+        };
         assert!(blank.is_unset());
         let mut named = blank.clone();
         named.name = "Named".to_owned();
 
-        let create = UndoItem::Create(CreationEvent { parent_id: None, new_task: blank });
+        let create = UndoItem::Create(CreationEvent {
+            parent_id: None,
+            new_task: blank,
+        });
         let modify = UndoItem::Modification(ModificationEvent { former_item: named });
 
         let merged = create.merge(&modify);
@@ -227,18 +284,29 @@ mod tests {
     fn test_merge_different_ids_returns_none() {
         let create = UndoItem::Create(CreationEvent {
             parent_id: None,
-            new_task: KanbanItem { id: 1, ..Default::default() },
+            new_task: KanbanItem {
+                id: 1,
+                ..Default::default()
+            },
         });
         let modify = UndoItem::Modification(ModificationEvent {
-            former_item: KanbanItem { id: 2, ..Default::default() },
+            former_item: KanbanItem {
+                id: 2,
+                ..Default::default()
+            },
         });
         assert!(create.merge(&modify).is_none());
     }
 
     #[test]
     fn test_merge_non_create_first_returns_none() {
-        let task = KanbanItem { id: 1, ..Default::default() };
-        let a = UndoItem::Modification(ModificationEvent { former_item: task.clone() });
+        let task = KanbanItem {
+            id: 1,
+            ..Default::default()
+        };
+        let a = UndoItem::Modification(ModificationEvent {
+            former_item: task.clone(),
+        });
         let b = UndoItem::Modification(ModificationEvent { former_item: task });
         assert!(a.merge(&b).is_none());
     }

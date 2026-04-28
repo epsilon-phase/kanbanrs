@@ -187,7 +187,120 @@ impl QuadTree {
     }
 }
 
-// Layout algorithm
+// Layout algorithm — initialisation helpers
+
+/// Gram-Schmidt orthogonalise `v` against each vector in `basis`, then normalise in place.
+fn orth_normalize(v: &mut Vec<f32>, basis: &[Vec<f32>]) {
+    for b in basis {
+        let proj: f32 = v.iter().zip(b).map(|(x, y)| x * y).sum();
+        v.iter_mut().zip(b).for_each(|(x, y)| *x -= proj * y);
+    }
+    let len = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if len > 1e-10 {
+        let inv = 1.0 / len;
+        v.iter_mut().for_each(|x| *x *= inv);
+    }
+}
+
+/// Power iteration on the shifted Laplacian `(μ_max·I − L)`.
+///
+/// Converges to the eigenvector of `L` with the *smallest* eigenvalue not
+/// already represented in `basis`.  Starting from `init` means the caller
+/// can steer convergence toward a particular eigenvector.
+fn power_iter(
+    adj: &[Vec<usize>],
+    degree: &[f32],
+    mu_max: f32,
+    basis: &[Vec<f32>],
+    mut v: Vec<f32>,
+    iters: usize,
+) -> Vec<f32> {
+    let n = v.len();
+    orth_normalize(&mut v, basis);
+    for _ in 0..iters {
+        let next: Vec<f32> = (0..n)
+            .map(|i| (mu_max - degree[i]) * v[i] + adj[i].iter().map(|&j| v[j]).sum::<f32>())
+            .collect();
+        v = next;
+        orth_normalize(&mut v, basis);
+    }
+    v
+}
+
+/// Spectral layout using the Fiedler vector and the next eigenvector of the
+/// graph Laplacian.  Produces an initial placement that is already roughly
+/// crossing-minimal, so the physics only needs to refine rather than untangle.
+///
+/// For graphs with fewer than 3 nodes, or when every node is isolated,
+/// falls back to a simple circle.
+fn spectral_init(
+    ids: &[KanbanId],
+    edges: &[(KanbanId, KanbanId)],
+    k: f32,
+    centroid: Vec2,
+) -> BTreeMap<KanbanId, Vec2> {
+    let n = ids.len();
+
+    let id_index: BTreeMap<KanbanId, usize> =
+        ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+
+    // Build undirected adjacency lists from the directed edge list.
+    let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+    for &(src, dst) in edges {
+        if let (Some(&si), Some(&di)) = (id_index.get(&src), id_index.get(&dst)) {
+            if si != di {
+                adj[si].push(di);
+                adj[di].push(si);
+            }
+        }
+    }
+    for a in &mut adj {
+        a.sort_unstable();
+        a.dedup();
+    }
+
+    let degree: Vec<f32> = adj.iter().map(|a| a.len() as f32).collect();
+    let has_edges = degree.iter().any(|&d| d > 0.0);
+
+    // Fall back to circle when there is nothing for the eigenvectors to work with.
+    if n < 3 || !has_edges {
+        let r = k * (n as f32).sqrt().max(1.0);
+        return ids
+            .iter()
+            .enumerate()
+            .map(|(i, &id)| {
+                let angle = 2.0 * std::f32::consts::PI * i as f32 / n.max(1) as f32;
+                (id, centroid + Vec2::new(r * angle.cos(), r * angle.sin()))
+            })
+            .collect();
+    }
+
+    // μ_max bounds all eigenvalues of L from above so that (μ_max·I − L) is
+    // positive semi-definite and power iteration converges to the *smallest*
+    // eigenvalues of L.
+    let mu_max = degree.iter().cloned().fold(0.0f32, f32::max) + 1.0;
+    let trivial: Vec<f32> = vec![1.0 / (n as f32).sqrt(); n];
+
+    // Fiedler vector — 2nd smallest eigenvector of L (1st non-trivial).
+    let v1_init: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32 - 0.5).collect();
+    let v1 = power_iter(&adj, &degree, mu_max, &[trivial.clone()], v1_init, 80);
+
+    // 3rd eigenvector — orthogonal to both the trivial vector and v1.
+    let v2_init: Vec<f32> = (0..n)
+        .map(|i| {
+            let x = i as f32 / n as f32;
+            x * x - x
+        })
+        .collect();
+    let v2 = power_iter(&adj, &degree, mu_max, &[trivial, v1.clone()], v2_init, 80);
+
+    // Scale so the spread matches what a circular layout of the same size would give.
+    let scale = k * (n as f32).sqrt();
+    ids.iter()
+        .enumerate()
+        .map(|(i, &id)| (id, centroid + Vec2::new(v1[i] * scale, v2[i] * scale)))
+        .collect()
+}
 
 /// Force-directed layout based on ForceAtlas2 (Jacomy et al. 2014).
 ///
@@ -197,6 +310,10 @@ impl QuadTree {
 ///   producing cleaner cluster separation (ForceAtlas2's defining feature)
 /// - Gap-corrected repulsion: force magnitude uses the empty space between
 ///   node edges rather than center-to-center distance
+/// - Spectral initialisation (Fiedler + next eigenvector) so the physics
+///   refines an already-reasonable placement instead of untangling chaos
+/// - Gravity term pulls nodes toward the layout centroid, preventing
+///   disconnected components from drifting off-screen
 const SEND_INTERVAL: u32 = 5;
 const CONVERGENCE_WINDOW: usize = 10;
 
@@ -249,13 +366,24 @@ pub fn force_atlas2(
         (sum / stable_positions.len() as f32).to_pos2()
     };
 
+    // Spectral init only for fresh layouts; warm-start reuses the existing positions.
+    let spectral = if stable_positions.is_empty() {
+        let ids_slice: Vec<KanbanId> = node_data.iter().map(|(id, _, _, _)| *id).collect();
+        spectral_init(&ids_slice, edges, k, centroid.to_vec2())
+    } else {
+        BTreeMap::new()
+    };
+
     let mut positions: BTreeMap<KanbanId, Vec2> = node_data
         .iter()
         .enumerate()
         .map(|(i, (id, _, _, _))| {
             if let Some(p) = stable_positions.get(id) {
                 (*id, p.to_vec2())
+            } else if let Some(&p) = spectral.get(id) {
+                (*id, p)
             } else {
+                // Warm-start with a node that wasn't in the previous layout.
                 let angle = 2.0 * std::f32::consts::PI * i as f32 / n as f32;
                 let r = k * (n as f32).sqrt().max(1.0);
                 (
@@ -335,6 +463,17 @@ pub fn force_atlas2(
             *disp.get_mut(&dst).unwrap() += f / dst_deg;
         }
 
+        // Gravity — pulls each node toward the layout centroid (origin for fresh
+        // layouts, mean of stable positions for warm starts).  Prevents disconnected
+        // components from drifting off-screen.  Scaled by 1/k so the strength stays
+        // proportional to the rest of the force system regardless of node spacing.
+        let gravity = 0.05 / k;
+        let gravity_center = centroid.to_vec2();
+        for &id in &ids {
+            let own_mass = (degree[&id] + 1) as f32;
+            *disp.get_mut(&id).unwrap() -= (positions[&id] - gravity_center) * (gravity * own_mass);
+        }
+
         // Apply displacements, clamped to temperature; accumulate actual movement.
         let mut total_movement = 0.0f32;
         for &id in &ids {
@@ -387,7 +526,10 @@ mod tests {
     use eframe::egui::{Pos2, Rect};
 
     fn square() -> (Pos2, Rect) {
-        (Pos2::new(5.0, 5.0), Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(10.0, 10.0)))
+        (
+            Pos2::new(5.0, 5.0),
+            Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(10.0, 10.0)),
+        )
     }
 
     fn near(a: Pos2, b: Pos2) -> bool {
@@ -397,32 +539,47 @@ mod tests {
     #[test]
     fn test_exit_right() {
         let (c, r) = square();
-        assert!(near(rect_edge_point(c, Pos2::new(100.0, 5.0), r), Pos2::new(10.0, 5.0)));
+        assert!(near(
+            rect_edge_point(c, Pos2::new(100.0, 5.0), r),
+            Pos2::new(10.0, 5.0)
+        ));
     }
 
     #[test]
     fn test_exit_left() {
         let (c, r) = square();
-        assert!(near(rect_edge_point(c, Pos2::new(-100.0, 5.0), r), Pos2::new(0.0, 5.0)));
+        assert!(near(
+            rect_edge_point(c, Pos2::new(-100.0, 5.0), r),
+            Pos2::new(0.0, 5.0)
+        ));
     }
 
     #[test]
     fn test_exit_bottom() {
         let (c, r) = square();
-        assert!(near(rect_edge_point(c, Pos2::new(5.0, 100.0), r), Pos2::new(5.0, 10.0)));
+        assert!(near(
+            rect_edge_point(c, Pos2::new(5.0, 100.0), r),
+            Pos2::new(5.0, 10.0)
+        ));
     }
 
     #[test]
     fn test_exit_top() {
         let (c, r) = square();
-        assert!(near(rect_edge_point(c, Pos2::new(5.0, -100.0), r), Pos2::new(5.0, 0.0)));
+        assert!(near(
+            rect_edge_point(c, Pos2::new(5.0, -100.0), r),
+            Pos2::new(5.0, 0.0)
+        ));
     }
 
     #[test]
     fn test_exit_diagonal_corner() {
         // 45-degree from center toward bottom-right: exits at corner (10, 10)
         let (c, r) = square();
-        assert!(near(rect_edge_point(c, Pos2::new(15.0, 15.0), r), Pos2::new(10.0, 10.0)));
+        assert!(near(
+            rect_edge_point(c, Pos2::new(15.0, 15.0), r),
+            Pos2::new(10.0, 10.0)
+        ));
     }
 
     #[test]
@@ -445,7 +602,10 @@ mod tests {
             let p = rect_edge_point(c, target, r);
             let on_x = (p.x - r.min.x).abs() < 0.01 || (p.x - r.max.x).abs() < 0.01;
             let on_y = (p.y - r.min.y).abs() < 0.01 || (p.y - r.max.y).abs() < 0.01;
-            assert!(on_x || on_y, "point {p:?} not on rect boundary for target {target:?}");
+            assert!(
+                on_x || on_y,
+                "point {p:?} not on rect boundary for target {target:?}"
+            );
         }
     }
 }
