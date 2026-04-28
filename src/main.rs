@@ -829,7 +829,7 @@ impl eframe::App for KanbanRS {
             if self.category_editor.open {
                 ui.ctx().show_viewport_immediate(
                     egui::ViewportId::from_hash_of("Category Editor"),
-                    egui::ViewportBuilder::default(),
+                    egui::ViewportBuilder::default().with_close_button(true),
                     |ctx, _class| {
                         egui::CentralPanel::default().show_inside(ctx, |ui| {
                             let cmd = self.category_editor.show(ui, &self.document.read());
