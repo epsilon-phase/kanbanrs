@@ -16,7 +16,7 @@ use super::*;
 
 use eframe::egui::Scene;
 use egui::epaint::CubicBezierShape;
-use egui::{Modal, Pos2, Rect};
+use egui::{DragPanButtons, Modal, Pos2, Rect};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
@@ -424,8 +424,10 @@ impl NodeLayout {
         sort: &ItemSort,
     ) {
         let max_iterations = PREFERENCES.read().force_max_iteration;
-        self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
-        self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        if !self.use_fr_layout {
+            self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
+            self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
+        }
         self.commands.commands.clear();
         let tasks: Vec<&KanbanItem> = if let Some(focused_id) = self.focus {
             document
@@ -669,7 +671,11 @@ impl NodeLayout {
                 // Pin min at scene origin so the painter starts at (0,0) and covers [0, max].
                 self.min = Pos2::ZERO;
                 self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
-                for (id, size) in self.fr_node_data.iter().map(|(id, _, _, size)| (*id, *size)) {
+                for (id, size) in self
+                    .fr_node_data
+                    .iter()
+                    .map(|(id, _, _, size)| (*id, *size))
+                {
                     if let Some(&(target, _)) = self.fr_anim.get(&id) {
                         let rect = Rect::from_center_size(target, size);
                         self.sense_regions.push((id, rect));
@@ -677,7 +683,11 @@ impl NodeLayout {
                         self.max.y = self.max.y.max(rect.max.y + 90.0);
                     }
                 }
-                self.fr_stable_positions = self.fr_anim.iter().map(|(id, (target, _))| (*id, *target)).collect();
+                self.fr_stable_positions = self
+                    .fr_anim
+                    .iter()
+                    .map(|(id, (target, _))| (*id, *target))
+                    .collect();
             }
             if disconnected {
                 self.layout_rx = None;
@@ -764,261 +774,263 @@ impl NodeLayout {
         {
             self.scroll_target = None;
         }
-        Scene::new().show(ui, &mut self.scene_rect, |ui| {
-            if !self.min.is_finite() || !self.max.is_finite() {
-                return;
-            }
-            let (response, paint) = ui.allocate_painter(
-                self.max.to_vec2() - self.min.to_vec2(),
-                egui::Sense::empty(),
-            );
+        Scene::new()
+            .drag_pan_buttons(DragPanButtons::SECONDARY | DragPanButtons::MIDDLE)
+            .show(ui, &mut self.scene_rect, |ui| {
+                if !self.min.is_finite() || !self.max.is_finite() {
+                    return;
+                }
+                let content_size = (self.max.to_vec2() - self.min.to_vec2()).max(Vec2::splat(1.0));
+                let (response, paint) = ui.allocate_painter(content_size, egui::Sense::empty());
 
-            let start = response.rect.min;
-            let style = ui.style().clone();
+                let start = response.rect.min;
+                let style = ui.style().clone();
 
-            if self.use_fr_layout {
-                // Pass 1: edges
-                for &(src, dst) in &self.fr_edge_list {
-                    if let (Some(&sr), Some(&dr)) =
-                        (self.fr_rects.get(&src), self.fr_rects.get(&dst))
-                    {
-                        let sr = offset_rect(sr, start.to_vec2());
-                        let dr = offset_rect(dr, start.to_vec2());
-                        let p0 = rect_edge_point(sr.center(), dr.center(), sr);
-                        let p3 = rect_edge_point(dr.center(), sr.center(), dr);
-                        let p1 = p0 + (p3 - p0) * 0.33;
-                        let p2 = p0 + (p3 - p0) * 0.67;
-                        paint.add(CubicBezierShape::from_points_stroke(
-                            [p0, p1, p2, p3],
-                            false,
-                            Color32::TRANSPARENT,
-                            style.noninteractive().fg_stroke,
-                        ));
-                        draw_arrowhead(&paint, p3, p2, style.noninteractive().fg_stroke);
+                if self.use_fr_layout {
+                    // Pass 1: edges
+                    for &(src, dst) in &self.fr_edge_list {
+                        if let (Some(&sr), Some(&dr)) =
+                            (self.fr_rects.get(&src), self.fr_rects.get(&dst))
+                        {
+                            let sr = offset_rect(sr, start.to_vec2());
+                            let dr = offset_rect(dr, start.to_vec2());
+                            let p0 = rect_edge_point(sr.center(), dr.center(), sr);
+                            let p3 = rect_edge_point(dr.center(), sr.center(), dr);
+                            let p1 = p0 + (p3 - p0) * 0.33;
+                            let p2 = p0 + (p3 - p0) * 0.67;
+                            paint.add(CubicBezierShape::from_points_stroke(
+                                [p0, p1, p2, p3],
+                                false,
+                                Color32::TRANSPARENT,
+                                style.noninteractive().fg_stroke,
+                            ));
+                            draw_arrowhead(&paint, p3, p2, style.noninteractive().fg_stroke);
+                        }
                     }
-                }
-                // Pass 2: node backgrounds
-                for (id, _, look, _) in &self.fr_node_data {
-                    if let Some(&rect) = self.fr_rects.get(id) {
-                        let rect = offset_rect(rect, start.to_vec2());
-                        let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
-                            .unwrap_or(Color32::WHITE);
-                        let fill = look
-                            .fill_color
-                            .map(|c| {
-                                Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT)
-                            })
-                            .unwrap_or(style.noninteractive().bg_fill);
-                        paint.rect(
-                            rect,
-                            0.0,
-                            fill,
-                            egui::Stroke::new(look.line_width as f32, stroke_color),
-                            egui::StrokeKind::Middle,
-                        );
+                    // Pass 2: node backgrounds
+                    for (id, _, look, _) in &self.fr_node_data {
+                        if let Some(&rect) = self.fr_rects.get(id) {
+                            let rect = offset_rect(rect, start.to_vec2());
+                            let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
+                                .unwrap_or(Color32::WHITE);
+                            let fill = look
+                                .fill_color
+                                .map(|c| {
+                                    Color32::from_hex(&c.to_web_color())
+                                        .unwrap_or(Color32::TRANSPARENT)
+                                })
+                                .unwrap_or(style.noninteractive().bg_fill);
+                            paint.rect(
+                                rect,
+                                0.0,
+                                fill,
+                                egui::Stroke::new(look.line_width as f32, stroke_color),
+                                egui::StrokeKind::Middle,
+                            );
+                        }
                     }
-                }
-                // Pass 3: labels
-                for (id, text, _, _) in &self.fr_node_data {
-                    if let Some(&rect) = self.fr_rects.get(id) {
-                        let rect = offset_rect(rect, start.to_vec2());
-                        paint.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            text,
-                            egui::FontId {
-                                size: 15.0,
-                                family: egui::FontFamily::Monospace,
-                            },
-                            style.noninteractive().text_color(),
-                        );
+                    // Pass 3: labels
+                    for (id, text, _, _) in &self.fr_node_data {
+                        if let Some(&rect) = self.fr_rects.get(id) {
+                            let rect = offset_rect(rect, start.to_vec2());
+                            paint.text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                text,
+                                egui::FontId {
+                                    size: 15.0,
+                                    family: egui::FontFamily::Monospace,
+                                },
+                                style.noninteractive().text_color(),
+                            );
+                        }
                     }
-                }
-            } else {
-                // Pass 1: edges — only Arrow/Line commands from layout-rs
-                self.commands
-                    .commands
-                    .iter()
-                    .filter(|c| matches!(c, DrawCommand::Arrow(_) | DrawCommand::Line(_, _)))
-                    .for_each(|x| x.operate_on(&paint, &style, response.rect));
-                // Pass 2: node backgrounds
-                for (id, _, look, _) in &self.hier_node_data {
-                    if let Some(&rect) = self.hier_rects.get(id) {
-                        let rect = offset_rect(rect, start.to_vec2());
-                        let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
-                            .unwrap_or(Color32::WHITE);
-                        let fill = look
-                            .fill_color
-                            .map(|c| {
-                                Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT)
-                            })
-                            .unwrap_or(style.noninteractive().bg_fill);
-                        paint.rect(
-                            rect,
-                            0.0,
-                            fill,
-                            egui::Stroke::new(look.line_width as f32, stroke_color),
-                            egui::StrokeKind::Middle,
-                        );
+                } else {
+                    // Pass 1: edges — only Arrow/Line commands from layout-rs
+                    self.commands
+                        .commands
+                        .iter()
+                        .filter(|c| matches!(c, DrawCommand::Arrow(_) | DrawCommand::Line(_, _)))
+                        .for_each(|x| x.operate_on(&paint, &style, response.rect));
+                    // Pass 2: node backgrounds
+                    for (id, _, look, _) in &self.hier_node_data {
+                        if let Some(&rect) = self.hier_rects.get(id) {
+                            let rect = offset_rect(rect, start.to_vec2());
+                            let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
+                                .unwrap_or(Color32::WHITE);
+                            let fill = look
+                                .fill_color
+                                .map(|c| {
+                                    Color32::from_hex(&c.to_web_color())
+                                        .unwrap_or(Color32::TRANSPARENT)
+                                })
+                                .unwrap_or(style.noninteractive().bg_fill);
+                            paint.rect(
+                                rect,
+                                0.0,
+                                fill,
+                                egui::Stroke::new(look.line_width as f32, stroke_color),
+                                egui::StrokeKind::Middle,
+                            );
+                        }
                     }
-                }
-                // Pass 3: labels
-                for (id, text, _, _) in &self.hier_node_data {
-                    if let Some(&rect) = self.hier_rects.get(id) {
-                        let rect = offset_rect(rect, start.to_vec2());
-                        paint.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            text,
-                            egui::FontId {
-                                size: 15.0,
-                                family: egui::FontFamily::Monospace,
-                            },
-                            style.noninteractive().text_color(),
-                        );
-                    }
-                }
-            }
-            let mut hovered = false;
-            for (task_id, region) in self.sense_regions.iter() {
-                let senses = ui.allocate_rect(
-                    offset_rect(*region, start.to_vec2()),
-                    egui::Sense::click_and_drag(),
-                );
-                senses.dnd_set_drag_payload(*task_id);
-                let senses = senses.on_hover_ui(|ui| {
-                    let task = _document.get_task(*task_id).unwrap();
-                    let mut nothing: Option<KanbanId> = None;
-                    if let Some(cmd) = task.summary(_document, &mut nothing, ui, true, 0) {
-                        actions.push(cmd);
-                    }
-                });
-                if senses.middle_clicked() {
-                    self.focus = Some(*task_id);
-                    actions.push(AppCommand::FocusOn(*task_id));
-                }
-                if senses.clicked() {
-                    actions.push(AppCommand::OpenEditor(*task_id));
-                }
-                if senses.secondary_clicked() {
-                    if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
-                        self.collapsed.remove(index);
-                    } else {
-                        self.collapsed.push(*task_id);
-                    }
-                    needs_update = true;
-                }
-                if senses.drag_started() {
-                    self.dragged_item = Some(*task_id);
-                }
-                if senses.drag_stopped() {
-                    self.dragged_item = None;
-                }
-                /// The amount of time that must elapse until the dragged item can be dropped onto
-                /// the hovered item
-                const DRAG_AND_DROP_HYSTERISIS_SECS: f32 = 1.0;
-                let current = Instant::now();
-                if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
-                    let paint = ui.painter();
-                    if self.drag_linger.is_none() {
-                        self.drag_linger = Some(current);
-                        ui.ctx().clear_animations();
-                        ui.ctx().animate_value_with_time(
-                            egui::Id::new("stroke"),
-                            0.0,
-                            DRAG_AND_DROP_HYSTERISIS_SECS,
-                        );
-                        ui.ctx().animate_value_with_time(
-                            egui::Id::new("roundness"),
-                            0.0,
-                            DRAG_AND_DROP_HYSTERISIS_SECS,
-                        );
-                    }
-                    let drag_stroke = ui.ctx().animate_value_with_time(
-                        egui::Id::new("stroke"),
-                        5.,
-                        DRAG_AND_DROP_HYSTERISIS_SECS,
-                    );
-                    let drag_roundness = ui.ctx().animate_value_with_time(
-                        egui::Id::new("roundness"),
-                        3.0,
-                        DRAG_AND_DROP_HYSTERISIS_SECS,
-                    );
-                    hovered = true;
-                    {
-                        let pointer_global = ui.ctx().pointer_latest_pos().unwrap();
-                        let pointer_position = ui
-                            .ctx()
-                            .layer_transform_from_global(ui.layer_id())
-                            .map(|t| t * pointer_global)
-                            .unwrap_or(pointer_global);
-                        let rect = offset_rect(*region, start.to_vec2());
-
-                        let sign = if is_on_left_side(&rect, pointer_position) {
-                            -1.
-                        } else {
-                            1.
-                        };
-                        let clip = rect
-                            .shrink2(Vec2 {
-                                x: rect.width() / 4.,
-                                y: 0.,
-                            })
-                            .translate(Vec2::new(sign * rect.width() / 4.0, 0.))
-                            .expand2(Vec2::new(0.0, 5.));
-
-                        let paint = paint.with_clip_rect(clip);
-                        ui.ctx().set_cursor_icon(
-                            if _document.can_add_as_child(
-                                _document.get_task(*dropped).unwrap(),
-                                _document.get_task(*task_id).unwrap(),
-                            ) {
-                                paint.rect_stroke(
-                                    offset_rect(*region, start.to_vec2()),
-                                    drag_roundness,
-                                    Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
-                                    egui::StrokeKind::Middle,
-                                );
-                                egui::CursorIcon::PointingHand
-                            } else {
-                                paint.rect_stroke(
-                                    offset_rect(*region, start.to_vec2()),
-                                    drag_roundness,
-                                    Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
-                                    egui::StrokeKind::Middle,
-                                );
-                                egui::CursorIcon::NoDrop
-                            },
-                        );
-                    }
-                }
-                if let Some(x) = senses.dnd_release_payload::<i32>().clone() {
-                    if _document.can_add_as_child(
-                        _document.get_task(*x).unwrap(),
-                        _document.get_task(*task_id).unwrap(),
-                    ) && self
-                        .drag_linger
-                        .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
-                    {
-                        let pointer_global = ui.ctx().pointer_latest_pos().unwrap_or_default();
-                        let pointer_pos = ui
-                            .ctx()
-                            .layer_transform_from_global(ui.layer_id())
-                            .map(|t| t * pointer_global)
-                            .unwrap_or(pointer_global);
-                        let local_rect = offset_rect(*region, start.to_vec2());
-                        if is_on_left_side(&local_rect, pointer_pos) {
-                            actions.push(AppCommand::AddChildTo(*x, *task_id));
-                        } else {
-                            actions.push(AppCommand::AddChildTo(*task_id, *x));
+                    // Pass 3: labels
+                    for (id, text, _, _) in &self.hier_node_data {
+                        if let Some(&rect) = self.hier_rects.get(id) {
+                            let rect = offset_rect(rect, start.to_vec2());
+                            paint.text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                text,
+                                egui::FontId {
+                                    size: 15.0,
+                                    family: egui::FontFamily::Monospace,
+                                },
+                                style.noninteractive().text_color(),
+                            );
                         }
                     }
                 }
-            }
-            if !hovered {
-                self.drag_linger = None;
-            }
-        });
+                let mut hovered = false;
+                for (task_id, region) in self.sense_regions.iter() {
+                    let senses = ui.allocate_rect(
+                        offset_rect(*region, start.to_vec2()),
+                        egui::Sense::click_and_drag(),
+                    );
+                    senses.dnd_set_drag_payload(*task_id);
+                    let senses = senses.on_hover_ui(|ui| {
+                        let task = _document.get_task(*task_id).unwrap();
+                        let mut nothing: Option<KanbanId> = None;
+                        if let Some(cmd) = task.summary(_document, &mut nothing, ui, true, 0) {
+                            actions.push(cmd);
+                        }
+                    });
+                    if senses.middle_clicked() {
+                        self.focus = Some(*task_id);
+                        actions.push(AppCommand::FocusOn(*task_id));
+                    }
+                    if senses.clicked() {
+                        actions.push(AppCommand::OpenEditor(*task_id));
+                    }
+                    if senses.secondary_clicked() && !senses.dragged() {
+                        if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
+                            self.collapsed.remove(index);
+                        } else {
+                            self.collapsed.push(*task_id);
+                        }
+                        needs_update = true;
+                    }
+                    if senses.drag_started() {
+                        self.dragged_item = Some(*task_id);
+                    }
+                    if senses.drag_stopped() {
+                        self.dragged_item = None;
+                    }
+                    /// The amount of time that must elapse until the dragged item can be dropped onto
+                    /// the hovered item
+                    const DRAG_AND_DROP_HYSTERISIS_SECS: f32 = 1.0;
+                    let current = Instant::now();
+                    if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
+                        let paint = ui.painter();
+                        if self.drag_linger.is_none() {
+                            self.drag_linger = Some(current);
+                            ui.ctx().clear_animations();
+                            ui.ctx().animate_value_with_time(
+                                egui::Id::new("stroke"),
+                                0.0,
+                                DRAG_AND_DROP_HYSTERISIS_SECS,
+                            );
+                            ui.ctx().animate_value_with_time(
+                                egui::Id::new("roundness"),
+                                0.0,
+                                DRAG_AND_DROP_HYSTERISIS_SECS,
+                            );
+                        }
+                        let drag_stroke = ui.ctx().animate_value_with_time(
+                            egui::Id::new("stroke"),
+                            5.,
+                            DRAG_AND_DROP_HYSTERISIS_SECS,
+                        );
+                        let drag_roundness = ui.ctx().animate_value_with_time(
+                            egui::Id::new("roundness"),
+                            3.0,
+                            DRAG_AND_DROP_HYSTERISIS_SECS,
+                        );
+                        hovered = true;
+                        {
+                            let pointer_global = ui.ctx().pointer_latest_pos().unwrap();
+                            let pointer_position = ui
+                                .ctx()
+                                .layer_transform_from_global(ui.layer_id())
+                                .map(|t| t * pointer_global)
+                                .unwrap_or(pointer_global);
+                            let rect = offset_rect(*region, start.to_vec2());
+
+                            let sign = if is_on_left_side(&rect, pointer_position) {
+                                -1.
+                            } else {
+                                1.
+                            };
+                            let clip = rect
+                                .shrink2(Vec2 {
+                                    x: rect.width() / 4.,
+                                    y: 0.,
+                                })
+                                .translate(Vec2::new(sign * rect.width() / 4.0, 0.))
+                                .expand2(Vec2::new(0.0, 5.));
+
+                            let paint = paint.with_clip_rect(clip);
+                            ui.ctx().set_cursor_icon(
+                                if _document.can_add_as_child(
+                                    _document.get_task(*dropped).unwrap(),
+                                    _document.get_task(*task_id).unwrap(),
+                                ) {
+                                    paint.rect_stroke(
+                                        offset_rect(*region, start.to_vec2()),
+                                        drag_roundness,
+                                        Stroke::new(drag_stroke, Color32::from_rgb(0, 255, 0)),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                    egui::CursorIcon::PointingHand
+                                } else {
+                                    paint.rect_stroke(
+                                        offset_rect(*region, start.to_vec2()),
+                                        drag_roundness,
+                                        Stroke::new(drag_stroke, Color32::from_rgb(255, 0, 0)),
+                                        egui::StrokeKind::Middle,
+                                    );
+                                    egui::CursorIcon::NoDrop
+                                },
+                            );
+                        }
+                    }
+                    if let Some(x) = senses.dnd_release_payload::<i32>().clone() {
+                        if _document.can_add_as_child(
+                            _document.get_task(*x).unwrap(),
+                            _document.get_task(*task_id).unwrap(),
+                        ) && self
+                            .drag_linger
+                            .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
+                        {
+                            let pointer_global = ui.ctx().pointer_latest_pos().unwrap_or_default();
+                            let pointer_pos = ui
+                                .ctx()
+                                .layer_transform_from_global(ui.layer_id())
+                                .map(|t| t * pointer_global)
+                                .unwrap_or(pointer_global);
+                            let local_rect = offset_rect(*region, start.to_vec2());
+                            if is_on_left_side(&local_rect, pointer_pos) {
+                                actions.push(AppCommand::AddChildTo(*x, *task_id));
+                            } else {
+                                actions.push(AppCommand::AddChildTo(*task_id, *x));
+                            }
+                        }
+                    }
+                }
+                if !hovered {
+                    self.drag_linger = None;
+                }
+            });
         needs_update
     }
     pub fn set_focus(&mut self, id: &KanbanId) {

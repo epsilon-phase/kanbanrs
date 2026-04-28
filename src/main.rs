@@ -10,7 +10,7 @@ use kanban::{
     category_editor::State, filter::KanbanFilter, node_layout::NodeLayout,
     priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
     sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand,
-    KanbanDocument,
+    KanbanDocument, KanbanId,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -181,6 +181,20 @@ struct KanbanArgs {
     default_view: StartupLayout,
 }
 pub static ICON_DATA: &[u8] = include_bytes!("../assets/kanban icon.png");
+static NOTO_SANS: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
+
+fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "NotoSans".to_owned(),
+        egui::FontData::from_static(NOTO_SANS).into(),
+    );
+    // Add as last fallback for all font families so it fills in missing glyphs.
+    for family in fonts.families.values_mut() {
+        family.push("NotoSans".to_owned());
+    }
+    ctx.set_fonts(fonts);
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
@@ -202,9 +216,10 @@ fn main() {
     if let Err(x) = eframe::run_native(
         "KanbanRS",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            install_fonts(&cc.egui_ctx);
             let mut app = Box::new(app);
-            app.initialize_preferences(_cc.storage.unwrap());
+            app.initialize_preferences(cc.storage.unwrap());
             Ok(app)
         }),
     ) {
@@ -231,6 +246,7 @@ fn main() {
                 canvas,
                 web_options,
                 Box::new(|cc| {
+                    install_fonts(&cc.egui_ctx);
                     let mut app = KanbanRS::new();
                     if let Some(storage) = cc.storage {
                         app.initialize_preferences(storage);
@@ -609,29 +625,46 @@ impl eframe::App for KanbanRS {
                 ui.menu_button("Window", |ui| {
                     ui.add_enabled_ui(!self.open_editors.is_empty(), |ui| {
                         ui.menu_button("Task editors", |ui| {
-                            for i in &self.open_editors {
-                                let editor = i.read();
+                            // Snapshot display info before UI callbacks to avoid holding a
+                            // read lock while close handling needs a write lock.
+                            let editor_info: Vec<(String, egui::ViewportId, KanbanId)> = self
+                                .open_editors
+                                .iter()
+                                .map(|e| {
+                                    let r = e.read();
+                                    (r.item_copy.name.clone(), r.viewport_id, r.item_copy.id)
+                                })
+                                .collect();
+                            for (name, viewport_id, task_id) in editor_info {
                                 ui.horizontal(|ui| {
-                                    if ui.button(&editor.item_copy.name).clicked() {
-                                        ctx.send_viewport_cmd_to(
-                                            editor.viewport_id,
-                                            egui::ViewportCommand::Focus,
-                                        );
-                                        ctx.send_viewport_cmd_to(
-                                            editor.viewport_id,
-                                            ViewportCommand::RequestUserAttention(
-                                                egui::UserAttentionType::Critical,
-                                            ),
-                                        );
-                                        ctx.request_repaint_of(editor.viewport_id);
+                                    if ui.button(&name).clicked() {
+                                        #[cfg(not(target_arch = "wasm32"))]
+                                        {
+                                            ctx.send_viewport_cmd_to(
+                                                viewport_id,
+                                                egui::ViewportCommand::Focus,
+                                            );
+                                            ctx.send_viewport_cmd_to(
+                                                viewport_id,
+                                                ViewportCommand::RequestUserAttention(
+                                                    egui::UserAttentionType::Critical,
+                                                ),
+                                            );
+                                            ctx.request_repaint_of(viewport_id);
+                                        }
                                         ui.close();
                                     }
                                     ui.separator();
                                     if ui.button("Close").clicked() {
+                                        #[cfg(not(target_arch = "wasm32"))]
                                         ctx.send_viewport_cmd_to(
-                                            editor.viewport_id,
+                                            viewport_id,
                                             ViewportCommand::Close,
                                         );
+                                        // Queue close so the write lock is acquired outside
+                                        // the viewport render loop (avoids deadlock on WASM
+                                        // where viewports are embedded and run synchronously).
+                                        self.pending_commands.push(AppCommand::CloseEditor(task_id));
                                         ui.close();
                                     }
                                 });
@@ -978,6 +1011,16 @@ impl KanbanRS {
                 );
                 editor.open = true;
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
+            }
+            AppCommand::CloseEditor(id) => {
+                for e in &self.open_editors {
+                    let mut w = e.write();
+                    if w.item_copy.id == id {
+                        w.open = false;
+                        w.cancelled = true;
+                        break;
+                    }
+                }
             }
             AppCommand::OpenTask(item) => {
                 self.open_editors

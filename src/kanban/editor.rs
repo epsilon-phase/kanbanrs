@@ -1,4 +1,7 @@
-use super::{time_tracking, AppCommand, KanbanDocument, KanbanId, KanbanItem};
+use super::{
+    datetime_picker::DateTimePicker, time_tracking, AppCommand, KanbanDocument, KanbanId,
+    KanbanItem,
+};
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
 use std::{collections::BTreeSet, sync::mpsc::Sender};
@@ -58,7 +61,37 @@ pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
         show_time_rec_modal: false,
     }
 }
+/// RichText for a task name, struck through if the task is completed.
+fn task_name_text(name: &str, completed: bool) -> RichText {
+    let t = RichText::new(name);
+    if completed { t.strikethrough() } else { t }
+}
+
+/// ScrollArea sized to half the available height with a per-item unique salt.
+fn half_height_scroll(ui: &egui::Ui, id: i32, salt: &str) -> egui::ScrollArea {
+    egui::ScrollArea::vertical()
+        .max_height(ui.available_height() / 2.0)
+        .max_width(ui.available_width())
+        .id_salt(format!("{salt} {id}"))
+}
+
 impl State {
+    /// Drains `new_time_descr` into an `Option<String>`, returning `None` if empty.
+    fn take_time_descr(&mut self) -> Option<String> {
+        if self.new_time_descr.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.new_time_descr))
+        }
+    }
+
+    /// Start or stop a time recording on the current item using the pending description.
+    fn start_recording(&mut self) {
+        let desc = self.take_time_descr();
+        self.item_copy.time_records.handle_record_request(desc);
+    }
+
+
     pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
         let mut create_child = false;
         let mut open_task: Option<KanbanId> = None;
@@ -333,22 +366,15 @@ impl State {
 
         ui.label("Child tasks");
         let mut removed_task: Option<KanbanId> = None;
-        egui::ScrollArea::vertical()
-            // Without the .max_height it seems to force the button cluster at the
-            // bottom half-off the screen, which I don't care for.
-            .max_height(ui.available_height() / 2.0)
-            .max_width(ui.available_width())
-            .id_salt(format!("child tasks {}", self.item_copy.id))
-            .show(ui, |ui| {
+        // Without the .max_height it seems to force the button cluster at the
+        // bottom half-off the screen, which I don't care for.
+        half_height_scroll(ui, self.item_copy.id, "child tasks").show(ui, |ui| {
                 for child in task_vec.iter() {
                     if !document.tasks.contains_key(child) {
                         continue;
                     }
                     ui.horizontal_wrapped(|ui| {
-                        let mut text = RichText::new(document.tasks[child].name.clone());
-                        if document.tasks[child].completed.is_some() {
-                            text = text.strikethrough();
-                        }
+                        let text = task_name_text(&document.tasks[child].name, document.tasks[child].completed.is_some());
                         if ui.link(text).clicked() {
                             *open_task = Some(*child);
                         }
@@ -378,19 +404,12 @@ impl State {
             .get_tasks()
             .filter(|x| x.child_tasks.contains(&self.item_copy.id))
             .collect();
-        egui::ScrollArea::vertical()
-            // Without the .max_height it seems to force the button cluster at the
-            // bottom half-off the screen, which I don't care for.
-            .max_height(ui.available_height() / 2.0)
-            .max_width(ui.available_width())
-            .id_salt(format!("parent tasks {}", self.item_copy.id))
-            .show(ui, |ui| {
+        // Without the .max_height it seems to force the button cluster at the
+        // bottom half-off the screen, which I don't care for.
+        half_height_scroll(ui, self.item_copy.id, "parent tasks").show(ui, |ui| {
                 for &parent in parents.iter() {
                     ui.horizontal_wrapped(|ui| {
-                        let mut text = RichText::new(parent.name.clone());
-                        if parent.completed.is_some() {
-                            text = text.strikethrough();
-                        }
+                        let text = task_name_text(&parent.name, parent.completed.is_some());
                         if ui.link(text).clicked() {
                             *open_task = Some(parent.id);
                         }
@@ -458,16 +477,12 @@ impl State {
             ui.text_edit_singleline(&mut self.new_time_descr);
             ui.horizontal(|ui| {
                 if ui.button("Add new entry").clicked() {
+                    let desc = self.take_time_descr();
                     self.item_copy.time_records.entries.push((
                         TimeEntry::InstanteousDuration(self.new_time_entry),
-                        if !self.new_time_descr.is_empty() {
-                            Some(self.new_time_descr.clone())
-                        } else {
-                            None
-                        },
+                        desc,
                     ));
                     self.new_time_entry = TimeDelta::new(0, 0).unwrap();
-                    self.new_time_descr.clear();
                 }
                 if ui
                     .button(if self.item_copy.time_records.is_recording() {
@@ -485,13 +500,7 @@ impl State {
                     {
                         self.show_time_rec_modal = true;
                     } else {
-                        let desc = if self.new_time_descr.is_empty() {
-                            None
-                        } else {
-                            Some(self.new_time_descr.clone())
-                        };
-                        self.item_copy.time_records.handle_record_request(desc);
-                        self.new_time_descr.clear();
+                        self.start_recording();
                     }
                 }
             });
@@ -502,13 +511,7 @@ impl State {
                 // It is uncertain to me if this will be a real issue for the users.
                 ui.label("You have a recording task");
                 if ui.button("Start anyway").clicked() {
-                    let desc = if self.new_time_descr.is_empty() {
-                        None
-                    } else {
-                        Some(self.new_time_descr.clone())
-                    };
-                    self.item_copy.time_records.handle_record_request(desc);
-                    self.new_time_descr.clear();
+                    self.start_recording();
                     self.show_time_rec_modal = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -524,13 +527,7 @@ impl State {
                         self.transmitter
                             .send(AppCommand::FinishTimeRecording(x))
                             .unwrap();
-                        let desc = if self.new_time_descr.is_empty() {
-                            None
-                        } else {
-                            Some(self.new_time_descr.clone())
-                        };
-                        self.item_copy.time_records.handle_record_request(desc);
-                        self.new_time_descr.clear();
+                        self.start_recording();
                         self.show_time_rec_modal = false;
                     }
                 }
@@ -539,38 +536,71 @@ impl State {
     }
     ///Create the list of time entries, as it must be displayed
     fn produce_time_list(self: &mut State, ui: &mut egui::Ui) {
-        let mut current_index = 0;
-        // This feels like a very bad use-case for retain
-        // idiomatically
-        self.item_copy.time_records.entries.retain_mut(|x| {
-            let mut delete = false;
+        let mut to_delete: Option<usize> = None;
+        let mut new_edit: Option<Option<usize>> = None;
+
+        for (current_index, x) in self.item_copy.time_records.entries.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 ui.group(|ui| {
                     ui.vertical(|ui| {
                         ui.label(x.0.to_description());
-                        delete |= ui.button("Delete").clicked();
+                        if ui.button("Delete").clicked() {
+                            to_delete = Some(current_index);
+                        }
                     });
-                    if let Some(index) = self.time_entry_under_edit {
-                        if current_index == index {
+                    if self.time_entry_under_edit == Some(current_index) {
+                        ui.vertical(|ui| {
+                            match &mut x.0 {
+                                time_tracking::TimeEntry::Concluded(start, end) => {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Start:");
+                                        DateTimePicker::new(("te_start", current_index), start)
+                                            .show(ui);
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("End:  ");
+                                        DateTimePicker::new(("te_end", current_index), end)
+                                            .show(ui);
+                                    });
+                                }
+                                time_tracking::TimeEntry::Started(start) => {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Start:");
+                                        DateTimePicker::new(("te_start", current_index), start)
+                                            .show(ui);
+                                    });
+                                }
+                                time_tracking::TimeEntry::InstanteousDuration(_) => {}
+                            }
                             if x.1.is_none() {
                                 x.1 = Some(String::new());
                             }
                             ui.text_edit_multiline(x.1.as_mut().unwrap());
                             if ui.button("Done").clicked() {
-                                self.time_entry_under_edit = None;
+                                new_edit = Some(None);
                             }
+                        });
+                    } else {
+                        if let Some(ref desc) = x.1 {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                            ui.label(desc);
                         }
-                    } else if let Some(ref desc) = x.1 {
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-                        ui.label(desc);
-                    }
-                    if ui.button("Edit").clicked() {
-                        self.time_entry_under_edit = Some(current_index);
+                        if ui.button("Edit").clicked() {
+                            new_edit = Some(Some(current_index));
+                        }
                     }
                 });
             });
-            current_index += 1;
-            !delete
-        });
+        }
+
+        if let Some(new) = new_edit {
+            self.time_entry_under_edit = new;
+        }
+        if let Some(idx) = to_delete {
+            self.item_copy.time_records.entries.remove(idx);
+            if self.time_entry_under_edit == Some(idx) {
+                self.time_entry_under_edit = None;
+            }
+        }
     }
 }

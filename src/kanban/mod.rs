@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use time_tracking::TimeRecords;
 use undo::{DeletionEvent, UndoItem};
 pub mod category_editor;
+pub mod datetime_picker;
 pub mod filter;
 pub mod focused_layout;
 pub mod force_directed;
@@ -560,6 +561,8 @@ impl KanbanItem {
 pub enum AppCommand {
     /// Open the task in the editor by id
     OpenEditor(KanbanId),
+    /// Close the editor for the given task id, discarding changes
+    CloseEditor(KanbanId),
     /// Open a specific KanbanItem in another editor (sent from an editor viewport)
     OpenTask(KanbanItem),
     /// Create a new child task on this one
