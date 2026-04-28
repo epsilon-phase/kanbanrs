@@ -456,7 +456,9 @@ pub fn force_atlas2(
             if dist < 1.0 {
                 continue;
             }
-            let f = d * (dist / k);
+            // let f = d * (dist / k);
+            // let f = d * (dist * dist / k).ln().max(0.0);
+            let f = d / dist * k * (dist / k).ln().max(0.0);
             let src_deg = (degree[&src] + 1) as f32;
             let dst_deg = (degree[&dst] + 1) as f32;
             *disp.get_mut(&src).unwrap() -= f / src_deg;

@@ -1030,7 +1030,7 @@ impl KanbanRS {
                     document.replace_task(&item)
                 };
                 self.record_undo(undo);
-                self.layout_cache_needs_updating = true;
+                self.layout_cache_needs_updating = self.modified_since_last_saved;
             }
             AppCommand::DeleteTask(to_delete) => {
                 let undo = self.document.write().remove_task(&to_delete);
