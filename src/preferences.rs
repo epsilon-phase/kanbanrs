@@ -30,6 +30,8 @@ pub struct Preferences {
     ///The length number of characters to wrap nodes at.
     #[serde(default = "Preferences::default_node_width")]
     pub node_width: usize,
+    #[serde(default = "Preferences::default_force_iterations")]
+    pub force_max_iteration: u32,
     pub template: KanbanDocument,
 }
 lazy_static! {
@@ -39,6 +41,9 @@ lazy_static! {
 impl Preferences {
     fn default_node_width() -> usize {
         50
+    }
+    fn default_force_iterations() -> u32 {
+        250
     }
     pub fn show_ui(&mut self, ui: &mut Ui) -> Response {
         if self.category_editor_state.open {
@@ -154,6 +159,15 @@ Currently this doesn't do anything");
                     let resp = ui.add(DragValue::new(&mut self.node_width).range(25..=120));
                     ui.label(format!("{}", self.node_width));
                     resp
+                }).inner
+            ).union(
+
+                ui.horizontal(|ui|{
+                    const MINIMUM_ITERATIONS:u32=10u32;
+                    const MAXIMUM_ITERATIONS:u32=2000u32;
+                    ui.add(Slider::new(&mut self.force_max_iteration, MINIMUM_ITERATIONS..=MAXIMUM_ITERATIONS)
+                        .text("Maximum force directed layout iterations")
+                        .show_value(true))
                 }).inner
             )
 

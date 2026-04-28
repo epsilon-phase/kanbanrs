@@ -9,6 +9,8 @@ use web_time::Instant;
 
 use lazy_static::lazy_static;
 
+use crate::preferences::PREFERENCES;
+
 use super::force_directed::{force_atlas2, rect_edge_point};
 use super::*;
 
@@ -231,6 +233,9 @@ pub struct NodeLayout {
     hier_node_data: Vec<(KanbanId, String, StyleAttr, Vec2)>,
     ///Node bounding boxes for hierarchical layout, populated from layout-rs positions
     hier_rects: BTreeMap<KanbanId, Rect>,
+    ///Per-node (target, animated) position pairs for smooth interpolation.
+    ///Target is the latest snapshot center; animated tracks egui's interpolated value.
+    fr_anim: BTreeMap<KanbanId, (Pos2, Pos2)>,
 }
 impl Default for NodeLayout {
     fn default() -> Self {
@@ -268,6 +273,7 @@ impl NodeLayout {
             fr_rects: BTreeMap::new(),
             hier_node_data: Vec::new(),
             hier_rects: BTreeMap::new(),
+            fr_anim: BTreeMap::new(),
         }
     }
 }
@@ -417,6 +423,7 @@ impl NodeLayout {
         filter: &KanbanFilter,
         sort: &ItemSort,
     ) {
+        let max_iterations = PREFERENCES.read().force_max_iteration;
         self.min = Pos2::new(f32::INFINITY, f32::INFINITY);
         self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         self.commands.commands.clear();
@@ -470,10 +477,10 @@ impl NodeLayout {
             self.layout_rx = Some(rx);
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
-                force_atlas2(&node_data, &edge_list, 500, &stable, &tx);
+                force_atlas2(&node_data, &edge_list, max_iterations, &stable, &tx);
             });
             #[cfg(target_arch = "wasm32")]
-            force_atlas2(&node_data, &edge_list, 150, &stable, &tx);
+            force_atlas2(&node_data, &edge_list, max_iterations, &stable, &tx);
         } else {
             self.layout_rx = None; // drop any unread FR snapshots
             self.hier_node_data = tasks
@@ -651,21 +658,26 @@ impl NodeLayout {
                         *r = r.translate(shift);
                     }
                 }
-                self.fr_rects = temp;
+                // Update (target, animated) pairs; seed animated from target on first snapshot
+                for (id, rect) in &temp {
+                    let target = rect.center();
+                    let entry = self.fr_anim.entry(*id).or_insert((target, target));
+                    entry.0 = target;
+                }
+
                 self.sense_regions.clear();
                 // Pin min at scene origin so the painter starts at (0,0) and covers [0, max].
                 self.min = Pos2::ZERO;
                 self.max = Pos2::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
-                for (&id, &rect) in &self.fr_rects {
-                    self.sense_regions.push((id, rect));
-                    self.max.x = self.max.x.max(rect.max.x + 50.0);
-                    self.max.y = self.max.y.max(rect.max.y + 90.0);
+                for (id, size) in self.fr_node_data.iter().map(|(id, _, _, size)| (*id, *size)) {
+                    if let Some(&(target, _)) = self.fr_anim.get(&id) {
+                        let rect = Rect::from_center_size(target, size);
+                        self.sense_regions.push((id, rect));
+                        self.max.x = self.max.x.max(rect.max.x + 50.0);
+                        self.max.y = self.max.y.max(rect.max.y + 90.0);
+                    }
                 }
-                self.fr_stable_positions = self
-                    .fr_rects
-                    .iter()
-                    .map(|(id, rect)| (*id, rect.center()))
-                    .collect();
+                self.fr_stable_positions = self.fr_anim.iter().map(|(id, (target, _))| (*id, *target)).collect();
             }
             if disconnected {
                 self.layout_rx = None;
@@ -673,6 +685,30 @@ impl NodeLayout {
             } else {
                 ui.ctx().request_repaint();
             }
+        }
+
+        // Animate FR positions toward targets and rebuild rects
+        if !self.fr_anim.is_empty() {
+            self.fr_rects = self
+                .fr_node_data
+                .iter()
+                .filter_map(|(id, _, _, size)| {
+                    self.fr_anim.get_mut(id).map(|(target, animated)| {
+                        let ax = ui.ctx().animate_value_with_time(
+                            egui::Id::new(("fr_x", *id)),
+                            target.x,
+                            0.2,
+                        );
+                        let ay = ui.ctx().animate_value_with_time(
+                            egui::Id::new(("fr_y", *id)),
+                            target.y,
+                            0.2,
+                        );
+                        *animated = Pos2::new(ax, ay);
+                        (*id, Rect::from_center_size(*animated, *size))
+                    })
+                })
+                .collect();
         }
 
         let mut needs_update = false;

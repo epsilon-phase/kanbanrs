@@ -394,6 +394,12 @@ impl State {
                         if ui.link(text).clicked() {
                             *open_task = Some(parent.id);
                         }
+                        if ui.button("Remove").clicked() {
+                            if let Some(mut x) = document.get_task(parent.id).cloned() {
+                                x.remove_child(&self.item_copy);
+                                self.transmitter.send(AppCommand::UpdateTask(x)).unwrap();
+                            }
+                        }
                     });
                 }
             });
