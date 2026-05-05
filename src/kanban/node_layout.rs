@@ -236,6 +236,10 @@ pub struct NodeLayout {
     ///Per-node (target, animated) position pairs for smooth interpolation.
     ///Target is the latest snapshot center; animated tracks egui's interpolated value.
     fr_anim: BTreeMap<KanbanId, (Pos2, Pos2)>,
+    ///Graph centroid at the moment the current FR layout thread was spawned.
+    fr_layout_start_centroid: Option<Pos2>,
+    ///Scene center at the moment the current FR layout thread was spawned.
+    fr_layout_start_scene_center: Option<Pos2>,
 }
 impl Default for NodeLayout {
     fn default() -> Self {
@@ -274,6 +278,8 @@ impl NodeLayout {
             hier_node_data: Vec::new(),
             hier_rects: BTreeMap::new(),
             fr_anim: BTreeMap::new(),
+            fr_layout_start_centroid: None,
+            fr_layout_start_scene_center: None,
         }
     }
 }
@@ -477,6 +483,16 @@ impl NodeLayout {
             let stable = self.fr_stable_positions.clone();
             let (tx, rx) = std::sync::mpsc::channel();
             self.layout_rx = Some(rx);
+            // Snapshot initial centroid and scene center so we can track the
+            // graph as it moves during convergence without snapping the view.
+            if !stable.is_empty() {
+                let cx = stable.values().map(|p| p.x).sum::<f32>() / stable.len() as f32;
+                let cy = stable.values().map(|p| p.y).sum::<f32>() / stable.len() as f32;
+                self.fr_layout_start_centroid = Some(Pos2::new(cx, cy));
+            } else {
+                self.fr_layout_start_centroid = None;
+            }
+            self.fr_layout_start_scene_center = Some(self.scene_rect.center());
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 force_atlas2(&node_data, &edge_list, max_iterations, &stable, &tx);
@@ -688,9 +704,26 @@ impl NodeLayout {
                     .iter()
                     .map(|(id, (target, _))| (*id, *target))
                     .collect();
+
+                // Track the graph centroid: shift scene_rect so the centroid
+                // stays at the same visual position as when layout started.
+                if let (Some(start_centroid), Some(start_scene_center)) = (
+                    self.fr_layout_start_centroid,
+                    self.fr_layout_start_scene_center,
+                ) {
+                    let targets = &self.fr_stable_positions;
+                    if !targets.is_empty() {
+                        let cx = targets.values().map(|p| p.x).sum::<f32>() / targets.len() as f32;
+                        let cy = targets.values().map(|p| p.y).sum::<f32>() / targets.len() as f32;
+                        let delta = Pos2::new(cx, cy) - start_centroid;
+                        self.scene_rect.set_center(start_scene_center + delta);
+                    }
+                }
             }
             if disconnected {
                 self.layout_rx = None;
+                self.fr_layout_start_centroid = None;
+                self.fr_layout_start_scene_center = None;
                 self.reset_scene_rect_for_new_layout();
             } else {
                 ui.ctx().request_repaint();

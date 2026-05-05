@@ -144,8 +144,84 @@ pub fn collect_child_durations(
 mod test {
 
     use crate::kanban::tests::make_document_easy;
+    use proptest::prelude::*;
 
     use super::*;
+
+    // ── proptest strategies ───────────────────────────────────────────────
+
+    prop_compose! {
+        /// Arbitrary non-negative duration up to ~1000 hours.
+        fn arb_delta()(secs in 0i64..=3_600_000) -> TimeDelta {
+            TimeDelta::new(secs, 0).unwrap()
+        }
+    }
+
+    prop_compose! {
+        fn arb_instant_entry()(secs in 0i64..=3_600_000) -> TimeEntry {
+            TimeEntry::InstanteousDuration(TimeDelta::new(secs, 0).unwrap())
+        }
+    }
+
+    prop_compose! {
+        /// A Concluded entry where end >= start.
+        fn arb_concluded_entry()(start_secs in 0i64..=1_000_000, dur in 0i64..=3_600_000) -> TimeEntry {
+            let start = DateTime::UNIX_EPOCH + TimeDelta::new(start_secs, 0).unwrap();
+            let end   = start + TimeDelta::new(dur, 0).unwrap();
+            TimeEntry::Concluded(start, end)
+        }
+    }
+
+    fn arb_entry() -> impl Strategy<Value = TimeEntry> {
+        prop_oneof![arb_instant_entry(), arb_concluded_entry(),]
+    }
+
+    prop_compose! {
+        fn arb_records()(entries in prop::collection::vec(arb_entry(), 0..20)) -> TimeRecords {
+            TimeRecords { entries: entries.into_iter().map(|e| (e, None)).collect() }
+        }
+    }
+
+    // ── TimeRecords properties ────────────────────────────────────────────
+
+    proptest! {
+        #[test]
+        fn total_duration_equals_sum_of_entries(records in arb_records()) {
+            let expected: TimeDelta = records.entries.iter()
+                .map(|(e, _)| e.duration())
+                .fold(TimeDelta::zero(), |a, b| a + b);
+            prop_assert_eq!(records.duration(), expected);
+        }
+
+        #[test]
+        fn concluded_entry_duration_is_non_negative(entry in arb_concluded_entry()) {
+            prop_assert!(entry.duration() >= TimeDelta::zero());
+        }
+
+        #[test]
+        fn start_stop_recording_adds_concluded_entry(mut records in arb_records()) {
+            let before = records.entries.len();
+            records.handle_record_request(None);
+            // Either stopped an existing Started entry (count unchanged) or added one.
+            let after = records.entries.len();
+            prop_assert!(after == before || after == before + 1);
+            // No Started entries remain after stopping.
+            records.handle_record_request(None);
+            // Calling stop when nothing is recording adds a new Started entry,
+            // so calling it again concludes it — either way no more than one Started remains.
+            let started_count = records.entries.iter()
+                .filter(|(e, _)| matches!(e, TimeEntry::Started(_)))
+                .count();
+            prop_assert!(started_count <= 1);
+        }
+
+        #[test]
+        fn adding_instantaneous_entry_increases_duration(mut records in arb_records(), delta in arb_delta()) {
+            let before = records.duration();
+            records.entries.push((TimeEntry::InstanteousDuration(delta), None));
+            prop_assert_eq!(records.duration(), before + delta);
+        }
+    }
     ///Test that the time record container correctly handles a timer toggle
     ///signal
     #[test]

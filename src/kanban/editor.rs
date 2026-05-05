@@ -64,7 +64,11 @@ pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
 /// RichText for a task name, struck through if the task is completed.
 fn task_name_text(name: &str, completed: bool) -> RichText {
     let t = RichText::new(name);
-    if completed { t.strikethrough() } else { t }
+    if completed {
+        t.strikethrough()
+    } else {
+        t
+    }
 }
 
 /// ScrollArea sized to half the available height with a per-item unique salt.
@@ -90,7 +94,6 @@ impl State {
         let desc = self.take_time_descr();
         self.item_copy.time_records.handle_record_request(desc);
     }
-
 
     pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
         let mut create_child = false;
@@ -369,28 +372,31 @@ impl State {
         // Without the .max_height it seems to force the button cluster at the
         // bottom half-off the screen, which I don't care for.
         half_height_scroll(ui, self.item_copy.id, "child tasks").show(ui, |ui| {
-                for child in task_vec.iter() {
-                    if !document.tasks.contains_key(child) {
-                        continue;
+            for child in task_vec.iter() {
+                if !document.tasks.contains_key(child) {
+                    continue;
+                }
+                ui.horizontal_wrapped(|ui| {
+                    let text = task_name_text(
+                        &document.tasks[child].name,
+                        document.tasks[child].completed.is_some(),
+                    );
+                    if ui.link(text).clicked() {
+                        *open_task = Some(*child);
                     }
-                    ui.horizontal_wrapped(|ui| {
-                        let text = task_name_text(&document.tasks[child].name, document.tasks[child].completed.is_some());
-                        if ui.link(text).clicked() {
-                            *open_task = Some(*child);
-                        }
-                        let button = ui.button("Remove");
-                        if button.clicked() {
-                            removed_task = Some(*child);
-                        }
-                        if ui.button("scroll to").clicked() {
-                            self.transmitter.send(AppCommand::ScrollTo(*child)).unwrap();
-                        }
-                    });
-                }
-                if let Some(id) = removed_task {
-                    self.item_copy.child_tasks.retain(|x| *x != id);
-                }
-            });
+                    let button = ui.button("Remove");
+                    if button.clicked() {
+                        removed_task = Some(*child);
+                    }
+                    if ui.button("scroll to").clicked() {
+                        self.transmitter.send(AppCommand::ScrollTo(*child)).unwrap();
+                    }
+                });
+            }
+            if let Some(id) = removed_task {
+                self.item_copy.child_tasks.retain(|x| *x != id);
+            }
+        });
     }
     fn show_parents(
         self: &mut State,
@@ -407,21 +413,21 @@ impl State {
         // Without the .max_height it seems to force the button cluster at the
         // bottom half-off the screen, which I don't care for.
         half_height_scroll(ui, self.item_copy.id, "parent tasks").show(ui, |ui| {
-                for &parent in parents.iter() {
-                    ui.horizontal_wrapped(|ui| {
-                        let text = task_name_text(&parent.name, parent.completed.is_some());
-                        if ui.link(text).clicked() {
-                            *open_task = Some(parent.id);
+            for &parent in parents.iter() {
+                ui.horizontal_wrapped(|ui| {
+                    let text = task_name_text(&parent.name, parent.completed.is_some());
+                    if ui.link(text).clicked() {
+                        *open_task = Some(parent.id);
+                    }
+                    if ui.button("Remove").clicked() {
+                        if let Some(mut x) = document.get_task(parent.id).cloned() {
+                            x.remove_child(&self.item_copy);
+                            self.transmitter.send(AppCommand::UpdateTask(x)).unwrap();
                         }
-                        if ui.button("Remove").clicked() {
-                            if let Some(mut x) = document.get_task(parent.id).cloned() {
-                                x.remove_child(&self.item_copy);
-                                self.transmitter.send(AppCommand::UpdateTask(x)).unwrap();
-                            }
-                        }
-                    });
-                }
-            });
+                    }
+                });
+            }
+        });
     }
     fn show_time_records(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) {
         self.time_entry_ui(ui, document);
@@ -478,10 +484,10 @@ impl State {
             ui.horizontal(|ui| {
                 if ui.button("Add new entry").clicked() {
                     let desc = self.take_time_descr();
-                    self.item_copy.time_records.entries.push((
-                        TimeEntry::InstanteousDuration(self.new_time_entry),
-                        desc,
-                    ));
+                    self.item_copy
+                        .time_records
+                        .entries
+                        .push((TimeEntry::InstanteousDuration(self.new_time_entry), desc));
                     self.new_time_entry = TimeDelta::new(0, 0).unwrap();
                 }
                 if ui

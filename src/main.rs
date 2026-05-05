@@ -27,7 +27,6 @@ use std::{
 };
 mod document_layout;
 mod preferences;
-#[cfg(target_arch = "wasm32")]
 mod web_storage;
 use document_layout::*;
 use log::{debug, error};
@@ -753,19 +752,28 @@ impl eframe::App for KanbanRS {
             });
             ui.horizontal(|ui| {
                 ui.label("New task name");
-                ui.text_edit_singleline(&mut self.task_name);
-                if ui.button("Add Task").clicked() {
-                    let mut document = self.document.write();
-                    let thing = document.get_new_task_mut();
-                    thing.name = self.task_name.clone();
-                    self.undo_buffer
-                        .push_back(kanban::undo::UndoItem::Create(CreationEvent {
-                            new_task: thing.clone(),
-                            parent_id: None,
-                        }));
-                    self.layout_cache_needs_updating = true;
-                    self.modified_since_last_saved = true;
-                    self.current_layout.inform_of_new_items();
+                let response = ui.text_edit_singleline(&mut self.task_name);
+                let enter_pressed = response.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                if ui.button("Add Task").clicked() || enter_pressed {
+                    let new_task = {
+                        let mut document = self.document.write();
+                        let thing = document.get_new_task_mut();
+                        thing.name = self.task_name.clone();
+                        let new_task = thing.clone();
+                        self.undo_buffer
+                            .push_back(kanban::undo::UndoItem::Create(CreationEvent {
+                                new_task: new_task.clone(),
+                                parent_id: None,
+                            }));
+                        self.layout_cache_needs_updating = true;
+                        self.modified_since_last_saved = true;
+                        self.current_layout.inform_of_new_items();
+                        new_task
+                    };
+                    self.task_name.clear();
+                    let editor = kanban::editor::state_from(&new_task, self.editor_tx.clone());
+                    self.open_editors.push(Arc::new(RwLock::new(editor)));
                 }
             });
 

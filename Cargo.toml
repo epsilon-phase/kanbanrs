@@ -29,6 +29,9 @@ circular-buffer = "0.1.9"
 log = "0.4.22"
 mimalloc = { version = "*", optional = true }
 
+[dev-dependencies]
+proptest = "1"
+
 [features]
 fast_allocator = ["dep:mimalloc"]
 

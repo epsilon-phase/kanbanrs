@@ -211,8 +211,7 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
     // Hit-test radius around each hand tip
     const HIT_R: f32 = 10.0;
 
-    let (resp, painter) =
-        ui.allocate_painter(Vec2::splat(SIZE), Sense::hover());
+    let (resp, painter) = ui.allocate_painter(Vec2::splat(SIZE), Sense::hover());
     let center = resp.rect.center();
 
     let vis = ui.visuals();
@@ -234,7 +233,9 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
     }
     // Minute tick marks (skip hour positions)
     for tick in 0..60 {
-        if tick % 5 == 0 { continue; }
+        if tick % 5 == 0 {
+            continue;
+        }
         let angle = tick as f32 * std::f32::consts::TAU / 60.0;
         let (sa, ca) = angle.sin_cos();
         let outer = center + Vec2::new(sa, -ca) * RADIUS;
@@ -244,8 +245,8 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
 
     // Hand angles — 12 o'clock is angle 0, clockwise
     let hour_frac = (*h % 12) as f32 / 12.0 + *m as f32 / 720.0;
-    let min_frac  = *m as f32 / 60.0 + *s as f32 / 3600.0;
-    let sec_frac  = *s as f32 / 60.0;
+    let min_frac = *m as f32 / 60.0 + *s as f32 / 3600.0;
+    let sec_frac = *s as f32 / 60.0;
 
     let hand_tip = |frac: f32, len: f32| -> Pos2 {
         let angle = frac * std::f32::consts::TAU;
@@ -254,13 +255,13 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
     };
 
     let hour_tip = hand_tip(hour_frac, HOUR_LEN);
-    let min_tip  = hand_tip(min_frac,  MIN_LEN);
-    let sec_tip  = hand_tip(sec_frac,  SEC_LEN);
+    let min_tip = hand_tip(min_frac, MIN_LEN);
+    let sec_tip = hand_tip(sec_frac, SEC_LEN);
 
     // Draw hands
     painter.line_segment([center, hour_tip], Stroke::new(4.0, hand_color));
-    painter.line_segment([center, min_tip],  Stroke::new(2.5, hand_color));
-    painter.line_segment([center, sec_tip],  Stroke::new(1.5, sec_color));
+    painter.line_segment([center, min_tip], Stroke::new(2.5, hand_color));
+    painter.line_segment([center, sec_tip], Stroke::new(1.5, sec_color));
     // Centre pip
     painter.circle_filled(center, 4.0, hand_color);
 

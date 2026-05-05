@@ -8,6 +8,10 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
+/// The minimum iteration limit for the force directed layout slider.
+const MINIMUM_ITERATIONS: u32 = 10u32;
+/// The maximum iteration limit selected by the slider.
+const MAXIMUM_ITERATIONS: u32 = 5000u32;
 
 ///Preferences to be stored between invocations of the program across
 ///all documents
@@ -106,7 +110,7 @@ impl Preferences {
                     }
                 })
             });
-            ui.horizontal(|ui| {
+            let resp = ui.horizontal(|ui| {
                 let mut enabled = self.autosave.is_some();
                 let mut response = ui.checkbox(&mut enabled, "Enable autosave");
 
@@ -163,14 +167,16 @@ Currently this doesn't do anything");
             ).union(
 
                 ui.horizontal(|ui|{
-                    const MINIMUM_ITERATIONS:u32=10u32;
-                    const MAXIMUM_ITERATIONS:u32=2000u32;
                     ui.add(Slider::new(&mut self.force_max_iteration, MINIMUM_ITERATIONS..=MAXIMUM_ITERATIONS)
                         .text("Maximum force directed layout iterations")
                         .show_value(true))
                 }).inner
-            )
-
+            );
+            #[cfg(target_arch = "wasm32")]
+            if ui.button("Close").clicked() {
+                self.showing_preference = false;
+            }
+            resp
         })
         .inner
     }

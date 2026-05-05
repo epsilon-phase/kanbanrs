@@ -338,7 +338,8 @@ pub fn force_atlas2(
         / n as f32;
     let k = (avg_size * 1.5).max(150.0);
     let t0 = k * 2.0;
-    let cooling = t0 / max_iterations as f32;
+    let t_min = k * 0.005;
+    let decay = (t_min / t0).powf(1.0 / max_iterations as f32);
     const THETA: f32 = 0.5;
     // Terminate early when total node movement per iteration drops below this.
     // 1% of the spring length per node is a tight but reachable threshold.
@@ -489,7 +490,7 @@ pub fn force_atlas2(
             total_movement += clamped;
         }
 
-        temp = (temp - cooling).max(0.0);
+        temp = (temp * decay).max(t_min);
 
         // Update running average and check for convergence.
         energy_window.push_back(total_movement);
@@ -510,6 +511,7 @@ pub fn force_atlas2(
         if energy_window.len() == CONVERGENCE_WINDOW {
             let avg = energy_window.iter().sum::<f32>() / CONVERGENCE_WINDOW as f32;
             if avg < convergence_threshold {
+                log::info!("Layout converged after {} iterations", i);
                 break;
             }
         }
