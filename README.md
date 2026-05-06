@@ -8,15 +8,14 @@ organizing tasks hierarchically, but that isn't necessary for effective task man
 1. Open Kanbanrs
 2. Enter the name of the first task you want to add in the textbox labelled "New task name"
 3. Click "Add Task"
-4. Click "Edit Task" on the new task entry on the column layout.
-5. Edit the description etc as you please
-6. Click add new child, edit attributes as you please
-7. Repeat steps 4-6 as necessary for your task
-8. Optionally click Start recording time when you're working on a given task after selecting
+4. Enter whatever details you want in the editor that opens
+5. Click add new child, edit attributes as you please
+6. Repeat steps 4-6 as necessary for your task
+7. Optionally click Start recording time when you're working on a given task after selecting
    "time tracking" on the task editor
-9. Click stop recording on that task when you're done working on it.
-10. Mark that task completed when it's done.
-11. Save the file, under the "File" menu click "Save" or "Save as"
+8. Click stop recording on that task when you're done working on it.
+9. Mark that task completed when it's done.
+10. Save the file, under the "File" menu click "Save" or "Save as"
 
 Further things for you to try:
 * Customize category styling etc as you please. It is in the "Edit" menu under *Category Style Editor*
