@@ -18,6 +18,7 @@ pub mod focused_layout;
 pub mod force_directed;
 pub mod layout_cache;
 pub mod node_layout;
+pub mod outline_editor;
 pub mod priority_editor;
 pub mod sorting;
 pub mod time_tracking;
@@ -567,6 +568,8 @@ pub enum AppCommand {
     OpenTask(KanbanItem),
     /// Create a new child task on this one
     CreateChildOf(KanbanId),
+    /// Create a new task as a sibling of the given task
+    CreateSiblingOf(KanbanId),
     /// Create a new task as a child (parent, new_child) — sent from an editor viewport
     CreateTask(KanbanItem, KanbanItem),
     /// Replace a task in the document with an updated version

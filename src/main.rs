@@ -8,9 +8,9 @@ use eframe::egui::{
 };
 use kanban::{
     category_editor::State, filter::KanbanFilter, node_layout::NodeLayout,
-    priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
-    sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand,
-    KanbanDocument, KanbanId,
+    outline_editor::OutlineEditor, priority_editor::PriorityEditor, queue_view::QueueState,
+    search::SearchState, sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent,
+    AppCommand, KanbanDocument, KanbanId,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -141,6 +141,8 @@ enum StartupLayout {
     Column,
     ///Converted into the TreeLayout
     TreeOutline,
+    ///Converted into the Outline Editor
+    Outline,
     ///Converted into the QueueLayout
     Queue,
     ///Converted into the SearchLayout
@@ -164,6 +166,9 @@ impl From<StartupLayout> for KanbanDocumentLayout {
             StartupLayout::Queue => KanbanDocumentLayoutType::Queue(QueueState::new()),
             StartupLayout::Search => KanbanDocumentLayoutType::Search(SearchState::new()),
             StartupLayout::TreeOutline => KanbanDocumentLayoutType::TreeOutline(TreeOutline::new()),
+            StartupLayout::Outline => {
+                KanbanDocumentLayoutType::OutlineEditor(OutlineEditor::new())
+            }
             StartupLayout::NotSelected => KanbanDocumentLayoutType::Unloaded,
         };
         Self {
@@ -728,6 +733,21 @@ impl eframe::App for KanbanRS {
                         {
                             self.layout_cache_needs_updating = true;
                         }
+                        if ui
+                            .selectable_value(
+                                &mut self.current_layout,
+                                KanbanDocumentLayout {
+                                    layout: KanbanDocumentLayoutType::OutlineEditor(
+                                        OutlineEditor::new(),
+                                    ),
+                                    scroll_to: None,
+                                },
+                                "Outline Editor",
+                            )
+                            .clicked()
+                        {
+                            self.layout_cache_needs_updating = true;
+                        }
                         ui.selectable_value(
                             &mut self.current_layout,
                             KanbanDocumentLayout {
@@ -794,6 +814,10 @@ impl eframe::App for KanbanRS {
                     &mut self.hovered_task,
                     &self.current_layout.scroll_to,
                 )
+            } else if let KanbanDocumentLayoutType::OutlineEditor(_) =
+                &mut self.current_layout.layout
+            {
+                self.layout_outline_editor(ui);
             } else if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout
             {
                 self.layout_cache_needs_updating |=
@@ -1051,6 +1075,42 @@ impl KanbanRS {
                     .push_back(self.document.write().replace_task(&task_copy));
                 self.record_undo(child_creation);
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
+                self.layout_cache_needs_updating = true;
+                self.modified_since_last_saved = true;
+                self.current_layout.inform_of_new_items();
+            }
+            AppCommand::CreateSiblingOf(id) => {
+                // Find a parent of the current task.
+                let parent_id = self
+                    .document
+                    .read()
+                    .get_tasks()
+                    .find(|t| t.child_tasks.contains(&id))
+                    .map(|t| t.id);
+                let new_task = {
+                    let mut document = self.document.write();
+                    let new_task = document.get_new_task();
+                    document.replace_task(&new_task);
+                    new_task
+                };
+                if let Some(parent_id) = parent_id {
+                    let mut parent = self.document.read().get_task(parent_id).unwrap().clone();
+                    parent.add_child(&new_task);
+                    let undo = self.document.write().replace_task(&parent);
+                    self.record_undo(undo);
+                }
+                self.record_undo(kanban::undo::UndoItem::Create(
+                    kanban::undo::CreationEvent {
+                        new_task: new_task.clone(),
+                        parent_id,
+                    },
+                ));
+                // If in outline editor, focus the new task's name field.
+                if let KanbanDocumentLayoutType::OutlineEditor(ref mut outline) =
+                    self.current_layout.layout
+                {
+                    outline.focus_new_task(new_task.id, &self.document.read());
+                }
                 self.layout_cache_needs_updating = true;
                 self.modified_since_last_saved = true;
                 self.current_layout.inform_of_new_items();

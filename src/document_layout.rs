@@ -16,6 +16,8 @@ pub enum KanbanDocumentLayoutType {
     Focused(kanban::focused_layout::Focus),
     ///The Tree Outline state
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
+    ///The Outline Editor state
+    OutlineEditor(kanban::outline_editor::OutlineEditor),
     ///The node layout
     NodeLayout(kanban::node_layout::NodeLayout),
     ///Placeholder to be loaded later
@@ -30,6 +32,7 @@ impl std::fmt::Debug for KanbanDocumentLayoutType {
             Self::Search(_) => "Search",
             Self::Focused(_) => "Focused",
             Self::TreeOutline(_) => "Tree Outline",
+            Self::OutlineEditor(_) => "Outline Editor",
             Self::NodeLayout(_) => "Node",
             Self::Unloaded => "Unloaded",
         })
@@ -56,6 +59,9 @@ impl PartialEq for KanbanDocumentLayout {
             }
             KanbanDocumentLayoutType::TreeOutline(_) => {
                 matches!(other.layout, KanbanDocumentLayoutType::TreeOutline(_))
+            }
+            KanbanDocumentLayoutType::OutlineEditor(_) => {
+                matches!(other.layout, KanbanDocumentLayoutType::OutlineEditor(_))
             }
             KanbanDocumentLayoutType::NodeLayout(_) => {
                 matches!(other.layout, KanbanDocumentLayoutType::NodeLayout(_))
@@ -114,6 +120,10 @@ impl KanbanDocumentLayout {
             KanbanDocumentLayoutType::TreeOutline(tree) => {
                 tree.update(document, *sort, filter);
             }
+            KanbanDocumentLayoutType::OutlineEditor(_) => {
+                // The outline editor renders directly from the document
+                // with live sorting/filtering during show().
+            }
             KanbanDocumentLayoutType::NodeLayout(nl) => {
                 nl.update(document, style, filter, sort);
             }
@@ -152,6 +162,7 @@ impl From<&KanbanDocumentLayout> for String {
             KanbanDocumentLayoutType::Search(_) => "Search",
             KanbanDocumentLayoutType::Focused(_) => "Focus",
             KanbanDocumentLayoutType::TreeOutline(_) => "Tree outline",
+            KanbanDocumentLayoutType::OutlineEditor(_) => "Outline Editor",
             KanbanDocumentLayoutType::NodeLayout(_) => "Node outline",
             KanbanDocumentLayoutType::Unloaded => "You shouldn't see this",
         }
@@ -242,6 +253,21 @@ impl KanbanRS {
             );
         }
     }
+    pub fn layout_outline_editor(&mut self, ui: &mut egui::Ui) {
+        if let KanbanDocumentLayoutType::OutlineEditor(outline) = &mut self.current_layout.layout {
+            let doc = self.document.read();
+            outline.show(
+                ui,
+                &doc,
+                &mut self.pending_commands,
+                &self.current_layout.scroll_to,
+                self.sorting_type,
+                &self.filter,
+            );
+            self.current_layout.scroll_to = None;
+        }
+    }
+
     pub fn layout_focused(&mut self, ui: &mut egui::Ui) {
         if let KanbanDocumentLayoutType::Focused(focus) = &mut self.current_layout.layout {
             ui.columns(3, |columns| {
