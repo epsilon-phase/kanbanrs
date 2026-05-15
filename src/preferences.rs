@@ -37,6 +37,9 @@ pub struct Preferences {
     #[serde(default = "Preferences::default_force_iterations")]
     pub force_max_iteration: u32,
     pub template: KanbanDocument,
+    ///File to open automatically on startup (native only)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub auto_open_file: Option<String>,
 }
 lazy_static! {
     pub static ref PREFERENCES: Arc<RwLock<Preferences>> =
@@ -49,7 +52,11 @@ impl Preferences {
     fn default_force_iterations() -> u32 {
         250
     }
-    pub fn show_ui(&mut self, ui: &mut Ui) -> Response {
+    pub fn show_ui(
+        &mut self,
+        ui: &mut Ui,
+        #[cfg(not(target_arch = "wasm32"))] recents: &[String],
+    ) -> Response {
         if self.category_editor_state.open {
             let mut open = true;
             egui::Window::new("Template Category Editor")
@@ -150,7 +157,37 @@ Currently this doesn't do anything");
                             ui.selectable_value(&mut self.startup_layout, StartupLayout::TreeOutline, "Tree Outline");
                         }).response
                 }).inner
-            ).union(
+            )
+            .union(
+                {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        ui.horizontal(|ui| {
+                            let selected = self.auto_open_file.clone().unwrap_or_default();
+                            let text = if selected.is_empty() { "None".to_owned() } else { selected.clone() };
+                            ComboBox::new("AutoOpenFile", "Auto-open file")
+                                .selected_text(&text)
+                                .show_ui(ui, |ui| {
+                                    if ui.selectable_label(self.auto_open_file.is_none(), "None").clicked() {
+                                        self.auto_open_file = None;
+                                    }
+                                    for recent in recents {
+                                        let is_selected = self.auto_open_file.as_ref() == Some(recent);
+                                        if ui.selectable_label(is_selected, recent).clicked() {
+                                            self.auto_open_file = Some(recent.clone());
+                                        }
+                                    }
+                                })
+                                .response
+                        }).inner
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        ui.allocate_response(egui::Vec2::ZERO, egui::Sense::hover())
+                    }
+                }
+            )
+            .union(
                 ui.horizontal(|ui|{
                     ui.label("Node width");
                     let resp = ui.add(DragValue::new(&mut self.node_width).range(25..=120));

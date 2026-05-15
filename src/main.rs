@@ -784,7 +784,19 @@ impl eframe::App for KanbanRS {
                     egui::Window::new("Preferences")
                         .open(&mut open)
                         .show(ui, |ui| {
-                            preferences.show_ui(ui);
+                            #[cfg(not(target_arch = "wasm32"))]
+                            {
+                                let recents: Vec<String> = self
+                                    .read_recents()
+                                    .iter()
+                                    .map(|p| p.to_string_lossy().to_string())
+                                    .collect();
+                                preferences.show_ui(ui, &recents);
+                            }
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                preferences.show_ui(ui);
+                            }
                         });
                     if !open {
                         preferences.showing_preference = false;
@@ -852,6 +864,17 @@ impl KanbanRS {
                     self.document.write().collect_tags();
                     self.web.document_name = restored_name;
                     return;
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let auto_open = self.preferences.read().auto_open_file.clone();
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.document.read().is_empty() {
+            if let Some(path) = auto_open {
+                let p = PathBuf::from(path);
+                if p.exists() {
+                    self.open_file(&p);
                 }
             }
         }
