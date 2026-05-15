@@ -14,8 +14,6 @@ pub struct State {
     pub cancelled: bool,
     ///The copy of the item being edited
     pub item_copy: super::KanbanItem,
-    ///The unique id of the editor
-    pub viewport_id: egui::ViewportId,
     ///The id of the selected child
     selected_child: Option<KanbanId>,
     ///A tag's name that is being edited, but has not yet been entered
@@ -56,7 +54,6 @@ pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
         new_time_entry: TimeDelta::new(0, 0).unwrap(),
         time_entry_under_edit: None,
         transmitter: tx,
-        viewport_id: egui::ViewportId::from_hash_of(item.id),
         editing_category: false,
         show_time_rec_modal: false,
     }
@@ -106,13 +103,7 @@ impl State {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Name");
-                    if ui.text_edit_singleline(&mut self.item_copy.name).changed() {
-                        ui.ctx()
-                            .send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                                "Editing '{}'",
-                                self.item_copy.name
-                            )))
-                    }
+                    ui.text_edit_singleline(&mut self.item_copy.name);
                     if ui.button("Scroll to").clicked() {
                         self.transmitter
                             .send(AppCommand::ScrollTo(self.item_copy.id))
@@ -280,13 +271,7 @@ impl State {
                             // dummy task with only the id set
                             delete_task = Some(self.item_copy.clone());
                         }
-                        if accept_button
-                            .union(delete_button)
-                            .union(cancel_button)
-                            .clicked()
-                        {
-                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
+
                         if ui.button("Apply").clicked() {
                             update_task = true;
                         }

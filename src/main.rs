@@ -13,10 +13,7 @@ use kanban::{
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::{
-    borrow::BorrowMut,
-    sync::{mpsc, Arc},
-};
+use std::sync::{mpsc, Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use std::{
     fs,
@@ -625,46 +622,22 @@ impl eframe::App for KanbanRS {
                         ui.menu_button("Task editors", |ui| {
                             // Snapshot display info before UI callbacks to avoid holding a
                             // read lock while close handling needs a write lock.
-                            let editor_info: Vec<(String, egui::ViewportId, KanbanId)> = self
+                            let editor_info: Vec<(String, KanbanId)> = self
                                 .open_editors
                                 .iter()
                                 .map(|e| {
                                     let r = e.read();
-                                    (r.item_copy.name.clone(), r.viewport_id, r.item_copy.id)
+                                    (r.item_copy.name.clone(), r.item_copy.id)
                                 })
                                 .collect();
-                            for (name, viewport_id, task_id) in editor_info {
+                            for (name, task_id) in editor_info {
                                 ui.horizontal(|ui| {
-                                    if ui.button(&name).clicked() {
-                                        #[cfg(not(target_arch = "wasm32"))]
-                                        {
-                                            ctx.send_viewport_cmd_to(
-                                                viewport_id,
-                                                egui::ViewportCommand::Focus,
-                                            );
-                                            ctx.send_viewport_cmd_to(
-                                                viewport_id,
-                                                ViewportCommand::RequestUserAttention(
-                                                    egui::UserAttentionType::Critical,
-                                                ),
-                                            );
-                                            ctx.request_repaint_of(viewport_id);
-                                        }
-                                        ui.close();
-                                    }
-                                    ui.separator();
                                     if ui.button("Close").clicked() {
-                                        #[cfg(not(target_arch = "wasm32"))]
-                                        ctx.send_viewport_cmd_to(
-                                            viewport_id,
-                                            ViewportCommand::Close,
-                                        );
-                                        // Queue close so the write lock is acquired outside
-                                        // the viewport render loop (avoids deadlock on WASM
-                                        // where viewports are embedded and run synchronously).
                                         self.pending_commands.push(AppCommand::CloseEditor(task_id));
                                         ui.close();
                                     }
+                                    ui.separator();
+                                    ui.label(&name);
                                 });
                             }
                         });
@@ -812,29 +785,18 @@ impl eframe::App for KanbanRS {
                 self.handle_command(AppCommand::UpdateTask(item));
             }
             self.open_editors.retain(|editor| editor.read().open);
-            for editor in self.open_editors.iter_mut() {
-                let viewport_id = ui.ctx().viewport_id();
-                let document = self.document.clone();
-                let editor = editor.clone();
-                let id = editor.read().viewport_id;
-                let window_title = format!("Editing '{}'", editor.read().item_copy.name);
-                ui.ctx().show_viewport_deferred(
-                    id,
-                    egui::ViewportBuilder::default()
-                        .with_window_type(egui::X11WindowType::Dialog)
-                        .with_title(&window_title),
-                    move |ui, _class| {
-                        let ctx = ui.ctx().clone();
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            editor.write().open = false;
-                        }
-                        egui::CentralPanel::default().show_inside(ui, |ui| {
-                            if editor.write().borrow_mut().editor(ui, &document.read()) {
-                                ctx.request_repaint_of(viewport_id);
-                            }
-                        });
-                    },
-                );
+            let document = self.document.clone();
+            for editor in &self.open_editors {
+                let title = format!("Editing '{}'", editor.read().item_copy.name);
+                let id = editor.read().item_copy.id;
+                if let Some(inner) = egui::Window::new(&title)
+                    .id(egui::Id::new(id))
+                    .show(ui, |ui| editor.write().editor(ui, &document.read()))
+                {
+                    if inner.inner.unwrap_or(false) {
+                        ui.ctx().request_repaint();
+                    }
+                }
             }
             self.messages.retain(|x| {
                 let mut keep = true;
