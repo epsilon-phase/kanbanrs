@@ -15,7 +15,7 @@ const MAXIMUM_ITERATIONS: u32 = 5000u32;
 
 ///Preferences to be stored between invocations of the program across
 ///all documents
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Preferences {
     ///Does nothing right now, not sure it ever will.
     pub store_undo_history_for_files: bool,
@@ -40,17 +40,44 @@ pub struct Preferences {
     ///File to open automatically on startup (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub auto_open_file: Option<String>,
+    ///Use dark or light egui visuals
+    #[serde(default = "Preferences::default_dark_mode")]
+    pub dark_mode: bool,
 }
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            store_undo_history_for_files: false,
+            autosave: Some(Duration::from_secs(60)),
+            showing_preference: false,
+            category_editor_state: category_editor::State::default(),
+            priority_editor_state: PriorityEditor::default(),
+            startup_layout: StartupLayout::default(),
+            node_width: Self::default_node_width(),
+            force_max_iteration: Self::default_force_iterations(),
+            template: KanbanDocument::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            auto_open_file: None,
+            dark_mode: Self::default_dark_mode(),
+        }
+    }
+}
+
 lazy_static! {
     pub static ref PREFERENCES: Arc<RwLock<Preferences>> =
         Arc::new(RwLock::new(Preferences::default()));
 }
+
 impl Preferences {
     fn default_node_width() -> usize {
         50
     }
     fn default_force_iterations() -> u32 {
         250
+    }
+    fn default_dark_mode() -> bool {
+        true
     }
     pub fn show_ui(
         &mut self,
@@ -156,6 +183,19 @@ Currently this doesn't do anything");
                             ui.selectable_value(&mut self.startup_layout, StartupLayout::Node, "Node");
                             ui.selectable_value(&mut self.startup_layout, StartupLayout::TreeOutline, "Tree Outline");
                         }).response
+                }).inner
+            )
+            .union(
+                ui.horizontal(|ui| {
+                    let resp = ui.checkbox(&mut self.dark_mode, "Dark mode");
+                    if resp.changed() {
+                        ui.ctx().set_visuals(if self.dark_mode {
+                            egui::Visuals::dark()
+                        } else {
+                            egui::Visuals::light()
+                        });
+                    }
+                    resp
                 }).inner
             )
             .union(

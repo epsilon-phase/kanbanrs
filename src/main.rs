@@ -213,6 +213,12 @@ fn main() {
             install_fonts(&cc.egui_ctx);
             let mut app = Box::new(app);
             app.initialize_preferences(cc.storage.unwrap());
+            cc.egui_ctx
+                .set_visuals(if app.preferences.read().dark_mode {
+                    egui::Visuals::dark()
+                } else {
+                    egui::Visuals::light()
+                });
             Ok(app)
         }),
     ) {
@@ -244,6 +250,12 @@ fn main() {
                     if let Some(storage) = cc.storage {
                         app.initialize_preferences(storage);
                     }
+                    cc.egui_ctx
+                        .set_visuals(if app.preferences.read().dark_mode {
+                            egui::Visuals::dark()
+                        } else {
+                            egui::Visuals::light()
+                        });
                     Ok(Box::new(app))
                 }),
             )
