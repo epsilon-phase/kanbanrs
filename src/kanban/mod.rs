@@ -193,15 +193,11 @@ impl KanbanDocument {
                 new_task: item.clone(),
             })
         };
-        if item.category.is_some()
-            && !self
-                .categories
-                .contains_key(item.category.as_ref().unwrap())
-        {
-            self.categories.insert(
-                item.category.as_ref().unwrap().clone(),
-                KanbanCategoryStyle::default(),
-            );
+        if let Some(category) = &item.category {
+            if !self.categories.contains_key(category) {
+                self.categories
+                    .insert(category.clone(), KanbanCategoryStyle::default());
+            }
         }
         self.collect_tags_from_item(item.id);
         result
@@ -606,8 +602,8 @@ impl KanbanItem {
         let mut stroke = style.noninteractive().bg_stroke;
         let mut name_color = style.text_color();
         // Get the custom color for the category
-        if self.category.is_some() {
-            if let Some(category_style) = document.categories.get(self.category.as_ref().unwrap()) {
+        if let Some(category) = &self.category {
+            if let Some(category_style) = document.categories.get(category) {
                 category_style.apply_to(&mut stroke, &mut panel_fill, &mut name_color);
             }
         }

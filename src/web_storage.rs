@@ -48,6 +48,7 @@ pub fn delete_document(name: &str) {
 
 // ── Tree ─────────────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 pub struct DocTreeNode {
     pub name: String,
     /// Full slash-separated path (e.g. "work/project-alpha"). For folders this
@@ -57,6 +58,7 @@ pub struct DocTreeNode {
     pub is_file: bool,
 }
 
+#[allow(dead_code)]
 pub fn build_tree(names: &[String]) -> Vec<DocTreeNode> {
     let mut roots = Vec::new();
     for name in names {
@@ -66,6 +68,7 @@ pub fn build_tree(names: &[String]) -> Vec<DocTreeNode> {
     roots
 }
 
+#[allow(dead_code)]
 pub(crate) fn flatten_tree(nodes: &[DocTreeNode]) -> Vec<String> {
     let mut result = Vec::new();
     for node in nodes {
@@ -79,6 +82,7 @@ pub(crate) fn flatten_tree(nodes: &[DocTreeNode]) -> Vec<String> {
     result
 }
 
+#[allow(dead_code)]
 fn insert_node(nodes: &mut Vec<DocTreeNode>, parts: &[&str], full_path: &str, path_prefix: &str) {
     if parts.is_empty() {
         return;

@@ -1139,7 +1139,7 @@ fn prepare_node_display(
 
     let (wrapped, size) = NAME_BUFFER.with_borrow_mut(|buffer| {
         let n = text.chars().count() as f32;
-        let col = ((n * LINE_H / CHAR_W).sqrt() as usize).max(6).min(40);
+        let col = ((n * LINE_H / CHAR_W).sqrt() as usize).clamp(6, 40);
         wrap_string(buffer, &text, col);
         let n_lines = buffer.lines().count().max(1) as f32;
         let max_chars = buffer

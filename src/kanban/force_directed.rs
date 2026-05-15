@@ -190,7 +190,7 @@ impl QuadTree {
 // Layout algorithm — initialisation helpers
 
 /// Gram-Schmidt orthogonalise `v` against each vector in `basis`, then normalise in place.
-fn orth_normalize(v: &mut Vec<f32>, basis: &[Vec<f32>]) {
+fn orth_normalize(v: &mut [f32], basis: &[Vec<f32>]) {
     for b in basis {
         let proj: f32 = v.iter().zip(b).map(|(x, y)| x * y).sum();
         v.iter_mut().zip(b).for_each(|(x, y)| *x -= proj * y);
@@ -283,7 +283,14 @@ fn spectral_init(
 
     // Fiedler vector — 2nd smallest eigenvector of L (1st non-trivial).
     let v1_init: Vec<f32> = (0..n).map(|i| (i as f32 + 0.5) / n as f32 - 0.5).collect();
-    let v1 = power_iter(&adj, &degree, mu_max, &[trivial.clone()], v1_init, 80);
+    let v1 = power_iter(
+        &adj,
+        &degree,
+        mu_max,
+        std::slice::from_ref(&trivial),
+        v1_init,
+        80,
+    );
 
     // 3rd eigenvector — orthogonal to both the trivial vector and v1.
     let v2_init: Vec<f32> = (0..n)

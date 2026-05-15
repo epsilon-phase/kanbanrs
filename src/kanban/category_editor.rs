@@ -104,8 +104,8 @@ impl State {
                     //Outline width
                     ui.group(|ui| {
                         ui.label("Outline thickness");
-                        if self.style.panel_stroke_width.is_some() {
-                            egui::Slider::new(self.style.panel_stroke_width.as_mut().unwrap(), 0.5..=12.)
+                        if let Some(width) = &mut self.style.panel_stroke_width {
+                            egui::Slider::new(width, 0.5..=12.)
                                 .ui(ui);
                         } else if ui.button("Set stroke width").clicked() {
                             self.style.panel_stroke_width =

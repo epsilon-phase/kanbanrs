@@ -7,10 +7,9 @@ use eframe::egui::{
     self, ComboBox, Modifiers, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand,
 };
 use kanban::{
-    category_editor::State, filter::KanbanFilter, node_layout::NodeLayout,
-    priority_editor::PriorityEditor, queue_view::QueueState, search::SearchState,
-    sorting::ItemSort, tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand,
-    KanbanDocument, KanbanId,
+    category_editor::State, filter::KanbanFilter, priority_editor::PriorityEditor,
+    queue_view::QueueState, search::SearchState, sorting::ItemSort,
+    tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand, KanbanDocument, KanbanId,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -160,7 +159,7 @@ impl From<StartupLayout> for KanbanDocumentLayout {
             StartupLayout::Column => {
                 KanbanDocumentLayoutType::Columnar([Vec::new(), Vec::new(), Vec::new()])
             }
-            StartupLayout::Node => KanbanDocumentLayoutType::NodeLayout(NodeLayout::new()),
+            StartupLayout::Node => KanbanDocumentLayoutType::NodeLayout(Box::default()),
             StartupLayout::Queue => KanbanDocumentLayoutType::Queue(QueueState::new()),
             StartupLayout::Search => KanbanDocumentLayoutType::Search(SearchState::new()),
             StartupLayout::TreeOutline => KanbanDocumentLayoutType::TreeOutline(TreeOutline::new()),
@@ -731,7 +730,7 @@ impl eframe::App for KanbanRS {
                         ui.selectable_value(
                             &mut self.current_layout,
                             KanbanDocumentLayout {
-                                layout: KanbanDocumentLayoutType::NodeLayout(NodeLayout::new()),
+                                layout: KanbanDocumentLayoutType::NodeLayout(Box::default()),
                                 scroll_to: None,
                             },
                             "Node",

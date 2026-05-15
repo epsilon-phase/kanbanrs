@@ -89,16 +89,11 @@ impl ItemSort {
     }
 }
 pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Ordering {
-    if a.completed.is_some() {
-        if b.completed.is_some() {
-            a.completed.unwrap().cmp(b.completed.as_ref().unwrap())
-        } else {
-            Ordering::Greater
-        }
-    } else if b.completed.is_some() {
-        Ordering::Less
-    } else {
-        Ordering::Equal
+    match (&a.completed, &b.completed) {
+        (Some(a_completed), Some(b_completed)) => a_completed.cmp(b_completed),
+        (Some(_), None) => Ordering::Greater,
+        (None, Some(_)) => Ordering::Less,
+        (None, None) => Ordering::Equal,
     }
 }
 pub fn sort_completed_last(document: &KanbanDocument, ids: &mut [KanbanId]) {

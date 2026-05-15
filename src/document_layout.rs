@@ -17,7 +17,7 @@ pub enum KanbanDocumentLayoutType {
     ///The Tree Outline state
     TreeOutline(kanban::tree_outline_layout::TreeOutline),
     ///The node layout
-    NodeLayout(kanban::node_layout::NodeLayout),
+    NodeLayout(Box<kanban::node_layout::NodeLayout>),
     ///Placeholder to be loaded later
     Unloaded,
 }

@@ -21,31 +21,22 @@ impl<'a> DateTimePicker<'a> {
     }
 
     pub fn show(self, ui: &mut Ui) -> egui::Response {
-        let popup_id = self.id.with("popup");
         let local = self.value.naive_utc();
 
         let button_text = local.format("%Y-%m-%d  %H:%M:%S").to_string();
         let button_resp = ui.button(RichText::new(button_text).monospace());
 
-        if button_resp.clicked() {
-            ui.memory_mut(|m| m.toggle_popup(popup_id));
-        }
-
         let mut changed = false;
-        egui::popup_below_widget(
-            ui,
-            popup_id,
-            &button_resp,
-            egui::PopupCloseBehavior::CloseOnClickOutside,
-            |ui: &mut Ui| {
+        egui::Popup::from_toggle_button_response(&button_resp)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show(|ui: &mut Ui| {
                 ui.set_min_width(220.0);
                 egui::ScrollArea::vertical()
                     .max_height(500.0)
                     .show(ui, |ui| {
                         changed = show_calendar_and_time(ui, self.id, self.value);
                     });
-            },
-        );
+            });
 
         if changed {
             // Return a response that signals change; reuse button response id area.
@@ -71,10 +62,6 @@ fn show_calendar_and_time(ui: &mut Ui, id: Id, dt: &mut chrono::DateTime<Utc>) -
     // Persist the month/year the calendar is currently browsing separately
     // from the selected value so the user can navigate without changing dt.
     let (mut view_year, mut view_month) = ui.memory_mut(|m| {
-        *m.data
-            .get_temp_mut_or_insert_with(nav_year_id, || local.year()) as i32;
-        *m.data
-            .get_temp_mut_or_insert_with(nav_month_id, || local.month()) as u32;
         (
             *m.data
                 .get_temp_mut_or_insert_with(nav_year_id, || local.year()),
@@ -155,7 +142,7 @@ fn show_calendar_and_time(ui: &mut Ui, id: Id, dt: &mut chrono::DateTime<Utc>) -
                 }
 
                 col += 1;
-                if col % 7 == 0 {
+                if col.is_multiple_of(7) {
                     ui.end_row();
                 }
             }
