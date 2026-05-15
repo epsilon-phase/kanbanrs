@@ -36,8 +36,11 @@ pub enum Status {
     Ready,
 }
 ///A kanban document
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct KanbanDocument {
+    ///File format version for forward compatibility
+    #[serde(default = "default_version")]
+    version: u32,
     ///An association between task ids and items
     tasks: BTreeMap<KanbanId, KanbanItem>,
     ///An association of priorities and their value
@@ -50,6 +53,10 @@ pub struct KanbanDocument {
     tags: BTreeSet<String>,
     ///The id the next task will be created with.
     next_id: RwLock<KanbanId>,
+}
+
+fn default_version() -> u32 {
+    1
 }
 impl PartialEq for KanbanDocument {
     fn eq(&self, other: &Self) -> bool {
@@ -65,15 +72,23 @@ impl Clone for KanbanDocument {
         r
     }
     fn clone_from(&mut self, source: &Self) {
+        self.version = source.version;
         self.tasks = source.tasks.clone();
         self.categories = source.categories.clone();
         self.priorities = source.priorities.clone();
         *self.next_id.write() = *source.next_id.read();
     }
 }
+impl Default for KanbanDocument {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KanbanDocument {
     pub fn new() -> Self {
         KanbanDocument {
+            version: 1,
             tasks: BTreeMap::new(),
             priorities: HashMap::from([
                 ("High".to_owned(), 10),
@@ -320,7 +335,7 @@ impl KanbanDocument {
 
 impl KanbanDocument {
     pub fn is_empty(&self) -> bool {
-        self.categories.is_empty() && self.tasks.is_empty() && self.priorities.is_empty()
+        self.tasks.is_empty()
     }
 
     /// Produce a vertical layout scrolling downwards.

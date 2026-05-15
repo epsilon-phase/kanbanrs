@@ -819,15 +819,17 @@ impl eframe::App for KanbanRS {
     }
     fn save(&mut self, _storage: &mut dyn eframe::Storage) {
         log::debug!("Save function called");
-        _storage.set_string(
-            "preferences",
-            serde_json::to_string(&*self.preferences.read()).unwrap(),
-        );
+        if let Ok(prefs) = serde_json::to_string(&*self.preferences.read()) {
+            _storage.set_string("preferences", prefs);
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
-        if self.preferences.read().autosave.is_some() && self.save_file_name.is_some() {
-            log::info!("Saving file");
-            self.save_file(false)
+        {
+            self.write_recovery();
+            if self.preferences.read().autosave.is_some() && self.save_file_name.is_some() {
+                log::info!("Saving file");
+                self.save_file(false);
+            }
         }
 
         #[cfg(target_arch = "wasm32")]
@@ -888,6 +890,23 @@ impl KanbanRS {
                 if p.exists() {
                     self.open_file(&p);
                 }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.document.read().is_empty() {
+            let recovery_path = self
+                .base_dirs
+                .find_cache_file("recovery.kan")
+                .unwrap_or_else(|| {
+                    std::env::var_os("LOCALAPPDATA")
+                        .map(PathBuf::from)
+                        .map(|p| p.join("kanbanrs").join("recovery.kan"))
+                        .unwrap_or_default()
+                });
+            if recovery_path.exists() {
+                self.messages
+                    .push("Restored from recovery file — save to a named file to keep".to_string());
+                self.open_file(&recovery_path);
             }
         }
         if self.document.read().is_empty() {
@@ -1106,10 +1125,12 @@ impl KanbanRS {
         #[cfg(unix)]
         return self.base_dirs.find_state_file("recent");
         #[cfg(windows)]
-        if fs::exists("~/Application Data/Roaming/kanbanrs/recents").unwrap() {
-            Some(PathBuf::from("~/Application Data/Roaming/kanbanrs/recents"))
-        } else {
-            None
+        {
+            let path = std::env::var_os("APPDATA")
+                .map(PathBuf::from)?
+                .join("kanbanrs")
+                .join("recent");
+            path.exists().then_some(path)
         }
     }
 
@@ -1119,47 +1140,51 @@ impl KanbanRS {
         return self.base_dirs.place_state_file("recent");
         #[cfg(windows)]
         {
-            if !fs::exists("~/Application Data/Roaming/kanbanrs/").unwrap() {
-                fs::create_dir("~/Application Data/Roaming/kanbanrs").unwrap();
+            let dir = std::env::var_os("APPDATA")
+                .map(PathBuf::from)
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no APPDATA"))?
+                .join("kanbanrs");
+            if !dir.exists() {
+                fs::create_dir_all(&dir)?;
             }
-            if !fs::exists("~/Application Data/Roaming/kanbanrs/recent").unwrap() {
-                fs::File::create("~/Application Data/Roaming/kanbanrs/recent")?;
+            let path = dir.join("recent");
+            if !path.exists() {
+                fs::File::create(&path)?;
             }
-            Ok("~/Application Data/Roaming/kanbanrs/recent".into())
+            Ok(path)
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn read_recents(&self) -> Vec<PathBuf> {
-        let recents_file = self.get_recents_file();
-        if recents_file.is_none() {
+        let Some(recents_file) = self.get_recents_file() else {
             return Vec::new();
-        }
-        let recents_file = recents_file.unwrap();
+        };
         std::fs::read_to_string(recents_file)
-            .unwrap_or("".to_string())
-            .split("\n")
+            .unwrap_or_default()
+            .split('\n')
             .filter(|x| !x.is_empty())
             .map(|x| x.into())
             .collect()
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn write_recents(&self) {
-        let recents_file = self
-            .place_recents_file()
-            .expect("Could not create recents file");
-        if !std::fs::exists(&recents_file).unwrap() {
-            if let Err(x) = std::fs::File::create(&recents_file) {
-                error!("Failed to open file with error '{x}'");
+        let Some(save_path) = self.save_file_name.as_ref() else {
+            return;
+        };
+        let recents_file = match self.place_recents_file() {
+            Ok(p) => p,
+            Err(e) => {
+                error!("Could not place recents file: {e}");
+                return;
             }
-        }
+        };
+        let pb = save_path.to_string_lossy().to_string();
         let mut old_recents: Vec<String> = std::fs::read_to_string(&recents_file)
-            .unwrap()
+            .unwrap_or_default()
             .split('\n')
-            .filter(|x| x.len() > 1)
+            .filter(|x| !x.is_empty())
             .map(String::from)
             .collect();
-        let pb: String = String::from(self.save_file_name.as_ref().unwrap().to_str().unwrap());
-        // If the file is already in recents then we should avoid adding it.
         if old_recents.contains(&pb) {
             return;
         }
@@ -1170,29 +1195,48 @@ impl KanbanRS {
             old_recents.push(pb);
             old_recents.rotate_right(1);
         }
-        if let Err(x) = std::fs::write(recents_file, old_recents.join("\n")) {
-            error!("{x}");
-            std::process::abort();
+        if let Err(e) = std::fs::write(recents_file, old_recents.join("\n")) {
+            error!("Failed to write recents: {e}");
         }
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn open_file(&mut self, path: &PathBuf) {
-        let file = fs::File::open(path);
-        if let Err(x) = file {
-            self.messages.push(x.to_string());
-            return;
-        }
-        let file = file.unwrap();
-        let read_result = serde_json::from_reader(file);
-        if let Err(x) = read_result {
-            self.messages.push(x.to_string());
-        } else if let Ok(read_result) = read_result {
-            *self.document.write() = read_result;
-        }
-
+        let file = match fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                self.messages.push(format!("Open failed: {e}"));
+                return;
+            }
+        };
+        let doc: KanbanDocument = match serde_json::from_reader(file) {
+            Ok(d) => d,
+            Err(e) => {
+                self.messages.push(format!("Open failed: {e}"));
+                return;
+            }
+        };
+        *self.document.write() = doc;
         self.document.write().collect_tags();
         self.open_editors.clear();
         self.save_file_name = Some(path.into());
+    }
+
+    fn write_recovery(&self) {
+        let Ok(json) = serde_json::to_string(&*self.document.read()) else {
+            return;
+        };
+        #[cfg(unix)]
+        let recovery_path = self.base_dirs.place_cache_file("recovery.kan").ok();
+        #[cfg(windows)]
+        let recovery_path = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map(|p| p.join("kanbanrs").join("recovery.kan"));
+        if let Some(path) = recovery_path {
+            if let Some(parent) = path.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            let _ = fs::write(&path, json);
+        }
     }
     #[cfg(not(target_arch = "wasm32"))]
     fn write_dot(&self) {
@@ -1229,10 +1273,6 @@ impl KanbanRS {
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn save_file(&mut self, force_choose_file: bool) {
-        // Another file could be saved containing undo information.
-        //
-        // It might not be the best idea until we have a preference store, this is a side
-        // channel that I would rather not complicate someone's life with
         if self.save_file_name.is_none() || force_choose_file {
             let filename = rfd::FileDialog::new()
                 .add_filter("Kanban", &["kan"])
@@ -1242,23 +1282,35 @@ impl KanbanRS {
             }
             self.save_file_name = filename;
         }
-        // I lost some work on this due to a deadlock caused by locking the document.next_id
-        // field while trying to write to it, instead of the source object.
-        //
-        // This should prevent that
-        let mut tmp_path = self.save_file_name.clone().unwrap();
+        let save_path = match &self.save_file_name {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        let mut tmp_path = save_path.clone();
         tmp_path.set_extension("kan.bak");
-        let file = fs::File::create(&tmp_path);
-        let cloned = self.document.try_read().unwrap().clone();
-        let save_file_name = self.save_file_name.clone().unwrap();
+        let file = match fs::File::create(&tmp_path) {
+            Ok(f) => f,
+            Err(e) => {
+                self.messages.push(format!("Save failed: {e}"));
+                return;
+            }
+        };
+        let cloned = match self.document.try_read() {
+            Some(doc) => doc.clone(),
+            None => {
+                self.messages
+                    .push("Save failed: document locked".to_string());
+                return;
+            }
+        };
         self.save_thread = Some(thread::spawn(move || {
-            serde_json::to_writer(file.unwrap(), &cloned).map_err(|e| e.to_string())?;
-            fs::rename(&tmp_path, save_file_name).map_err(|e| e.to_string())?;
+            serde_json::to_writer(file, &cloned).map_err(|e| e.to_string())?;
+            fs::rename(&tmp_path, save_path).map_err(|e| e.to_string())?;
             Ok(())
         }));
-
         self.modified_since_last_saved = false;
         self.write_recents();
+        self.write_recovery();
     }
 
     fn undo(&mut self) {
