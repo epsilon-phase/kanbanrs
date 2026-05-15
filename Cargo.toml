@@ -15,9 +15,9 @@ license = false
 eula = false
 
 [dependencies]
-eframe = { version = "0.34.1", features = ["persistence"] }
-epaint = "0.34.1"
-chrono = { version = "0.4.39", features = ["serde", "wasmbind"] }
+eframe = { version = "0.34.2", features = ["persistence"] }
+epaint = "0.34.2"
+chrono = { version = "0.4.44", features = ["serde", "wasmbind"] }
 serde = { version = "~1.0", features = ["derive"] }
 serde_json = { version = "~1.0" }
 rfd = { version = "0.14.1" }

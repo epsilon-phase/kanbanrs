@@ -3,9 +3,7 @@ use chrono::Utc;
 use circular_buffer::CircularBuffer;
 #[cfg(not(target_arch = "wasm32"))]
 use clap::*;
-use eframe::egui::{
-    self, ComboBox, Modifiers, Rect, RichText, Vec2, ViewportBuilder, ViewportCommand,
-};
+use eframe::egui::{self, ComboBox, Modifiers, Rect, RichText, ViewportCommand};
 use kanban::{
     category_editor::State, filter::KanbanFilter, priority_editor::PriorityEditor,
     queue_view::QueueState, search::SearchState, sorting::ItemSort,
@@ -299,143 +297,82 @@ impl eframe::App for KanbanRS {
             self.layout_cache_needs_updating = false;
         }
         ui.input_mut(|i| {
-            let new_shortcut = egui::KeyboardShortcut {
-                modifiers: Modifiers {
-                    alt: false,
-                    #[cfg(target_os = "macos")]
-                    ctrl: false,
-                    #[cfg(not(target_os = "macos"))]
-                    ctrl: true,
-                    #[cfg(target_os = "macos")]
-                    mac_cmd: true,
-                    #[cfg(not(target_os = "macos"))]
-                    mac_cmd: false,
-                    shift: false,
-                    command: true,
-                },
-                logical_key: egui::Key::N,
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            let save_shortcut = egui::KeyboardShortcut {
-                modifiers: egui::Modifiers {
-                    alt: false,
-                    #[cfg(target_os = "macos")]
-                    ctrl: false,
-                    #[cfg(not(target_os = "macos"))]
-                    ctrl: true,
-                    #[cfg(target_os = "macos")]
-                    mac_cmd: true,
-                    #[cfg(not(target_os = "macos"))]
-                    mac_cmd: false,
-                    shift: false,
-                    command: true,
-                },
-                logical_key: egui::Key::S,
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            let save_as_shortcut = egui::KeyboardShortcut {
-                modifiers: egui::Modifiers {
-                    alt: false,
-                    #[cfg(target_os = "macos")]
-                    ctrl: false,
-                    #[cfg(not(target_os = "macos"))]
-                    ctrl: true,
-                    shift: true,
-                    #[cfg(target_os = "macos")]
-                    mac_cmd: true,
-                    #[cfg(not(target_os = "macos"))]
-                    mac_cmd: false,
-                    command: true,
-                },
-                logical_key: egui::Key::S,
-            };
-            i.consume_shortcut(&new_shortcut).then(|| {
-                self.asking_for_new_file = true;
-            });
+            i.consume_shortcut(&egui::KeyboardShortcut::new(
+                Modifiers::COMMAND,
+                egui::Key::N,
+            ))
+            .then(|| self.asking_for_new_file = true);
+
             #[cfg(not(target_arch = "wasm32"))]
             {
-                i.consume_shortcut(&save_as_shortcut).then(|| {
-                    self.save_file(true);
-                });
-                i.consume_shortcut(&save_shortcut).then(|| {
-                    self.save_file(false);
-                });
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    Modifiers::COMMAND,
+                    egui::Key::S,
+                ))
+                .then(|| self.save_file(false));
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    Modifiers {
+                        shift: true,
+                        ..Modifiers::COMMAND
+                    },
+                    egui::Key::S,
+                ))
+                .then(|| self.save_file(true));
             }
+
             #[cfg(target_arch = "wasm32")]
             {
-                let web_save_shortcut = egui::KeyboardShortcut {
-                    modifiers: egui::Modifiers::COMMAND,
-                    logical_key: egui::Key::S,
-                };
-                let web_save_as_shortcut = egui::KeyboardShortcut {
-                    modifiers: egui::Modifiers {
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    Modifiers::COMMAND,
+                    egui::Key::S,
+                ))
+                .then(|| self.web_save());
+                i.consume_shortcut(&egui::KeyboardShortcut::new(
+                    Modifiers {
                         shift: true,
-                        ..egui::Modifiers::COMMAND
+                        ..Modifiers::COMMAND
                     },
-                    logical_key: egui::Key::S,
-                };
-                if i.consume_shortcut(&web_save_shortcut) {
-                    self.web_save();
-                }
-                if i.consume_shortcut(&web_save_as_shortcut) {
+                    egui::Key::S,
+                ))
+                .then(|| {
                     self.web.save_as_input = self.web.document_name.clone().unwrap_or_default();
                     self.web.show_save_as_dialog = true;
-                }
+                });
             }
-            let find_shortcut = egui::KeyboardShortcut {
-                modifiers: egui::Modifiers {
-                    alt: false,
-                    #[cfg(target_os = "macos")]
-                    ctrl: false,
-                    #[cfg(not(target_os = "macos"))]
-                    ctrl: true,
-                    #[cfg(target_os = "macos")]
-                    mac_cmd: true,
-                    #[cfg(not(target_os = "macos"))]
-                    mac_cmd: false,
-                    shift: false,
-                    command: false,
-                },
-                logical_key: egui::Key::F,
-            };
-            i.consume_shortcut(&find_shortcut).then(|| {
-                self.current_layout.layout = KanbanDocumentLayoutType::Search(SearchState::new());
-                self.layout_cache_needs_updating = true;
-                println!("FINDING");
-            });
+
+            i.consume_shortcut(&egui::KeyboardShortcut::new(Modifiers::CTRL, egui::Key::F))
+                .then(|| {
+                    self.current_layout.layout =
+                        KanbanDocumentLayoutType::Search(SearchState::new());
+                    self.layout_cache_needs_updating = true;
+                });
         });
         if self.asking_for_new_file {
             let mut confirmed = false;
             if *self.document.read() != self.preferences.read().template {
-                ui.show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("new file confirmation"),
-                    egui::ViewportBuilder::default()
-                        .with_inner_size(Vec2::new(300., 100.))
-                        .with_window_type(egui::X11WindowType::Dialog)
-                        .with_always_on_top()
-                        .with_title("Save before creating new file"),
-                    |ui, _class| {
-                        egui::CentralPanel::default().show_inside(ui, |ui| {
-                            ui.label("You may lose information if you don't save, do you want to?");
-                            ui.horizontal(|ui| {
-                                #[cfg(not(target_arch = "wasm32"))]
-                                if ui.button("Save").clicked() {
-                                    self.save_file(false);
-                                    confirmed = true;
-                                }
-                                if ui.button("Don't save").clicked() {
-                                    confirmed = true;
-                                }
-                                if ui.button("Cancel").clicked() {
-                                    self.asking_for_new_file = false;
-                                }
-                            });
-                        });
-                    },
-                );
-                if self.asking_for_new_file && confirmed {
+                egui::Modal::new("new_file_confirmation".into()).show(ui.ctx(), |ui| {
+                    ui.label("You may lose information if you don't save, do you want to?");
+                    ui.horizontal(|ui| {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if ui.button("Save").clicked() {
+                            self.save_file(false);
+                            confirmed = true;
+                            self.asking_for_new_file = false;
+                        }
+                        if ui.button("Don't save").clicked() {
+                            confirmed = true;
+                            self.asking_for_new_file = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.asking_for_new_file = false;
+                        }
+                    });
+                });
+                if confirmed {
                     self.new_file();
                 }
+            } else {
+                self.new_file();
             }
         }
         self.hovered_task = None;
@@ -452,35 +389,23 @@ impl eframe::App for KanbanRS {
                 if self.close_requested {
                     let mut confirmed = false;
                     if self.modified_since_last_saved {
-                        ui.show_viewport_immediate(
-                            egui::ViewportId::from_hash_of("Save confirmation"),
-                            egui::ViewportBuilder::default()
-                                .with_inner_size(Vec2::new(300., 100.))
-                                .with_window_type(egui::X11WindowType::Dialog)
-                                .with_always_on_top()
-                                .with_title("Save before closing"),
-                            |ui, _class| {
-                                egui::CentralPanel::default().show_inside(ui, |ui| {
-                                    ui.label(
-                                        "You may lose information if you don't save, do you want to?",
-                                    );
-                                    ui.horizontal(|ui| {
-                                        if ui.button("Save").clicked() {
-                                            self.save_file(false);
-                                            self.close_confirmed = true;
-                                            confirmed = true;
-                                        }
-                                        if ui.button("Don't save").clicked() {
-                                            self.close_confirmed = true;
-                                            confirmed = true;
-                                        }
-                                        if ui.button("Cancel").clicked() {
-                                            self.close_requested = false;
-                                        }
-                                    });
-                                });
-                            },
-                        );
+                        egui::Modal::new("save_before_closing".into()).show(ui.ctx(), |ui| {
+                            ui.label("You may lose information if you don't save, do you want to?");
+                            ui.horizontal(|ui| {
+                                if ui.button("Save").clicked() {
+                                    self.save_file(false);
+                                    self.close_confirmed = true;
+                                    confirmed = true;
+                                }
+                                if ui.button("Don't save").clicked() {
+                                    self.close_confirmed = true;
+                                    confirmed = true;
+                                }
+                                if ui.button("Cancel").clicked() {
+                                    self.close_requested = false;
+                                }
+                            });
+                        });
                     } else {
                         self.close_confirmed = true;
                         confirmed = true;
@@ -633,7 +558,8 @@ impl eframe::App for KanbanRS {
                             for (name, task_id) in editor_info {
                                 ui.horizontal(|ui| {
                                     if ui.button("Close").clicked() {
-                                        self.pending_commands.push(AppCommand::CloseEditor(task_id));
+                                        self.pending_commands
+                                            .push(AppCommand::CloseEditor(task_id));
                                         ui.close();
                                     }
                                     ui.separator();
@@ -725,8 +651,8 @@ impl eframe::App for KanbanRS {
             ui.horizontal(|ui| {
                 ui.label("New task name");
                 let response = ui.text_edit_singleline(&mut self.task_name);
-                let enter_pressed = response.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let enter_pressed =
+                    response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if ui.button("Add Task").clicked() || enter_pressed {
                     let new_task = {
                         let mut document = self.document.write();
@@ -800,26 +726,18 @@ impl eframe::App for KanbanRS {
             }
             self.messages.retain(|x| {
                 let mut keep = true;
-                ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of(x),
-                    egui::ViewportBuilder::default()
-                        .with_inner_size(Vec2::new(500.0, 100.))
-                        .with_window_type(egui::X11WindowType::Notification)
-                        .with_resizable(false),
-                    |ctx, _class| {
-                        egui::CentralPanel::default().show_inside(ctx, |ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.label(x);
-                                if ui.button("Close").clicked() {
-                                    keep = false;
-                                }
-                            });
+                egui::Window::new(x)
+                    .id(egui::Id::new(x))
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ui, |ui| {
+                        ui.vertical_centered(|ui| {
+                            ui.label(x);
+                            if ui.button("Close").clicked() {
+                                keep = false;
+                            }
                         });
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            keep = false;
-                        }
-                    },
-                );
+                    });
                 keep
             });
 
@@ -829,57 +747,48 @@ impl eframe::App for KanbanRS {
             }
 
             if self.category_editor.open {
-                ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("Category Editor"),
-                    egui::ViewportBuilder::default().with_close_button(true),
-                    |ctx, _class| {
-                        egui::CentralPanel::default().show_inside(ctx, |ui| {
-                            let cmd = self.category_editor.show(ui, &self.document.read());
-                            if let Some(cmd) = cmd {
-                                self.handle_command(cmd);
-                            }
-                        });
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            self.category_editor.open = false;
+                let mut open = true;
+                egui::Window::new("Category Editor")
+                    .open(&mut open)
+                    .show(ui, |ui| {
+                        let cmd = self.category_editor.show(ui, &self.document.read());
+                        if let Some(cmd) = cmd {
+                            self.handle_command(cmd);
                         }
-                    },
-                );
+                    });
+                if !open {
+                    self.category_editor.open = false;
+                }
             }
             while let Ok(cmd) = self.editor_rx.try_recv() {
                 self.handle_command(cmd);
             }
             if self.priority_editor.open {
-                ui.ctx().show_viewport_immediate(
-                    egui::ViewportId::from_hash_of("Priority Editor"),
-                    egui::ViewportBuilder::default(),
-                    |ctx, _class| {
-                        egui::CentralPanel::default().show_inside(ctx, |ui| {
-                            let cmd = self.priority_editor.show(&self.document.read(), ui);
-                            if let Some(cmd) = cmd {
-                                self.handle_command(cmd);
-                            }
-                        });
-                        if ctx.input(|i| i.viewport().close_requested()) {
-                            self.priority_editor.open = false;
+                let mut open = true;
+                egui::Window::new("Priority Editor")
+                    .open(&mut open)
+                    .show(ui, |ui| {
+                        let cmd = self.priority_editor.show(&self.document.read(), ui);
+                        if let Some(cmd) = cmd {
+                            self.handle_command(cmd);
                         }
-                    },
-                );
+                    });
+                if !open {
+                    self.priority_editor.open = false;
+                }
             }
             {
                 let preferences = &mut self.preferences.write();
                 if preferences.showing_preference {
-                    ui.ctx().show_viewport_immediate(
-                        egui::ViewportId::from_hash_of("preferences window"),
-                        ViewportBuilder::default(),
-                        |ctx, _class| {
-                            if ctx.input(|i| i.viewport().close_requested()) {
-                                preferences.showing_preference = false;
-                            }
-                            egui::CentralPanel::default().show_inside(ctx, |ui| {
-                                preferences.show_ui(ui);
-                            });
-                        },
-                    );
+                    let mut open = true;
+                    egui::Window::new("Preferences")
+                        .open(&mut open)
+                        .show(ui, |ui| {
+                            preferences.show_ui(ui);
+                        });
+                    if !open {
+                        preferences.showing_preference = false;
+                    }
                 }
             }
         });

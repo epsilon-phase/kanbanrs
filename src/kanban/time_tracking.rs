@@ -108,7 +108,7 @@ impl TimeRecords {
         self.entries
             .iter()
             .map(|x| x.0.duration())
-            .fold(chrono::TimeDelta::new(0, 0).unwrap(), |a, b| a + b)
+            .fold(chrono::TimeDelta::zero(), |a, b| a + b)
     }
     #[cfg(test)]
     pub(crate) fn add_duration_test(&mut self, d: chrono::TimeDelta) {
@@ -153,21 +153,21 @@ mod test {
     prop_compose! {
         /// Arbitrary non-negative duration up to ~1000 hours.
         fn arb_delta()(secs in 0i64..=3_600_000) -> TimeDelta {
-            TimeDelta::new(secs, 0).unwrap()
+            TimeDelta::seconds(secs)
         }
     }
 
     prop_compose! {
         fn arb_instant_entry()(secs in 0i64..=3_600_000) -> TimeEntry {
-            TimeEntry::InstanteousDuration(TimeDelta::new(secs, 0).unwrap())
+            TimeEntry::InstanteousDuration(TimeDelta::seconds(secs))
         }
     }
 
     prop_compose! {
         /// A Concluded entry where end >= start.
         fn arb_concluded_entry()(start_secs in 0i64..=1_000_000, dur in 0i64..=3_600_000) -> TimeEntry {
-            let start = DateTime::UNIX_EPOCH + TimeDelta::new(start_secs, 0).unwrap();
-            let end   = start + TimeDelta::new(dur, 0).unwrap();
+            let start = DateTime::UNIX_EPOCH + TimeDelta::seconds(start_secs);
+            let end   = start + TimeDelta::seconds(dur);
             TimeEntry::Concluded(start, end)
         }
     }
@@ -249,15 +249,15 @@ mod test {
             {
                 let task = document.get_task_mut(1).unwrap();
                 task.time_records
-                    .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
+                    .add_duration_test(chrono::TimeDelta::seconds(5));
             }
             let zero_task = document.get_task(0).unwrap();
             let duration = collect_child_durations(&document, zero_task);
             assert_eq!(
                 duration
                     .iter()
-                    .fold(TimeDelta::new(0, 0).unwrap(), |start, x| x.1 + start),
-                TimeDelta::new(5, 0).unwrap()
+                    .fold(TimeDelta::zero(), |start, x| x.1 + start),
+                TimeDelta::seconds(5)
             );
         }
         // Non-trivial case, the item in question can be counted twice if the
@@ -266,15 +266,15 @@ mod test {
             {
                 let task = document.get_task_mut(4).unwrap();
                 task.time_records
-                    .add_duration_test(chrono::TimeDelta::new(5, 0).unwrap());
+                    .add_duration_test(chrono::TimeDelta::seconds(5));
             }
             let zero_task = document.get_task(0).unwrap();
             let duration = collect_child_durations(&document, zero_task);
             assert_eq!(
                 duration
                     .iter()
-                    .fold(TimeDelta::new(0, 0).unwrap(), |start, x| x.1 + start),
-                TimeDelta::new(10, 0).unwrap()
+                    .fold(TimeDelta::zero(), |start, x| x.1 + start),
+                TimeDelta::seconds(10)
             );
         }
     }

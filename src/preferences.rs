@@ -51,41 +51,34 @@ impl Preferences {
     }
     pub fn show_ui(&mut self, ui: &mut Ui) -> Response {
         if self.category_editor_state.open {
-            ui.ctx().show_viewport_immediate(
-                egui::ViewportId::from_hash_of("template category editor"),
-                egui::ViewportBuilder::default(),
-                |ctx, _class| {
-                    // This may be a good candidate for refactoring later
-                    egui::CentralPanel::default().show_inside(ctx, |ui| {
-                        if let Some(AppCommand::ReplaceCategory(name, style)) =
-                            self.category_editor_state.show(ui, &self.template)
-                        {
-                            self.template.replace_category_style(&name, style);
-                        }
-                    });
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        self.category_editor_state.open = false;
+            let mut open = true;
+            egui::Window::new("Template Category Editor")
+                .open(&mut open)
+                .show(ui, |ui| {
+                    if let Some(AppCommand::ReplaceCategory(name, style)) =
+                        self.category_editor_state.show(ui, &self.template)
+                    {
+                        self.template.replace_category_style(&name, style);
                     }
-                },
-            )
+                });
+            if !open {
+                self.category_editor_state.open = false;
+            }
         }
         if self.priority_editor_state.open {
-            ui.ctx().show_viewport_immediate(
-                egui::ViewportId::from_hash_of("template priority editor"),
-                egui::ViewportBuilder::default(),
-                |ctx, _class| {
-                    egui::CentralPanel::default().show_inside(ctx, |ui| {
-                        if let Some(AppCommand::SetPriority(name, value)) =
-                            self.priority_editor_state.show(&self.template, ui)
-                        {
-                            self.template.set_priority(name, value);
-                        }
-                    });
-                    if ctx.input(|i| i.viewport().close_requested()) {
-                        self.priority_editor_state.open = false;
+            let mut open = true;
+            egui::Window::new("Template Priority Editor")
+                .open(&mut open)
+                .show(ui, |ui| {
+                    if let Some(AppCommand::SetPriority(name, value)) =
+                        self.priority_editor_state.show(&self.template, ui)
+                    {
+                        self.template.set_priority(name, value);
                     }
-                },
-            )
+                });
+            if !open {
+                self.priority_editor_state.open = false;
+            }
         }
         ui.vertical_centered(|ui| {
             CollapsingState::load_with_default_open(ui.ctx(),"Template".into(),false)

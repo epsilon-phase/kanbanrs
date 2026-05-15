@@ -51,7 +51,7 @@ pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
         is_on_child_view: true,
         is_on_tag_view: true,
         new_time_descr: String::new(),
-        new_time_entry: TimeDelta::new(0, 0).unwrap(),
+        new_time_entry: TimeDelta::zero(),
         time_entry_under_edit: None,
         transmitter: tx,
         editing_category: false,
@@ -462,7 +462,7 @@ impl State {
                 if hour_input.union(minute_input).changed() {
                     let hours: i64 = str::parse(&h).unwrap_or(hours);
                     let minutes: i64 = str::parse(&m).unwrap_or(minutes);
-                    self.new_time_entry = TimeDelta::new(60 * minutes + 3600 * hours, 0).unwrap();
+                    self.new_time_entry = TimeDelta::seconds(60 * minutes + 3600 * hours);
                 }
             });
             ui.text_edit_singleline(&mut self.new_time_descr);
@@ -473,7 +473,7 @@ impl State {
                         .time_records
                         .entries
                         .push((TimeEntry::InstanteousDuration(self.new_time_entry), desc));
-                    self.new_time_entry = TimeDelta::new(0, 0).unwrap();
+                    self.new_time_entry = TimeDelta::zero();
                 }
                 if ui
                     .button(if self.item_copy.time_records.is_recording() {
