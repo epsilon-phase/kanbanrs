@@ -1,3 +1,34 @@
+# v0.2.7
+
+Contributed by [@skorotkiewicz](https://codeberg.org/skorotkiewicz).
+
+## Features
+
+* Dark mode preference with egui theme switching (default: dark).
+* Auto-open file on startup — reopen the last-used file automatically
+  (native only).
+* Crash recovery via `recovery.kan` — unsaved work is restored from the
+  cache directory on next launch.
+* File format now includes a `version` field for forward compatibility.
+
+## UI Improvements
+
+* Editors, preference panels, confirmation dialogs, and error messages
+  now display as in-application windows instead of separate OS-level
+  viewports. File menu entries to focus editor viewports have been adapted
+  accordingly.
+
+## Refactoring
+
+* Update egui from 0.34.1 to 0.34.2, chrono from 0.4.39 to 0.4.44.
+* Box `NodeLayout` in the layout enum to reduce stack size.
+* Replace bare `unwrap()` calls in file I/O with proper error handling.
+* Fix recents-file path on Windows (uses `%APPDATA%` instead of a
+  hard-coded UNIX path).
+* Use modern Rust patterns (`if let Some`, `TimeDelta::zero`,
+  `TimeDelta::seconds`, `.clamp`) throughout.
+* Add a `Justfile` with build, check, test, and WASM-dev targets.
+
 # v0.2.6
 
 ## UI Improvements
