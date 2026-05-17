@@ -1,12 +1,20 @@
 [package]
 name = "kanbanrs"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 repository = "https://github.com/epsilon-phase/kanbanrs/"
 authors = ["Violet White"]
 description = "A basic kanban task manager written with egui"
 homepage = "https://github.com/epsilon-phase/kanbanrs/"
 license = 'MIT'
+include = [
+    "**/*.rs",
+    "assets/kanban icon.png",
+    "assets/kanban icon 256.png",
+    "assets/NotoSans-Regular.ttf",
+    "assets/desktop_template.desktop",
+
+]
 
 [package.metadata.wix]
 upgrade-guid = "08F7518F-464F-44FF-A58D-1E48F52F59DA"
@@ -27,7 +35,7 @@ lazy_static = "~1"
 parking_lot = { version = "0.12.3", features = ["serde"] }
 circular-buffer = "0.1.9"
 log = "0.4.22"
-mimalloc = { version = "*", optional = true }
+mimalloc = { version = "0.1.50", optional = true }
 
 [dev-dependencies]
 proptest = "1"
