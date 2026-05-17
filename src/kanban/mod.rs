@@ -100,6 +100,9 @@ impl KanbanDocument {
             next_id: RwLock::new(0),
         }
     }
+    pub fn task_is_extant(&self, id: KanbanId) -> bool {
+        self.tasks.contains_key(&id)
+    }
     /** Determine if the child can be added to the parent's dependency list without
        causing a cycle
     */

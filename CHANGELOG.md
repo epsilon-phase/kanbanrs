@@ -1,3 +1,12 @@
+# v0.2.8
+
+## Bugs
+
+* Fix crash from is_collapsed.
+* Clean up node_layout.collapsed on each update
+* Clean up force-directed layout bookkeeping after each update finishes.
+* Fix warnings about f32 literals being required for future versions of rust. 
+
 # v0.2.7
 
 Contributed by [@skorotkiewicz](https://codeberg.org/skorotkiewicz).

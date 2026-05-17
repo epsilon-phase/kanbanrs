@@ -208,7 +208,7 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
     let sec_color = Color32::from_rgb(220, 60, 60);
 
     // Face
-    painter.circle(center, RADIUS, face_color, Stroke::new(1.5, rim_color));
+    painter.circle(center, RADIUS, face_color, Stroke::new(1.5f32, rim_color));
 
     // Hour tick marks
     for tick in 0..12 {
@@ -216,7 +216,7 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
         let (sa, ca) = angle.sin_cos();
         let outer = center + Vec2::new(sa, -ca) * RADIUS;
         let inner = center + Vec2::new(sa, -ca) * (RADIUS * 0.88);
-        painter.line_segment([inner, outer], Stroke::new(1.5, rim_color));
+        painter.line_segment([inner, outer], Stroke::new(1.5f32, rim_color));
     }
     // Minute tick marks (skip hour positions)
     for tick in 0..60 {
@@ -227,7 +227,7 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
         let (sa, ca) = angle.sin_cos();
         let outer = center + Vec2::new(sa, -ca) * RADIUS;
         let inner = center + Vec2::new(sa, -ca) * (RADIUS * 0.94);
-        painter.line_segment([inner, outer], Stroke::new(0.8, rim_color));
+        painter.line_segment([inner, outer], Stroke::new(0.8f32, rim_color));
     }
 
     // Hand angles — 12 o'clock is angle 0, clockwise
@@ -246,9 +246,9 @@ fn analogue_clock(ui: &mut Ui, id: Id, h: &mut u32, m: &mut u32, s: &mut u32) ->
     let sec_tip = hand_tip(sec_frac, SEC_LEN);
 
     // Draw hands
-    painter.line_segment([center, hour_tip], Stroke::new(4.0, hand_color));
-    painter.line_segment([center, min_tip], Stroke::new(2.5, hand_color));
-    painter.line_segment([center, sec_tip], Stroke::new(1.5, sec_color));
+    painter.line_segment([center, hour_tip], Stroke::new(4.0f32, hand_color));
+    painter.line_segment([center, min_tip], Stroke::new(2.5f32, hand_color));
+    painter.line_segment([center, sec_tip], Stroke::new(1.5f32, sec_color));
     // Centre pip
     painter.circle_filled(center, 4.0, hand_color);
 

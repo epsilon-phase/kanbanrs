@@ -28,7 +28,7 @@ impl PriorityEditor {
             .into_iter()
             .map(|(name, priority)| (name.clone(), *priority))
             .collect();
-        items.sort_by(|a, b| a.1.cmp(&b.1));
+        items.sort_by_key(|a| a.1);
         ui.horizontal(|ui| {
             ui.label("Priority name");
             ui.text_edit_singleline(&mut self.name);

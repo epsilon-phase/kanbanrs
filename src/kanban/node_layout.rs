@@ -417,9 +417,12 @@ lazy_static! {
 }
 impl NodeLayout {
     fn is_collapsed(&self, document: &KanbanDocument, item: &KanbanItem) -> bool {
-        self.collapsed
-            .iter()
-            .any(|parent_id| item.is_child_of(document.get_task(*parent_id).unwrap(), document))
+        self.collapsed.iter().any(|parent_id| {
+            document
+                .get_task(*parent_id)
+                .map(|parent| item.is_child_of(parent, document))
+                .unwrap_or(false)
+        })
     }
     /// Update the nodelayout's state to match that of the kanban document
     pub fn update(
@@ -618,6 +621,7 @@ impl NodeLayout {
         ui: &mut egui::Ui,
         actions: &mut Vec<AppCommand>,
     ) -> bool {
+        self.collapsed.retain(|id| _document.task_is_extant(*id));
         if self.layout_handle.is_some() {
             if !self.layout_handle.as_ref().unwrap().is_finished() {
                 if self.frames_in_update > 40 {
@@ -724,6 +728,8 @@ impl NodeLayout {
                 self.layout_rx = None;
                 self.fr_layout_start_centroid = None;
                 self.fr_layout_start_scene_center = None;
+                self.fr_anim.clear();
+                self.fr_stable_positions.clear();
                 self.reset_scene_rect_for_new_layout();
             } else {
                 ui.ctx().request_repaint();
