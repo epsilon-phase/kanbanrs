@@ -620,7 +620,8 @@ impl NodeLayout {
         &mut self,
         _document: &KanbanDocument,
         ui: &mut egui::Ui,
-        actions: &mut Vec<AppCommand>,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<ApplicationCommand>,
     ) -> bool {
         self.collapsed.retain(|id| _document.task_is_extant(*id));
         if self.layout_handle.is_some() {
@@ -941,16 +942,22 @@ impl NodeLayout {
                     let senses = senses.on_hover_ui(|ui| {
                         let task = _document.get_task(*task_id).unwrap();
                         let mut nothing: Option<KanbanId> = None;
-                        if let Some(cmd) = task.summary(_document, &mut nothing, ui, true, 0) {
-                            actions.push(cmd);
-                        }
+                        task.summary(
+                            _document,
+                            &mut nothing,
+                            ui,
+                            shell_commands,
+                            application_commands,
+                            true,
+                            0,
+                        );
                     });
                     if senses.middle_clicked() {
                         self.focus = Some(*task_id);
-                        actions.push(AppCommand::FocusOn(*task_id));
+                        shell_commands.push(AppShellCommand::FocusOn(*task_id));
                     }
                     if senses.clicked() {
-                        actions.push(AppCommand::OpenEditor(*task_id));
+                        shell_commands.push(AppShellCommand::OpenEditor(*task_id));
                     }
                     if senses.secondary_clicked() && !senses.dragged() {
                         if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
@@ -1060,9 +1067,11 @@ impl NodeLayout {
                                 .unwrap_or(pointer_global);
                             let local_rect = offset_rect(*region, start.to_vec2());
                             if is_on_left_side(&local_rect, pointer_pos) {
-                                actions.push(ApplicationCommand::AddChildTo(*x, *task_id).into());
+                                application_commands
+                                    .push(ApplicationCommand::AddChildTo(*x, *task_id));
                             } else {
-                                actions.push(ApplicationCommand::AddChildTo(*task_id, *x).into());
+                                application_commands
+                                    .push(ApplicationCommand::AddChildTo(*task_id, *x));
                             }
                         }
                     }

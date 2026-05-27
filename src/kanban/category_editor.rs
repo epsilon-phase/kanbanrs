@@ -38,8 +38,8 @@ impl State {
         result.dummy_document.replace_task(&task);
         result
     }
-    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> Option<AppCommand> {
-        let mut action: Option<AppCommand> = None;
+    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> Option<ApplicationCommand> {
+        let mut action: Option<ApplicationCommand> = None;
 
         if !self.open {
             return None;
@@ -59,15 +59,24 @@ impl State {
                         action = Some(ApplicationCommand::ReplaceCategory(
                             self.selected_category_name.clone(),
                             KanbanCategoryStyle::default(),
-                        )
-                        .into());
+                        ));
                     }
                 });
                 self.dummy_document
                     .replace_category_style(&String::from("category"), self.style);
+                let mut shell_commands = Vec::new();
+                let mut application_commands = Vec::new();
                 for i in self.dummy_document.get_tasks() {
                     let mut hovered = None;
-                    i.summary(&self.dummy_document, &mut hovered, &mut columns[0], true, 0);
+                    i.summary(
+                        &self.dummy_document,
+                        &mut hovered,
+                        &mut columns[0],
+                        &mut shell_commands,
+                        &mut application_commands,
+                        true,
+                        0,
+                    );
                 }
                 ComboBox::new("Style select", "Select Category")
                     .selected_text(&self.current_category_name)
@@ -152,13 +161,10 @@ impl State {
                 self.open = false;
             }
             if ui.button("Apply style").clicked() {
-                action = Some(
-                    ApplicationCommand::ReplaceCategory(
-                        self.current_category_name.clone(),
-                        self.style,
-                    )
-                    .into(),
-                );
+                action = Some(ApplicationCommand::ReplaceCategory(
+                    self.current_category_name.clone(),
+                    self.style,
+                ));
             }
         });
         action

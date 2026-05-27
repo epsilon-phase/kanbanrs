@@ -83,7 +83,8 @@ impl TreeOutline {
         &mut self,
         ui: &mut egui::Ui,
         document: &KanbanDocument,
-        actions: &mut Vec<AppCommand>,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<application::ApplicationCommand>,
         hovered_item: &mut Option<KanbanId>,
         scroll_to: &Option<KanbanId>,
     ) {
@@ -91,7 +92,7 @@ impl TreeOutline {
             .checkbox(&mut self.exclude_completed, "Exclude completed")
             .changed()
         {
-            actions.push(AppCommand::UpdateLayout);
+            shell_commands.push(AppShellCommand::UpdateLayout);
         }
 
         ui.group(|ui| {
@@ -110,10 +111,15 @@ impl TreeOutline {
                         ui.horizontal(|ui| {
                             ui.add_space((depth as f32) * ui.available_width() / 20.0);
 
-                            if let Some(cmd) = task.summary(document, hovered_item, ui, false, idx)
-                            {
-                                actions.push(cmd);
-                            }
+                            task.summary(
+                                document,
+                                hovered_item,
+                                ui,
+                                shell_commands,
+                                application_commands,
+                                false,
+                                idx,
+                            );
                         });
                     }
                 }

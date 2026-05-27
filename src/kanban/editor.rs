@@ -1,6 +1,6 @@
 use super::{
-    application::ApplicationCommand, datetime_picker::DateTimePicker, time_tracking, AppCommand,
-    KanbanDocument, KanbanId, KanbanItem,
+    application::ApplicationCommand, datetime_picker::DateTimePicker, time_tracking,
+    AppShellCommand, KanbanDocument, KanbanId, KanbanItem,
 };
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
@@ -34,13 +34,19 @@ pub struct State {
     new_time_descr: String,
     ///The index of the time entry being edited
     time_entry_under_edit: Option<usize>,
-    ///A pipe to the main thread to send information to
-    transmitter: Sender<AppCommand>,
+    ///A pipe to the main thread to send app-shell information to
+    shell_transmitter: Sender<AppShellCommand>,
+    ///A pipe to the application module for document-changing commands
+    application_transmitter: Sender<ApplicationCommand>,
     ///Set to true if the editor is displaying a warning about another task
     ///having a time entry currently recording
     show_time_rec_modal: bool,
 }
-pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
+pub fn state_from(
+    item: &KanbanItem,
+    shell_tx: Sender<AppShellCommand>,
+    application_tx: Sender<ApplicationCommand>,
+) -> State {
     State {
         open: true,
         cancelled: false,
@@ -53,7 +59,8 @@ pub fn state_from(item: &KanbanItem, tx: Sender<AppCommand>) -> State {
         new_time_descr: String::new(),
         new_time_entry: TimeDelta::zero(),
         time_entry_under_edit: None,
-        transmitter: tx,
+        shell_transmitter: shell_tx,
+        application_transmitter: application_tx,
         editing_category: false,
         show_time_rec_modal: false,
     }
@@ -105,8 +112,8 @@ impl State {
                     ui.label("Name");
                     ui.text_edit_singleline(&mut self.item_copy.name);
                     if ui.button("Scroll to").clicked() {
-                        self.transmitter
-                            .send(AppCommand::ScrollTo(self.item_copy.id))
+                        self.shell_transmitter
+                            .send(AppShellCommand::ScrollTo(self.item_copy.id))
                             .unwrap();
                     }
                 });
@@ -282,25 +289,28 @@ impl State {
         let needs_update =
             open_task.is_some() || create_child || update_task || delete_task.is_some();
         if update_task {
-            self.transmitter
-                .send(ApplicationCommand::UpdateTask(self.item_copy.clone()).into())
+            self.application_transmitter
+                .send(ApplicationCommand::UpdateTask(self.item_copy.clone()))
                 .unwrap();
         }
         if let Some(to_delete) = delete_task {
-            self.transmitter
-                .send(ApplicationCommand::DeleteTask(to_delete).into())
+            self.application_transmitter
+                .send(ApplicationCommand::DeleteTask(to_delete))
                 .unwrap();
         }
         if create_child {
             let new_child = KanbanItem::new(document);
             self.item_copy.add_child(&new_child);
-            self.transmitter
-                .send(ApplicationCommand::CreateTask(self.item_copy.clone(), new_child).into())
+            self.application_transmitter
+                .send(ApplicationCommand::CreateTask(
+                    self.item_copy.clone(),
+                    new_child,
+                ))
                 .unwrap();
         }
         if let Some(task_to_edit) = open_task {
-            self.transmitter
-                .send(AppCommand::OpenTask(
+            self.shell_transmitter
+                .send(AppShellCommand::OpenTask(
                     document.get_task(task_to_edit).cloned().unwrap(),
                 ))
                 .unwrap();
@@ -374,7 +384,9 @@ impl State {
                         removed_task = Some(*child);
                     }
                     if ui.button("scroll to").clicked() {
-                        self.transmitter.send(AppCommand::ScrollTo(*child)).unwrap();
+                        self.shell_transmitter
+                            .send(AppShellCommand::ScrollTo(*child))
+                            .unwrap();
                     }
                 });
             }
@@ -407,8 +419,8 @@ impl State {
                     if ui.button("Remove").clicked() {
                         if let Some(mut x) = document.get_task(parent.id).cloned() {
                             x.remove_child(&self.item_copy);
-                            self.transmitter
-                                .send(ApplicationCommand::UpdateTask(x).into())
+                            self.application_transmitter
+                                .send(ApplicationCommand::UpdateTask(x))
                                 .unwrap();
                         }
                     }
@@ -517,8 +529,8 @@ impl State {
                         .map(|x| x.id)
                         .nth(0)
                     {
-                        self.transmitter
-                            .send(ApplicationCommand::FinishTimeRecording(x).into())
+                        self.application_transmitter
+                            .send(ApplicationCommand::FinishTimeRecording(x))
                             .unwrap();
                         self.start_recording();
                         self.show_time_rec_modal = false;

@@ -348,14 +348,16 @@ impl KanbanDocument {
     /// * `ui` - The ui to apply this list into
     /// * `range` - the range of indices to render
     /// * `hovered_task` - The task being hovered over by the user, may be set here
-    /// * `event_collector` - The list of actions being collected.
+    /// * `shell_commands` - The list of app-shell actions being collected.
+    /// * `application_commands` - The list of document-changing commands being collected.
     /// * `scroll_to` - The id of an action to scroll to
     pub fn layout_id_list(
         &self,
         ui: &mut egui::Ui,
         ids: &[KanbanId],
         hovered_task: &mut Option<i32>,
-        event_collector: &mut Vec<AppCommand>,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<application::ApplicationCommand>,
         id_salt: impl std::hash::Hash,
         scroll_to: Option<KanbanId>,
     ) {
@@ -399,9 +401,15 @@ impl KanbanDocument {
                     // inserted by the layout
                     let start = ui.cursor().min.y;
                     let item = &self.tasks[item_id];
-                    if let Some(action) = item.summary(self, hovered_task, ui, true, 0) {
-                        event_collector.push(action);
-                    }
+                    item.summary(
+                        self,
+                        hovered_task,
+                        ui,
+                        shell_commands,
+                        application_commands,
+                        true,
+                        0,
+                    );
                     let end = ui.cursor().min.y;
 
                     // This *might* be the cause of an error when scrolled down
@@ -571,11 +579,9 @@ impl KanbanItem {
         }
     }
 }
-/// A command emitted by UI interactions, processed by the main app loop.
+/// An app-shell command emitted by UI interactions.
 #[derive(Clone, Debug)]
-pub enum AppCommand {
-    /// Apply a document-changing application command.
-    Application(application::ApplicationCommand),
+pub enum AppShellCommand {
     /// Open the task in the editor by id
     OpenEditor(KanbanId),
     /// Close the editor for the given task id, discarding changes
@@ -589,21 +595,17 @@ pub enum AppCommand {
     /// Signal that the layout must be updated
     UpdateLayout,
 }
-impl From<application::ApplicationCommand> for AppCommand {
-    fn from(command: application::ApplicationCommand) -> Self {
-        Self::Application(command)
-    }
-}
 impl KanbanItem {
     pub fn summary(
         &self,
         document: &KanbanDocument,
         hovered_task: &mut Option<KanbanId>,
         ui: &mut egui::Ui,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<application::ApplicationCommand>,
         start_open: bool,
         idx: usize,
-    ) -> Option<AppCommand> {
-        let mut action: Option<AppCommand> = None;
+    ) {
         let style = ui.visuals_mut();
         let mut status_color = style.text_color();
         let mut panel_fill = style.panel_fill;
@@ -661,7 +663,7 @@ impl KanbanItem {
                         ui.vertical(|ui| {
                             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
                             if ui.label(text).double_clicked() {
-                                action = Some(AppCommand::OpenEditor(self.id));
+                                shell_commands.push(AppShellCommand::OpenEditor(self.id));
                             }
                         });
                     })
@@ -680,13 +682,12 @@ impl KanbanItem {
                             ui.horizontal_wrapped(|ui| {
                                 let button = ui.button("Edit");
                                 if button.clicked() {
-                                    action = Some(AppCommand::OpenEditor(self.id));
+                                    shell_commands.push(AppShellCommand::OpenEditor(self.id));
                                     close = true;
                                 }
                                 if ui.button("Add Child").clicked() {
-                                    action = Some(
-                                        application::ApplicationCommand::CreateChildOf(self.id)
-                                            .into(),
+                                    application_commands.push(
+                                        application::ApplicationCommand::CreateChildOf(self.id),
                                     );
                                     close = true;
                                 }
@@ -698,14 +699,13 @@ impl KanbanItem {
                                     })
                                     .clicked()
                                 {
-                                    action = Some(
-                                        application::ApplicationCommand::MarkCompleted(self.id)
-                                            .into(),
+                                    application_commands.push(
+                                        application::ApplicationCommand::MarkCompleted(self.id),
                                     );
                                     close = true;
                                 }
                                 if ui.button("focus").clicked() {
-                                    action = Some(AppCommand::FocusOn(self.id));
+                                    shell_commands.push(AppShellCommand::FocusOn(self.id));
                                     close = true;
                                 }
                             });
@@ -717,12 +717,10 @@ impl KanbanItem {
                         })
                     });
             });
-            action.clone()
         });
         if close {
             ui.close();
         }
-        action
     }
 }
 /**

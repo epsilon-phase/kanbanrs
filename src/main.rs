@@ -11,7 +11,7 @@ use kanban::{
     search::SearchState,
     sorting::ItemSort,
     tree_outline_layout::TreeOutline,
-    AppCommand, KanbanDocument, KanbanId,
+    AppShellCommand, KanbanDocument, KanbanId,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -74,13 +74,16 @@ struct KanbanRS {
     close_confirmed: bool,
     asking_for_new_file: bool,
     layout_cache_needs_updating: bool,
-    pending_commands: Vec<AppCommand>,
+    pending_shell_commands: Vec<AppShellCommand>,
+    pending_application_commands: Vec<ApplicationCommand>,
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
     application: ApplicationState,
-    editor_rx: std::sync::mpsc::Receiver<AppCommand>,
-    editor_tx: std::sync::mpsc::Sender<AppCommand>,
+    editor_shell_rx: std::sync::mpsc::Receiver<AppShellCommand>,
+    editor_shell_tx: std::sync::mpsc::Sender<AppShellCommand>,
+    editor_application_rx: std::sync::mpsc::Receiver<ApplicationCommand>,
+    editor_application_tx: std::sync::mpsc::Sender<ApplicationCommand>,
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
     messages: Vec<String>,
@@ -92,7 +95,8 @@ struct KanbanRS {
 }
 impl KanbanRS {
     fn new() -> Self {
-        let (tx, rx) = mpsc::channel();
+        let (shell_tx, shell_rx) = mpsc::channel();
+        let (application_tx, application_rx) = mpsc::channel();
         KanbanRS {
             document: Arc::new(RwLock::new(KanbanDocument::default())),
             task_name: String::new(),
@@ -106,13 +110,16 @@ impl KanbanRS {
             close_requested: false,
             close_confirmed: false,
             layout_cache_needs_updating: true,
-            pending_commands: Vec::new(),
+            pending_shell_commands: Vec::new(),
+            pending_application_commands: Vec::new(),
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
             application: ApplicationState::new(),
-            editor_rx: rx,
-            editor_tx: tx,
+            editor_shell_rx: shell_rx,
+            editor_shell_tx: shell_tx,
+            editor_application_rx: application_rx,
+            editor_application_tx: application_tx,
             filter: KanbanFilter::None,
             last_rect: None,
             messages: Vec::new(),
@@ -550,7 +557,11 @@ impl eframe::App for KanbanRS {
                             .filter(|x| x.time_records.is_recording())
                         {
                             editor_opened = true;
-                            let editor = kanban::editor::state_from(i, self.editor_tx.clone());
+                            let editor = kanban::editor::state_from(
+                                i,
+                                self.editor_shell_tx.clone(),
+                                self.editor_application_tx.clone(),
+                            );
                             self.open_editors.push(Arc::new(RwLock::new(editor)));
                         }
                         if !editor_opened {
@@ -575,8 +586,8 @@ impl eframe::App for KanbanRS {
                             for (name, task_id) in editor_info {
                                 ui.horizontal(|ui| {
                                     if ui.button("Close").clicked() {
-                                        self.pending_commands
-                                            .push(AppCommand::CloseEditor(task_id));
+                                        self.pending_shell_commands
+                                            .push(AppShellCommand::CloseEditor(task_id));
                                         ui.close();
                                     }
                                     ui.separator();
@@ -696,14 +707,19 @@ impl eframe::App for KanbanRS {
                 tr.show(
                     ui,
                     &self.document.read(),
-                    &mut self.pending_commands,
+                    &mut self.pending_shell_commands,
+                    &mut self.pending_application_commands,
                     &mut self.hovered_task,
                     &self.current_layout.scroll_to,
                 )
             } else if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout
             {
-                self.layout_cache_needs_updating |=
-                    nl.show(&self.document.read(), ui, &mut self.pending_commands);
+                self.layout_cache_needs_updating |= nl.show(
+                    &self.document.read(),
+                    ui,
+                    &mut self.pending_shell_commands,
+                    &mut self.pending_application_commands,
+                );
             } else {
                 self.layout_queue(ui);
             }
@@ -716,7 +732,7 @@ impl eframe::App for KanbanRS {
                 .map(|editor| editor.read().item_copy.clone())
                 .collect();
             for item in closed_updates {
-                self.handle_command(ApplicationCommand::UpdateTask(item).into());
+                self.handle_application_command(ApplicationCommand::UpdateTask(item));
             }
             self.open_editors.retain(|editor| editor.read().open);
             let document = self.document.clone();
@@ -749,9 +765,13 @@ impl eframe::App for KanbanRS {
                 keep
             });
 
-            let pending = std::mem::take(&mut self.pending_commands);
-            for cmd in pending {
-                self.handle_command(cmd);
+            let pending_application = std::mem::take(&mut self.pending_application_commands);
+            for command in pending_application {
+                self.handle_application_command(command);
+            }
+            let pending_shell = std::mem::take(&mut self.pending_shell_commands);
+            for command in pending_shell {
+                self.handle_shell_command(command);
             }
 
             if self.category_editor.open {
@@ -761,15 +781,18 @@ impl eframe::App for KanbanRS {
                     .show(ui, |ui| {
                         let cmd = self.category_editor.show(ui, &self.document.read());
                         if let Some(cmd) = cmd {
-                            self.handle_command(cmd);
+                            self.handle_application_command(cmd);
                         }
                     });
                 if !open {
                     self.category_editor.open = false;
                 }
             }
-            while let Ok(cmd) = self.editor_rx.try_recv() {
-                self.handle_command(cmd);
+            while let Ok(cmd) = self.editor_application_rx.try_recv() {
+                self.handle_application_command(cmd);
+            }
+            while let Ok(cmd) = self.editor_shell_rx.try_recv() {
+                self.handle_shell_command(cmd);
             }
             if self.priority_editor.open {
                 let mut open = true;
@@ -778,7 +801,7 @@ impl eframe::App for KanbanRS {
                     .show(ui, |ui| {
                         let cmd = self.priority_editor.show(&self.document.read(), ui);
                         if let Some(cmd) = cmd {
-                            self.handle_command(cmd);
+                            self.handle_application_command(cmd);
                         }
                     });
                 if !open {
@@ -937,7 +960,8 @@ impl KanbanRS {
                     self.open_editors
                         .push(Arc::new(RwLock::new(kanban::editor::state_from(
                             &item,
-                            self.editor_tx.clone(),
+                            self.editor_shell_tx.clone(),
+                            self.editor_application_tx.clone(),
                         ))));
                 }
                 ApplicationEffect::RemoveDeletedTaskFromEditors(to_delete) => {
@@ -955,24 +979,26 @@ impl KanbanRS {
         }
     }
 
-    fn handle_command(&mut self, cmd: AppCommand) {
+    fn handle_application_command(&mut self, command: ApplicationCommand) {
+        let effects = {
+            let mut document = self.document.write();
+            self.application.handle_command(&mut document, command)
+        };
+        self.apply_application_effects(effects);
+    }
+
+    fn handle_shell_command(&mut self, cmd: AppShellCommand) {
         match cmd {
-            AppCommand::Application(command) => {
-                let effects = {
-                    let mut document = self.document.write();
-                    self.application.handle_command(&mut document, command)
-                };
-                self.apply_application_effects(effects);
-            }
-            AppCommand::OpenEditor(id) => {
+            AppShellCommand::OpenEditor(id) => {
                 let mut editor = kanban::editor::state_from(
                     self.document.read().get_task(id).unwrap(),
-                    self.editor_tx.clone(),
+                    self.editor_shell_tx.clone(),
+                    self.editor_application_tx.clone(),
                 );
                 editor.open = true;
                 self.open_editors.push(Arc::new(RwLock::new(editor)));
             }
-            AppCommand::CloseEditor(id) => {
+            AppShellCommand::CloseEditor(id) => {
                 for e in &self.open_editors {
                     let mut w = e.write();
                     if w.item_copy.id == id {
@@ -982,14 +1008,15 @@ impl KanbanRS {
                     }
                 }
             }
-            AppCommand::OpenTask(item) => {
+            AppShellCommand::OpenTask(item) => {
                 self.open_editors
                     .push(Arc::new(RwLock::new(kanban::editor::state_from(
                         &item,
-                        self.editor_tx.clone(),
+                        self.editor_shell_tx.clone(),
+                        self.editor_application_tx.clone(),
                     ))));
             }
-            AppCommand::FocusOn(id) => {
+            AppShellCommand::FocusOn(id) => {
                 if let KanbanDocumentLayoutType::TreeOutline(t_o) = &mut self.current_layout.layout
                 {
                     t_o.set_focus(id);
@@ -1003,13 +1030,13 @@ impl KanbanRS {
                 }
                 self.layout_cache_needs_updating = true;
             }
-            AppCommand::ScrollTo(id) => {
+            AppShellCommand::ScrollTo(id) => {
                 self.current_layout.scroll_to = Some(id);
                 if let KanbanDocumentLayoutType::NodeLayout(nl) = &mut self.current_layout.layout {
                     nl.scroll_to(id);
                 }
             }
-            AppCommand::UpdateLayout => {
+            AppShellCommand::UpdateLayout => {
                 self.layout_cache_needs_updating = true;
             }
         }
