@@ -46,6 +46,10 @@ pub fn layout_id_list(
                 || scroll_to.is_some_and(|x| ids.contains(&x));
 
             for item_id in ids.iter() {
+                let Some(item) = document.get_task(*item_id) else {
+                    continue;
+                };
+
                 let element_height = layout_cache::get_item_height(cache_key, *item_id);
                 if let Some(element_height) = element_height {
                     if accumulated_height + element_height < rect.min.y {
@@ -61,7 +65,6 @@ pub fn layout_id_list(
                 }
 
                 let start = ui.cursor().min.y;
-                let item = &document.tasks[item_id];
                 task_summary(
                     item,
                     document,
@@ -126,15 +129,17 @@ pub fn task_summary(
     }
 
     if let Some(hovered_id) = *presentation.hovered_task {
-        match document.get_relation(item.id, hovered_id) {
-            TaskRelation::ChildOf => {
-                stroke.color = Color32::from_rgba_premultiplied(50, 50, 250, 255)
-            }
-            TaskRelation::ParentOf => {
-                stroke.color = Color32::from_rgba_unmultiplied(255, 50, 50, 255)
-            }
-            _ => (),
-        };
+        if document.task_is_extant(hovered_id) {
+            match document.get_relation(item.id, hovered_id) {
+                TaskRelation::ChildOf => {
+                    stroke.color = Color32::from_rgba_premultiplied(50, 50, 250, 255)
+                }
+                TaskRelation::ParentOf => {
+                    stroke.color = Color32::from_rgba_unmultiplied(255, 50, 50, 255)
+                }
+                _ => (),
+            };
+        }
     }
 
     let frame = eframe::egui::Frame::new()
@@ -252,5 +257,63 @@ fn apply_category_style(
             this_text_color[2],
             this_text_color[3],
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layout_id_list_ignores_ids_from_previous_document() {
+        let document = KanbanDocument::new();
+        let ctx = egui::Context::default();
+        let mut hovered_task = None;
+        let mut shell_commands = Vec::new();
+        let mut application_commands = Vec::new();
+
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut presentation = TaskPresentationState {
+                hovered_task: &mut hovered_task,
+                shell_commands: &mut shell_commands,
+                application_commands: &mut application_commands,
+            };
+            layout_id_list(&document, ui, &[1234], &mut presentation, "stale ids", None);
+        });
+
+        assert!(shell_commands.is_empty());
+        assert!(application_commands.is_empty());
+    }
+
+    #[test]
+    fn task_summary_ignores_hovered_id_from_previous_document() {
+        let mut document = KanbanDocument::new();
+        let task_id = document.get_new_task_mut().id;
+        let task = document.get_task(task_id).unwrap();
+        let ctx = egui::Context::default();
+        let mut hovered_task = Some(1234);
+        let mut shell_commands = Vec::new();
+        let mut application_commands = Vec::new();
+
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let mut presentation = TaskPresentationState {
+                hovered_task: &mut hovered_task,
+                shell_commands: &mut shell_commands,
+                application_commands: &mut application_commands,
+            };
+            task_summary(
+                task,
+                &document,
+                ui,
+                &mut presentation,
+                SummaryOptions {
+                    start_open: true,
+                    idx: 0,
+                },
+            );
+        });
+
+        assert!(shell_commands.is_empty());
+        assert!(application_commands.is_empty());
     }
 }
