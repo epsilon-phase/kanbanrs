@@ -1,6 +1,6 @@
 use egui::{ComboBox, Ui, Widget};
 
-use super::*;
+use super::{application::ApplicationCommand, *};
 #[derive(Clone)]
 pub struct State {
     ///The category style being edited, a copy at this point
@@ -56,10 +56,11 @@ impl State {
 
                     if ui.button("Add new Category").clicked() {
                         self.selected_category_name = self.new_category_name.clone();
-                        action = Some(AppCommand::ReplaceCategory(
+                        action = Some(ApplicationCommand::ReplaceCategory(
                             self.selected_category_name.clone(),
                             KanbanCategoryStyle::default(),
-                        ));
+                        )
+                        .into());
                     }
                 });
                 self.dummy_document
@@ -151,10 +152,13 @@ impl State {
                 self.open = false;
             }
             if ui.button("Apply style").clicked() {
-                action = Some(AppCommand::ReplaceCategory(
-                    self.current_category_name.clone(),
-                    self.style,
-                ));
+                action = Some(
+                    ApplicationCommand::ReplaceCategory(
+                        self.current_category_name.clone(),
+                        self.style,
+                    )
+                    .into(),
+                );
             }
         });
         action

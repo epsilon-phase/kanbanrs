@@ -1,13 +1,17 @@
 mod kanban;
-use chrono::Utc;
-use circular_buffer::CircularBuffer;
 #[cfg(not(target_arch = "wasm32"))]
 use clap::*;
 use eframe::egui::{self, ComboBox, Modifiers, Rect, RichText, ViewportCommand};
 use kanban::{
-    category_editor::State, filter::KanbanFilter, priority_editor::PriorityEditor,
-    queue_view::QueueState, search::SearchState, sorting::ItemSort,
-    tree_outline_layout::TreeOutline, undo::CreationEvent, AppCommand, KanbanDocument, KanbanId,
+    application::{ApplicationCommand, ApplicationEffect, ApplicationState},
+    category_editor::State,
+    filter::KanbanFilter,
+    priority_editor::PriorityEditor,
+    queue_view::QueueState,
+    search::SearchState,
+    sorting::ItemSort,
+    tree_outline_layout::TreeOutline,
+    AppCommand, KanbanDocument, KanbanId,
 };
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -74,10 +78,9 @@ struct KanbanRS {
     sorting_type: kanban::sorting::ItemSort,
     category_editor: kanban::category_editor::State,
     priority_editor: PriorityEditor,
-    modified_since_last_saved: bool,
+    application: ApplicationState,
     editor_rx: std::sync::mpsc::Receiver<AppCommand>,
     editor_tx: std::sync::mpsc::Sender<AppCommand>,
-    undo_buffer: CircularBuffer<35, kanban::undo::UndoItem>,
     filter: kanban::filter::KanbanFilter,
     last_rect: Option<Rect>,
     messages: Vec<String>,
@@ -107,10 +110,9 @@ impl KanbanRS {
             sorting_type: kanban::sorting::ItemSort::None,
             category_editor: State::new(),
             priority_editor: PriorityEditor::new(),
-            modified_since_last_saved: false,
+            application: ApplicationState::new(),
             editor_rx: rx,
             editor_tx: tx,
-            undo_buffer: CircularBuffer::new(),
             filter: KanbanFilter::None,
             last_rect: None,
             messages: Vec::new(),
@@ -285,7 +287,7 @@ impl eframe::App for KanbanRS {
                         self.document.write().collect_tags();
                         self.open_editors.clear();
                         self.layout_cache_needs_updating = true;
-                        self.modified_since_last_saved = false;
+                        self.application.mark_saved();
                         self.web.document_name = None;
                     }
                     Err(e) => self.messages.push(format!("Import failed: {e}")),
@@ -400,7 +402,7 @@ impl eframe::App for KanbanRS {
                 }
                 if self.close_requested {
                     let mut confirmed = false;
-                    if self.modified_since_last_saved {
+                    if self.application.modified_since_last_saved() {
                         egui::Modal::new("save_before_closing".into()).show(ui.ctx(), |ui| {
                             ui.label("You may lose information if you don't save, do you want to?");
                             ui.horizontal(|ui| {
@@ -518,10 +520,13 @@ impl eframe::App for KanbanRS {
                     }
                 });
                 ui.menu_button("Edit", |ui| {
-                    ui.add_enabled_ui(!self.undo_buffer.is_empty(), |ui| {
+                    ui.add_enabled_ui(self.application.can_undo(), |ui| {
                         if ui.button("Undo").clicked() {
-                            self.undo();
-                            self.layout_cache_needs_updating = true;
+                            let effects = {
+                                let mut document = self.document.write();
+                                self.application.undo(&mut document)
+                            };
+                            self.apply_application_effects(effects);
                         }
                     });
                     if ui.button("Category style editor").clicked() {
@@ -666,24 +671,15 @@ impl eframe::App for KanbanRS {
                 let enter_pressed =
                     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if ui.button("Add Task").clicked() || enter_pressed {
-                    let new_task = {
+                    let name = std::mem::take(&mut self.task_name);
+                    let effects = {
                         let mut document = self.document.write();
-                        let thing = document.get_new_task_mut();
-                        thing.name = self.task_name.clone();
-                        let new_task = thing.clone();
-                        self.undo_buffer
-                            .push_back(kanban::undo::UndoItem::Create(CreationEvent {
-                                new_task: new_task.clone(),
-                                parent_id: None,
-                            }));
-                        self.layout_cache_needs_updating = true;
-                        self.modified_since_last_saved = true;
-                        self.current_layout.inform_of_new_items();
-                        new_task
+                        self.application.handle_command(
+                            &mut document,
+                            ApplicationCommand::CreateRootTask { name },
+                        )
                     };
-                    self.task_name.clear();
-                    let editor = kanban::editor::state_from(&new_task, self.editor_tx.clone());
-                    self.open_editors.push(Arc::new(RwLock::new(editor)));
+                    self.apply_application_effects(effects);
                 }
             });
 
@@ -720,7 +716,7 @@ impl eframe::App for KanbanRS {
                 .map(|editor| editor.read().item_copy.clone())
                 .collect();
             for item in closed_updates {
-                self.handle_command(AppCommand::UpdateTask(item));
+                self.handle_command(ApplicationCommand::UpdateTask(item).into());
             }
             self.open_editors.retain(|editor| editor.read().open);
             let document = self.document.clone();
@@ -840,7 +836,7 @@ impl eframe::App for KanbanRS {
             } else {
                 _storage.set_string("document", json);
             }
-            self.modified_since_last_saved = false;
+            self.application.mark_saved();
         }
     }
     fn auto_save_interval(&self) -> std::time::Duration {
@@ -934,8 +930,40 @@ impl KanbanRS {
 
         result
     }
+    fn apply_application_effects(&mut self, effects: Vec<ApplicationEffect>) {
+        for effect in effects {
+            match effect {
+                ApplicationEffect::OpenEditor(item) => {
+                    self.open_editors
+                        .push(Arc::new(RwLock::new(kanban::editor::state_from(
+                            &item,
+                            self.editor_tx.clone(),
+                        ))));
+                }
+                ApplicationEffect::RemoveDeletedTaskFromEditors(to_delete) => {
+                    for editor in self.open_editors.iter() {
+                        editor.write().item_copy.remove_child(&to_delete);
+                    }
+                }
+                ApplicationEffect::UpdateLayout => {
+                    self.layout_cache_needs_updating = true;
+                }
+                ApplicationEffect::InformOfNewItems => {
+                    self.current_layout.inform_of_new_items();
+                }
+            }
+        }
+    }
+
     fn handle_command(&mut self, cmd: AppCommand) {
         match cmd {
+            AppCommand::Application(command) => {
+                let effects = {
+                    let mut document = self.document.write();
+                    self.application.handle_command(&mut document, command)
+                };
+                self.apply_application_effects(effects);
+            }
             AppCommand::OpenEditor(id) => {
                 let mut editor = kanban::editor::state_from(
                     self.document.read().get_task(id).unwrap(),
@@ -960,122 +988,6 @@ impl KanbanRS {
                         &item,
                         self.editor_tx.clone(),
                     ))));
-            }
-            AppCommand::CreateChildOf(id) => {
-                let (child_creation, new_task, mut task_copy) = {
-                    let mut document = self.document.write();
-                    let mut new_task = document.get_new_task();
-                    let task_copy = document.get_task(id).unwrap().clone();
-                    new_task.inherit(&task_copy, &document);
-                    (document.replace_task(&new_task), new_task, task_copy)
-                };
-                task_copy.add_child(&new_task);
-                let editor = kanban::editor::state_from(&new_task, self.editor_tx.clone());
-                self.undo_buffer
-                    .push_back(self.document.write().replace_task(&task_copy));
-                self.record_undo(child_creation);
-                self.open_editors.push(Arc::new(RwLock::new(editor)));
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-                self.current_layout.inform_of_new_items();
-            }
-            AppCommand::CreateTask(parent, mut new_task) => {
-                self.record_undo({
-                    let mut document = self.document.write();
-                    new_task.inherit(&parent, &document);
-                    document.replace_task(&new_task)
-                });
-                self.open_editors
-                    .push(Arc::new(RwLock::new(kanban::editor::state_from(
-                        &new_task,
-                        self.editor_tx.clone(),
-                    ))));
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-                self.current_layout.inform_of_new_items();
-            }
-            AppCommand::UpdateTask(item) => {
-                let undo = {
-                    let document = &mut self.document.write();
-                    self.modified_since_last_saved = if let Some(x) = document.get_task(item.id) {
-                        x != &item
-                    } else {
-                        true
-                    };
-                    document.replace_task(&item)
-                };
-                self.record_undo(undo);
-                self.layout_cache_needs_updating = self.modified_since_last_saved;
-            }
-            AppCommand::DeleteTask(to_delete) => {
-                let undo = self.document.write().remove_task(&to_delete);
-                self.record_undo(undo);
-                for editor in self.open_editors.iter() {
-                    editor.write().item_copy.remove_child(&to_delete);
-                }
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-                self.current_layout.inform_of_new_items();
-            }
-            AppCommand::MarkCompleted(id) => {
-                let mut task = self.document.read().get_task(id).unwrap().clone();
-                task.completed = match task.completed {
-                    Some(_) => None,
-                    None => Some(Utc::now()),
-                };
-                let undo = self.document.write().replace_task(&task);
-                self.record_undo(undo);
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-            }
-            AppCommand::AddChildTo(parent, child) => {
-                let undoitem = {
-                    let mut document = self.document.write();
-                    if document.can_add_as_child(
-                        document.get_task(parent).unwrap(),
-                        document.get_task(child).unwrap(),
-                    ) {
-                        let mut task = document.get_task(parent).unwrap().clone();
-                        task.child_tasks.insert(child);
-                        Some(document.replace_task(&task))
-                    } else {
-                        None
-                    }
-                };
-                if let Some(item) = undoitem {
-                    self.record_undo(item);
-                }
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
-            }
-            AppCommand::FinishTimeRecording(id) => {
-                let mut doc = self.document.write();
-                let task = doc.get_task_mut(id).unwrap();
-                task.time_records.handle_record_request(None);
-                self.modified_since_last_saved = true;
-            }
-            AppCommand::ReplaceCategory(name, style) => {
-                let former_style = self.document.read().get_category_style(&name);
-                self.document.write().replace_category_style(&name, style);
-                self.record_undo(kanban::undo::UndoItem::CategoryStyle(
-                    kanban::undo::CategoryStyleEvent { name, former_style },
-                ));
-                self.modified_since_last_saved = true;
-            }
-            AppCommand::SetPriority(name, value) => {
-                let former_value = self
-                    .document
-                    .read()
-                    .get_sorted_priorities()
-                    .into_iter()
-                    .find(|(n, _)| *n == &name)
-                    .map(|(_, v)| *v);
-                self.document.write().set_priority(name.clone(), value);
-                self.record_undo(kanban::undo::UndoItem::Priority(
-                    kanban::undo::PriorityEvent { name, former_value },
-                ));
-                self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = true;
             }
             AppCommand::FocusOn(id) => {
                 if let KanbanDocumentLayoutType::TreeOutline(t_o) = &mut self.current_layout.layout
@@ -1105,21 +1017,6 @@ impl KanbanRS {
 }
 
 impl KanbanRS {
-    /// Record an undo action.
-    /// * **self** The kanban application state
-    /// * **item** The undo item.
-    #[inline]
-    fn record_undo(&mut self, item: kanban::undo::UndoItem) {
-        if let Some(i) = self.undo_buffer.back_mut() {
-            if let Some(combined) = i.merge(&item) {
-                *i = combined;
-            } else {
-                self.undo_buffer.push_back(item);
-            }
-        } else {
-            self.undo_buffer.push_back(item);
-        }
-    }
     #[cfg(not(target_arch = "wasm32"))]
     fn get_recents_file(&self) -> Option<PathBuf> {
         #[cfg(unix)]
@@ -1308,15 +1205,9 @@ impl KanbanRS {
             fs::rename(&tmp_path, save_path).map_err(|e| e.to_string())?;
             Ok(())
         }));
-        self.modified_since_last_saved = false;
+        self.application.mark_saved();
         self.write_recents();
         self.write_recovery();
-    }
-
-    fn undo(&mut self) {
-        if let Some(item) = self.undo_buffer.pop_back() {
-            item.undo(&mut self.document.write());
-        }
     }
 }
 
@@ -1357,7 +1248,7 @@ impl KanbanRS {
         if let Ok(json) = serde_json::to_string(&*self.document.read()) {
             web_storage::save_document(name, &json);
             self.web.document_name = Some(name.to_string());
-            self.modified_since_last_saved = false;
+            self.application.mark_saved();
         }
     }
 
@@ -1371,7 +1262,7 @@ impl KanbanRS {
                 self.web.document_name = Some(name.to_string());
                 self.open_editors.clear();
                 self.layout_cache_needs_updating = true;
-                self.modified_since_last_saved = false;
+                self.application.mark_saved();
             }
             None => self.messages.push(format!("Failed to load '{name}'")),
         }

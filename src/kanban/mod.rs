@@ -11,6 +11,7 @@ use std::collections::btree_map::{Values, ValuesMut};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use time_tracking::TimeRecords;
 use undo::{DeletionEvent, UndoItem};
+pub mod application;
 pub mod category_editor;
 pub mod datetime_picker;
 pub mod filter;
@@ -573,36 +574,25 @@ impl KanbanItem {
 /// A command emitted by UI interactions, processed by the main app loop.
 #[derive(Clone, Debug)]
 pub enum AppCommand {
+    /// Apply a document-changing application command.
+    Application(application::ApplicationCommand),
     /// Open the task in the editor by id
     OpenEditor(KanbanId),
     /// Close the editor for the given task id, discarding changes
     CloseEditor(KanbanId),
     /// Open a specific KanbanItem in another editor (sent from an editor viewport)
     OpenTask(KanbanItem),
-    /// Create a new child task on this one
-    CreateChildOf(KanbanId),
-    /// Create a new task as a child (parent, new_child) — sent from an editor viewport
-    CreateTask(KanbanItem, KanbanItem),
-    /// Replace a task in the document with an updated version
-    UpdateTask(KanbanItem),
-    /// Delete the specified kanban item from the document
-    DeleteTask(KanbanItem),
-    /// Mark the specified task as completed, or uncomplete it
-    MarkCompleted(KanbanId),
-    /// Add an extant task as a child to another task
-    AddChildTo(KanbanId, KanbanId),
-    /// Toggle time recording for a given item
-    FinishTimeRecording(KanbanId),
-    /// Set or replace a category's style
-    ReplaceCategory(String, KanbanCategoryStyle),
-    /// Set a priority's numeric value
-    SetPriority(String, i32),
     /// Focus on the specified task
     FocusOn(KanbanId),
     /// Scroll the main document view to the given item
     ScrollTo(KanbanId),
     /// Signal that the layout must be updated
     UpdateLayout,
+}
+impl From<application::ApplicationCommand> for AppCommand {
+    fn from(command: application::ApplicationCommand) -> Self {
+        Self::Application(command)
+    }
 }
 impl KanbanItem {
     pub fn summary(
@@ -694,7 +684,10 @@ impl KanbanItem {
                                     close = true;
                                 }
                                 if ui.button("Add Child").clicked() {
-                                    action = Some(AppCommand::CreateChildOf(self.id));
+                                    action = Some(
+                                        application::ApplicationCommand::CreateChildOf(self.id)
+                                            .into(),
+                                    );
                                     close = true;
                                 }
                                 if ui
@@ -705,7 +698,10 @@ impl KanbanItem {
                                     })
                                     .clicked()
                                 {
-                                    action = Some(AppCommand::MarkCompleted(self.id));
+                                    action = Some(
+                                        application::ApplicationCommand::MarkCompleted(self.id)
+                                            .into(),
+                                    );
                                     close = true;
                                 }
                                 if ui.button("focus").clicked() {

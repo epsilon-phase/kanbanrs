@@ -1,6 +1,6 @@
 use super::{
-    datetime_picker::DateTimePicker, time_tracking, AppCommand, KanbanDocument, KanbanId,
-    KanbanItem,
+    application::ApplicationCommand, datetime_picker::DateTimePicker, time_tracking, AppCommand,
+    KanbanDocument, KanbanId, KanbanItem,
 };
 use chrono::TimeDelta;
 use eframe::egui::{self, Button, ComboBox, RichText, ScrollArea};
@@ -283,19 +283,19 @@ impl State {
             open_task.is_some() || create_child || update_task || delete_task.is_some();
         if update_task {
             self.transmitter
-                .send(AppCommand::UpdateTask(self.item_copy.clone()))
+                .send(ApplicationCommand::UpdateTask(self.item_copy.clone()).into())
                 .unwrap();
         }
         if let Some(to_delete) = delete_task {
             self.transmitter
-                .send(AppCommand::DeleteTask(to_delete))
+                .send(ApplicationCommand::DeleteTask(to_delete).into())
                 .unwrap();
         }
         if create_child {
             let new_child = KanbanItem::new(document);
             self.item_copy.add_child(&new_child);
             self.transmitter
-                .send(AppCommand::CreateTask(self.item_copy.clone(), new_child))
+                .send(ApplicationCommand::CreateTask(self.item_copy.clone(), new_child).into())
                 .unwrap();
         }
         if let Some(task_to_edit) = open_task {
@@ -407,7 +407,9 @@ impl State {
                     if ui.button("Remove").clicked() {
                         if let Some(mut x) = document.get_task(parent.id).cloned() {
                             x.remove_child(&self.item_copy);
-                            self.transmitter.send(AppCommand::UpdateTask(x)).unwrap();
+                            self.transmitter
+                                .send(ApplicationCommand::UpdateTask(x).into())
+                                .unwrap();
                         }
                     }
                 });
@@ -516,7 +518,7 @@ impl State {
                         .nth(0)
                     {
                         self.transmitter
-                            .send(AppCommand::FinishTimeRecording(x))
+                            .send(ApplicationCommand::FinishTimeRecording(x).into())
                             .unwrap();
                         self.start_recording();
                         self.show_time_rec_modal = false;

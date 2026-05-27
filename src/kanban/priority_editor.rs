@@ -1,4 +1,4 @@
-use super::*;
+use super::{application::ApplicationCommand, *};
 ///The state used for the priority editor
 #[derive(Clone, Default)]
 pub struct PriorityEditor {
@@ -42,10 +42,9 @@ impl PriorityEditor {
                 self.current_value = x;
             }
             if !self.name.is_empty() && ui.button("Add").clicked() {
-                command = Some(AppCommand::SetPriority(
-                    self.name.clone(),
-                    self.current_value,
-                ));
+                command = Some(
+                    ApplicationCommand::SetPriority(self.name.clone(), self.current_value).into(),
+                );
                 self.name.clear();
                 self.current_value = 0;
             }
@@ -58,10 +57,14 @@ impl PriorityEditor {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} - {priority}"));
                     if ui.button("+").clicked() {
-                        command = Some(AppCommand::SetPriority(name.clone(), priority + 1));
+                        command = Some(
+                            ApplicationCommand::SetPriority(name.clone(), priority + 1).into(),
+                        );
                     }
                     if ui.button("-").clicked() {
-                        command = Some(AppCommand::SetPriority(name.clone(), priority - 1));
+                        command = Some(
+                            ApplicationCommand::SetPriority(name.clone(), priority - 1).into(),
+                        );
                     }
                 });
             }

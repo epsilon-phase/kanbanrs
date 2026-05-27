@@ -11,6 +11,7 @@ use lazy_static::lazy_static;
 
 use crate::preferences::PREFERENCES;
 
+use super::application::ApplicationCommand;
 use super::force_directed::{force_atlas2, rect_edge_point};
 use super::*;
 
@@ -1059,9 +1060,9 @@ impl NodeLayout {
                                 .unwrap_or(pointer_global);
                             let local_rect = offset_rect(*region, start.to_vec2());
                             if is_on_left_side(&local_rect, pointer_pos) {
-                                actions.push(AppCommand::AddChildTo(*x, *task_id));
+                                actions.push(ApplicationCommand::AddChildTo(*x, *task_id).into());
                             } else {
-                                actions.push(AppCommand::AddChildTo(*task_id, *x));
+                                actions.push(ApplicationCommand::AddChildTo(*task_id, *x).into());
                             }
                         }
                     }

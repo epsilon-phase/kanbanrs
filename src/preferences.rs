@@ -1,3 +1,4 @@
+use crate::kanban::application::ApplicationCommand;
 use crate::kanban::category_editor;
 use crate::kanban::priority_editor::PriorityEditor;
 use crate::{AppCommand, KanbanDocument, StartupLayout};
@@ -89,8 +90,10 @@ impl Preferences {
             egui::Window::new("Template Category Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(AppCommand::ReplaceCategory(name, style)) =
-                        self.category_editor_state.show(ui, &self.template)
+                    if let Some(AppCommand::Application(ApplicationCommand::ReplaceCategory(
+                        name,
+                        style,
+                    ))) = self.category_editor_state.show(ui, &self.template)
                     {
                         self.template.replace_category_style(&name, style);
                     }
@@ -104,8 +107,10 @@ impl Preferences {
             egui::Window::new("Template Priority Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(AppCommand::SetPriority(name, value)) =
-                        self.priority_editor_state.show(&self.template, ui)
+                    if let Some(AppCommand::Application(ApplicationCommand::SetPriority(
+                        name,
+                        value,
+                    ))) = self.priority_editor_state.show(&self.template, ui)
                     {
                         self.template.set_priority(name, value);
                     }
