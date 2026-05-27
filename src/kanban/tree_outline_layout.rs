@@ -1,5 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
+use eframe::egui::{self, Align, ScrollArea};
 use filter::KanbanFilter;
 use sorting::ItemSort;
 
@@ -111,14 +112,19 @@ impl TreeOutline {
                         ui.horizontal(|ui| {
                             ui.add_space((depth as f32) * ui.available_width() / 20.0);
 
-                            task.summary(
+                            task_presentation::task_summary(
+                                task,
                                 document,
-                                hovered_item,
                                 ui,
-                                shell_commands,
-                                application_commands,
-                                false,
-                                idx,
+                                &mut task_presentation::TaskPresentationState {
+                                    hovered_task: hovered_item,
+                                    shell_commands,
+                                    application_commands,
+                                },
+                                task_presentation::SummaryOptions {
+                                    start_open: false,
+                                    idx,
+                                },
                             );
                         });
                     }

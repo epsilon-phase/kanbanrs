@@ -1,3 +1,5 @@
+use eframe::egui::{self, ScrollArea};
+
 use super::{application::ApplicationCommand, *};
 ///The state used for the priority editor
 #[derive(Clone, Default)]

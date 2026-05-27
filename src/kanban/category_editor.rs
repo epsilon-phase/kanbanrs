@@ -1,4 +1,4 @@
-use egui::{ComboBox, Ui, Widget};
+use eframe::egui::{self, ComboBox, Ui, Widget};
 
 use super::{application::ApplicationCommand, *};
 #[derive(Clone)]
@@ -68,14 +68,19 @@ impl State {
                 let mut application_commands = Vec::new();
                 for i in self.dummy_document.get_tasks() {
                     let mut hovered = None;
-                    i.summary(
+                    super::task_presentation::task_summary(
+                        i,
                         &self.dummy_document,
-                        &mut hovered,
                         &mut columns[0],
-                        &mut shell_commands,
-                        &mut application_commands,
-                        true,
-                        0,
+                        &mut super::task_presentation::TaskPresentationState {
+                            hovered_task: &mut hovered,
+                            shell_commands: &mut shell_commands,
+                            application_commands: &mut application_commands,
+                        },
+                        super::task_presentation::SummaryOptions {
+                            start_open: true,
+                            idx: 0,
+                        },
                     );
                 }
                 ComboBox::new("Style select", "Select Category")

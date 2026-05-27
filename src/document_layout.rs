@@ -1,6 +1,7 @@
 use crate::kanban::KanbanId;
 
 use super::*;
+use kanban::task_presentation::{SummaryOptions, TaskPresentationState};
 ///The layout type, with somes tate
 pub enum KanbanDocumentLayoutType {
     ///The queue state
@@ -171,33 +172,42 @@ impl KanbanRS {
             ui.columns(3, |columns| {
                 columns[0].label(RichText::new("Ready").heading());
                 columns.iter_mut().for_each(|x| x.set_width(column_width));
-                self.document.read().layout_id_list(
+                kanban::task_presentation::layout_id_list(
+                    &self.document.read(),
                     &mut columns[0],
                     &cache[0],
-                    &mut self.hovered_task,
-                    &mut self.pending_shell_commands,
-                    &mut self.pending_application_commands,
+                    &mut TaskPresentationState {
+                        hovered_task: &mut self.hovered_task,
+                        shell_commands: &mut self.pending_shell_commands,
+                        application_commands: &mut self.pending_application_commands,
+                    },
                     "ReadyScrollArea",
                     None,
                 );
                 columns[1].label(RichText::new("Blocked").heading());
-                self.document.read().layout_id_list(
+                kanban::task_presentation::layout_id_list(
+                    &self.document.read(),
                     &mut columns[1],
                     &cache[1],
-                    &mut self.hovered_task,
-                    &mut self.pending_shell_commands,
-                    &mut self.pending_application_commands,
+                    &mut TaskPresentationState {
+                        hovered_task: &mut self.hovered_task,
+                        shell_commands: &mut self.pending_shell_commands,
+                        application_commands: &mut self.pending_application_commands,
+                    },
                     "BlockedScrollArea",
                     self.current_layout.scroll_to,
                 );
                 columns[2].label(RichText::new("Completed").heading());
 
-                self.document.read().layout_id_list(
+                kanban::task_presentation::layout_id_list(
+                    &self.document.read(),
                     &mut columns[2],
                     &cache[2],
-                    &mut self.hovered_task,
-                    &mut self.pending_shell_commands,
-                    &mut self.pending_application_commands,
+                    &mut TaskPresentationState {
+                        hovered_task: &mut self.hovered_task,
+                        shell_commands: &mut self.pending_shell_commands,
+                        application_commands: &mut self.pending_application_commands,
+                    },
                     "CompletedScrollArea",
                     self.current_layout.scroll_to,
                 );
@@ -213,12 +223,15 @@ impl KanbanRS {
             //     200.0,
             //     qs.cached_ready.len(),
             //     |ui, range| {
-            self.document.read().layout_id_list(
+            kanban::task_presentation::layout_id_list(
+                &self.document.read(),
                 ui,
                 &qs.cached_ready,
-                &mut self.hovered_task,
-                &mut self.pending_shell_commands,
-                &mut self.pending_application_commands,
+                &mut TaskPresentationState {
+                    hovered_task: &mut self.hovered_task,
+                    shell_commands: &mut self.pending_shell_commands,
+                    application_commands: &mut self.pending_application_commands,
+                },
                 "Queue",
                 self.current_layout.scroll_to,
             );
@@ -236,12 +249,15 @@ impl KanbanRS {
                 search_state.update(&doc);
             });
 
-            doc.layout_id_list(
+            kanban::task_presentation::layout_id_list(
+                &doc,
                 ui,
                 &search_state.matched_ids,
-                &mut self.hovered_task,
-                &mut self.pending_shell_commands,
-                &mut self.pending_application_commands,
+                &mut TaskPresentationState {
+                    hovered_task: &mut self.hovered_task,
+                    shell_commands: &mut self.pending_shell_commands,
+                    application_commands: &mut self.pending_application_commands,
+                },
                 "SearchArea",
                 self.current_layout.scroll_to,
             );
@@ -256,33 +272,44 @@ impl KanbanRS {
                 if let Some(target) = focus.cares_about {
                     let doc = self.document.read();
                     let task = doc.get_task(target).unwrap();
-                    task.summary(
+                    kanban::task_presentation::task_summary(
+                        task,
                         &doc,
-                        &mut self.hovered_task,
                         &mut columns[1],
-                        &mut self.pending_shell_commands,
-                        &mut self.pending_application_commands,
-                        true,
-                        0,
+                        &mut TaskPresentationState {
+                            hovered_task: &mut self.hovered_task,
+                            shell_commands: &mut self.pending_shell_commands,
+                            application_commands: &mut self.pending_application_commands,
+                        },
+                        SummaryOptions {
+                            start_open: true,
+                            idx: 0,
+                        },
                     );
                 }
 
-                self.document.read().layout_id_list(
+                kanban::task_presentation::layout_id_list(
+                    &self.document.read(),
                     &mut columns[0],
                     &focus.children,
-                    &mut self.hovered_task,
-                    &mut self.pending_shell_commands,
-                    &mut self.pending_application_commands,
+                    &mut TaskPresentationState {
+                        hovered_task: &mut self.hovered_task,
+                        shell_commands: &mut self.pending_shell_commands,
+                        application_commands: &mut self.pending_application_commands,
+                    },
                     "ChildScroller",
                     self.current_layout.scroll_to,
                 );
 
-                self.document.read().layout_id_list(
+                kanban::task_presentation::layout_id_list(
+                    &self.document.read(),
                     &mut columns[2],
                     &focus.ancestors,
-                    &mut self.hovered_task,
-                    &mut self.pending_shell_commands,
-                    &mut self.pending_application_commands,
+                    &mut TaskPresentationState {
+                        hovered_task: &mut self.hovered_task,
+                        shell_commands: &mut self.pending_shell_commands,
+                        application_commands: &mut self.pending_application_commands,
+                    },
                     "ParentScroller",
                     self.current_layout.scroll_to,
                 );
