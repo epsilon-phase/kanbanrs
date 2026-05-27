@@ -155,6 +155,8 @@ impl Preferences {
                     if response.changed() {
                         self.autosave = Some(Duration::from_secs(60 * minutes));
                     }
+                } else {
+                    self.autosave = None;
                 }
                 response = response.union(ui.checkbox(
                     &mut self.store_undo_history_for_files,
