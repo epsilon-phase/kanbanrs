@@ -42,6 +42,19 @@ pub struct State {
     ///having a time entry currently recording
     show_time_rec_modal: bool,
 }
+
+///Check if a task ID is currently focused in the layout
+pub fn is_task_focused(
+    document_layout: &crate::document_layout::KanbanDocumentLayoutType,
+    task_id: KanbanId,
+) -> bool {
+    match document_layout {
+        crate::document_layout::KanbanDocumentLayoutType::Focused(focus) => {
+            focus.cares_about == Some(task_id)
+        }
+        _ => false,
+    }
+}
 pub fn state_from(
     item: &KanbanItem,
     shell_tx: Sender<AppShellCommand>,
@@ -99,7 +112,12 @@ impl State {
         self.item_copy.time_records.handle_record_request(desc);
     }
 
-    pub fn editor(self: &mut State, ui: &mut egui::Ui, document: &KanbanDocument) -> bool {
+    pub fn editor(
+        self: &mut State,
+        ui: &mut egui::Ui,
+        document: &KanbanDocument,
+        is_focused: bool,
+    ) -> bool {
         let mut create_child = false;
         let mut open_task: Option<KanbanId> = None;
         let mut delete_task: Option<KanbanItem> = None;
@@ -258,7 +276,8 @@ impl State {
                     ui.horizontal(|ui| {
                         let accept_button = ui.button("Accept changes");
                         let cancel_button = ui.button("Cancel changes");
-                        let delete_button = ui.button("Delete and close");
+                        let delete_button =
+                            ui.add_enabled(!is_focused, Button::new("Delete and close"));
                         if accept_button.clicked() {
                             if !self.category.is_empty() {
                                 self.item_copy.category = Some(self.category.clone());

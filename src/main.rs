@@ -739,9 +739,12 @@ impl eframe::App for KanbanRS {
             for editor in &self.open_editors {
                 let title = format!("Editing '{}'", editor.read().item_copy.name);
                 let id = editor.read().item_copy.id;
+                let is_focused = kanban::editor::is_task_focused(&self.current_layout.layout, id);
                 if let Some(inner) = egui::Window::new(&title)
                     .id(egui::Id::new(id))
-                    .show(ui, |ui| editor.write().editor(ui, &document.read()))
+                    .show(ui, |ui| {
+                        editor.write().editor(ui, &document.read(), is_focused)
+                    })
                 {
                     if inner.inner.unwrap_or(false) {
                         ui.ctx().request_repaint();
