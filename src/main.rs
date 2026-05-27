@@ -937,7 +937,14 @@ impl KanbanRS {
             .write()
             .clone_from(&self.preferences.read().template);
         self.current_layout = self.preferences.read().startup_layout.into();
+        self.open_editors.clear();
+        self.application = ApplicationState::new();
+        self.layout_cache_needs_updating = true;
         self.asking_for_new_file = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.save_file_name = None;
+        }
         #[cfg(target_arch = "wasm32")]
         {
             self.web.document_name = None;
@@ -1142,6 +1149,8 @@ impl KanbanRS {
         *self.document.write() = doc;
         self.document.write().collect_tags();
         self.open_editors.clear();
+        self.application = ApplicationState::new();
+        self.layout_cache_needs_updating = true;
         self.save_file_name = Some(path.into());
     }
 
@@ -1235,6 +1244,45 @@ impl KanbanRS {
         self.application.mark_saved();
         self.write_recents();
         self.write_recovery();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn new_file_forgets_previous_save_path() {
+        let mut app = KanbanRS::new();
+        app.save_file_name = Some(PathBuf::from("/tmp/previous.kan"));
+
+        app.new_file();
+
+        assert_eq!(app.save_file_name, None);
+    }
+
+    #[test]
+    fn new_file_starts_a_fresh_document_session() {
+        let mut app = KanbanRS::new();
+        {
+            let mut document = app.document.write();
+            app.application.handle_command(
+                &mut document,
+                ApplicationCommand::CreateRootTask {
+                    name: "dirty task".to_owned(),
+                },
+            );
+        }
+        assert!(app.application.can_undo());
+        assert!(app.application.modified_since_last_saved());
+
+        app.new_file();
+
+        assert!(!app.application.can_undo());
+        assert!(!app.application.modified_since_last_saved());
+        assert!(app.layout_cache_needs_updating);
+        assert!(app.open_editors.is_empty());
     }
 }
 
