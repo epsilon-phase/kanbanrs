@@ -1,6 +1,7 @@
+use crate::kanban::application::ApplicationCommand;
 use crate::kanban::category_editor;
 use crate::kanban::priority_editor::PriorityEditor;
-use crate::{AppCommand, KanbanDocument, StartupLayout};
+use crate::{KanbanDocument, StartupLayout};
 use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{self, *};
 use lazy_static::lazy_static;
@@ -89,7 +90,7 @@ impl Preferences {
             egui::Window::new("Template Category Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(AppCommand::ReplaceCategory(name, style)) =
+                    if let Some(ApplicationCommand::ReplaceCategory(name, style)) =
                         self.category_editor_state.show(ui, &self.template)
                     {
                         self.template.replace_category_style(&name, style);
@@ -104,7 +105,7 @@ impl Preferences {
             egui::Window::new("Template Priority Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(AppCommand::SetPriority(name, value)) =
+                    if let Some(ApplicationCommand::SetPriority(name, value)) =
                         self.priority_editor_state.show(&self.template, ui)
                     {
                         self.template.set_priority(name, value);
@@ -154,6 +155,8 @@ impl Preferences {
                     if response.changed() {
                         self.autosave = Some(Duration::from_secs(60 * minutes));
                     }
+                } else {
+                    self.autosave = None;
                 }
                 response = response.union(ui.checkbox(
                     &mut self.store_undo_history_for_files,
