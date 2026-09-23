@@ -8,15 +8,16 @@ use std::time::Instant;
 use web_time::Instant;
 
 use lazy_static::lazy_static;
+use log::debug;
 
 use crate::preferences::PREFERENCES;
 
+use super::application::ApplicationCommand;
 use super::force_directed::{force_atlas2, rect_edge_point};
 use super::*;
 
-use eframe::egui::Scene;
-use egui::epaint::CubicBezierShape;
-use egui::{DragPanButtons, Modal, Pos2, Rect};
+use eframe::egui::epaint::CubicBezierShape;
+use eframe::egui::{self, Color32, DragPanButtons, Modal, Pos2, Rect, Scene, Stroke, Vec2};
 use filter::KanbanFilter;
 use layout::adt::dag::NodeHandle;
 use layout::core::format::{ClipHandle, RenderBackend};
@@ -619,7 +620,8 @@ impl NodeLayout {
         &mut self,
         _document: &KanbanDocument,
         ui: &mut egui::Ui,
-        actions: &mut Vec<AppCommand>,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<ApplicationCommand>,
     ) -> bool {
         self.collapsed.retain(|id| _document.task_is_extant(*id));
         if self.layout_handle.is_some() {
@@ -940,16 +942,27 @@ impl NodeLayout {
                     let senses = senses.on_hover_ui(|ui| {
                         let task = _document.get_task(*task_id).unwrap();
                         let mut nothing: Option<KanbanId> = None;
-                        if let Some(cmd) = task.summary(_document, &mut nothing, ui, true, 0) {
-                            actions.push(cmd);
-                        }
+                        task_presentation::task_summary(
+                            task,
+                            _document,
+                            ui,
+                            &mut task_presentation::TaskPresentationState {
+                                hovered_task: &mut nothing,
+                                shell_commands,
+                                application_commands,
+                            },
+                            task_presentation::SummaryOptions {
+                                start_open: true,
+                                idx: 0,
+                            },
+                        );
                     });
                     if senses.middle_clicked() {
                         self.focus = Some(*task_id);
-                        actions.push(AppCommand::FocusOn(*task_id));
+                        shell_commands.push(AppShellCommand::FocusOn(*task_id));
                     }
                     if senses.clicked() {
-                        actions.push(AppCommand::OpenEditor(*task_id));
+                        shell_commands.push(AppShellCommand::OpenEditor(*task_id));
                     }
                     if senses.secondary_clicked() && !senses.dragged() {
                         if let Some(index) = self.collapsed.iter().position(|x| *x == *task_id) {
@@ -1059,9 +1072,11 @@ impl NodeLayout {
                                 .unwrap_or(pointer_global);
                             let local_rect = offset_rect(*region, start.to_vec2());
                             if is_on_left_side(&local_rect, pointer_pos) {
-                                actions.push(AppCommand::AddChildTo(*x, *task_id));
+                                application_commands
+                                    .push(ApplicationCommand::AddChildTo(*x, *task_id));
                             } else {
-                                actions.push(AppCommand::AddChildTo(*task_id, *x));
+                                application_commands
+                                    .push(ApplicationCommand::AddChildTo(*task_id, *x));
                             }
                         }
                     }

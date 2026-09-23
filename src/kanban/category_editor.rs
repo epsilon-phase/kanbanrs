@@ -1,6 +1,6 @@
-use egui::{ComboBox, Ui, Widget};
+use eframe::egui::{self, ComboBox, Ui, Widget};
 
-use super::*;
+use super::{application::ApplicationCommand, *};
 #[derive(Clone)]
 pub struct State {
     ///The category style being edited, a copy at this point
@@ -38,8 +38,8 @@ impl State {
         result.dummy_document.replace_task(&task);
         result
     }
-    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> Option<AppCommand> {
-        let mut action: Option<AppCommand> = None;
+    pub fn show(&mut self, ui: &mut Ui, document: &KanbanDocument) -> Option<ApplicationCommand> {
+        let mut action: Option<ApplicationCommand> = None;
 
         if !self.open {
             return None;
@@ -56,7 +56,7 @@ impl State {
 
                     if ui.button("Add new Category").clicked() {
                         self.selected_category_name = self.new_category_name.clone();
-                        action = Some(AppCommand::ReplaceCategory(
+                        action = Some(ApplicationCommand::ReplaceCategory(
                             self.selected_category_name.clone(),
                             KanbanCategoryStyle::default(),
                         ));
@@ -64,9 +64,24 @@ impl State {
                 });
                 self.dummy_document
                     .replace_category_style(&String::from("category"), self.style);
+                let mut shell_commands = Vec::new();
+                let mut application_commands = Vec::new();
                 for i in self.dummy_document.get_tasks() {
                     let mut hovered = None;
-                    i.summary(&self.dummy_document, &mut hovered, &mut columns[0], true, 0);
+                    super::task_presentation::task_summary(
+                        i,
+                        &self.dummy_document,
+                        &mut columns[0],
+                        &mut super::task_presentation::TaskPresentationState {
+                            hovered_task: &mut hovered,
+                            shell_commands: &mut shell_commands,
+                            application_commands: &mut application_commands,
+                        },
+                        super::task_presentation::SummaryOptions {
+                            start_open: true,
+                            idx: 0,
+                        },
+                    );
                 }
                 ComboBox::new("Style select", "Select Category")
                     .selected_text(&self.current_category_name)
@@ -151,7 +166,7 @@ impl State {
                 self.open = false;
             }
             if ui.button("Apply style").clicked() {
-                action = Some(AppCommand::ReplaceCategory(
+                action = Some(ApplicationCommand::ReplaceCategory(
                     self.current_category_name.clone(),
                     self.style,
                 ));

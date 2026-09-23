@@ -1,4 +1,6 @@
-use super::*;
+use eframe::egui::{self, ScrollArea};
+
+use super::{application::ApplicationCommand, *};
 ///The state used for the priority editor
 #[derive(Clone, Default)]
 pub struct PriorityEditor {
@@ -22,7 +24,11 @@ impl PriorityEditor {
     /// * `ui` The UI instance
     ///
     /// Returns a command if the user made a change, otherwise None.
-    pub fn show(&mut self, document: &KanbanDocument, ui: &mut egui::Ui) -> Option<AppCommand> {
+    pub fn show(
+        &mut self,
+        document: &KanbanDocument,
+        ui: &mut egui::Ui,
+    ) -> Option<ApplicationCommand> {
         let mut items: Vec<(String, i32)> = document
             .get_sorted_priorities()
             .into_iter()
@@ -33,7 +39,7 @@ impl PriorityEditor {
             ui.label("Priority name");
             ui.text_edit_singleline(&mut self.name);
         });
-        let mut command: Option<AppCommand> = None;
+        let mut command: Option<ApplicationCommand> = None;
         ui.horizontal(|ui| {
             let mut s = self.current_value.to_string();
             ui.label("Priority(higher is more important)");
@@ -42,7 +48,7 @@ impl PriorityEditor {
                 self.current_value = x;
             }
             if !self.name.is_empty() && ui.button("Add").clicked() {
-                command = Some(AppCommand::SetPriority(
+                command = Some(ApplicationCommand::SetPriority(
                     self.name.clone(),
                     self.current_value,
                 ));
@@ -58,10 +64,10 @@ impl PriorityEditor {
                 ui.horizontal(|ui| {
                     ui.label(format!("{name} - {priority}"));
                     if ui.button("+").clicked() {
-                        command = Some(AppCommand::SetPriority(name.clone(), priority + 1));
+                        command = Some(ApplicationCommand::SetPriority(name.clone(), priority + 1));
                     }
                     if ui.button("-").clicked() {
-                        command = Some(AppCommand::SetPriority(name.clone(), priority - 1));
+                        command = Some(ApplicationCommand::SetPriority(name.clone(), priority - 1));
                     }
                 });
             }

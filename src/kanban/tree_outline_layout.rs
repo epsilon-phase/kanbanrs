@@ -1,5 +1,6 @@
 use std::collections::{HashSet, VecDeque};
 
+use eframe::egui::{self, Align, ScrollArea};
 use filter::KanbanFilter;
 use sorting::ItemSort;
 
@@ -83,7 +84,8 @@ impl TreeOutline {
         &mut self,
         ui: &mut egui::Ui,
         document: &KanbanDocument,
-        actions: &mut Vec<AppCommand>,
+        shell_commands: &mut Vec<AppShellCommand>,
+        application_commands: &mut Vec<application::ApplicationCommand>,
         hovered_item: &mut Option<KanbanId>,
         scroll_to: &Option<KanbanId>,
     ) {
@@ -91,7 +93,7 @@ impl TreeOutline {
             .checkbox(&mut self.exclude_completed, "Exclude completed")
             .changed()
         {
-            actions.push(AppCommand::UpdateLayout);
+            shell_commands.push(AppShellCommand::UpdateLayout);
         }
 
         ui.group(|ui| {
@@ -110,10 +112,20 @@ impl TreeOutline {
                         ui.horizontal(|ui| {
                             ui.add_space((depth as f32) * ui.available_width() / 20.0);
 
-                            if let Some(cmd) = task.summary(document, hovered_item, ui, false, idx)
-                            {
-                                actions.push(cmd);
-                            }
+                            task_presentation::task_summary(
+                                task,
+                                document,
+                                ui,
+                                &mut task_presentation::TaskPresentationState {
+                                    hovered_task: hovered_item,
+                                    shell_commands,
+                                    application_commands,
+                                },
+                                task_presentation::SummaryOptions {
+                                    start_open: false,
+                                    idx,
+                                },
+                            );
                         });
                     }
                 }
