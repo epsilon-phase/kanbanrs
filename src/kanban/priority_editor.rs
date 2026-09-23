@@ -10,6 +10,10 @@ pub struct PriorityEditor {
     pub current_value: i32,
     ///Whether the editor is open
     pub open: bool,
+    ///The priority currently being renamed, if any
+    renaming: Option<String>,
+    ///The pending replacement name for `renaming`
+    rename_to: String,
 }
 impl PriorityEditor {
     pub fn new() -> Self {
@@ -17,6 +21,8 @@ impl PriorityEditor {
             name: String::new(),
             current_value: 0,
             open: false,
+            renaming: None,
+            rename_to: String::new(),
         }
     }
     /// Show the PriorityEditor
@@ -62,16 +68,49 @@ impl PriorityEditor {
         ScrollArea::vertical().id_salt("priorities").show(ui, |ui| {
             for (name, priority) in items.iter() {
                 ui.horizontal(|ui| {
-                    ui.label(format!("{name} - {priority}"));
-                    if ui.button("+").clicked() {
-                        command = Some(ApplicationCommand::SetPriority(name.clone(), priority + 1));
-                    }
-                    if ui.button("-").clicked() {
-                        command = Some(ApplicationCommand::SetPriority(name.clone(), priority - 1));
+                    if self.renaming.as_deref() == Some(name.as_str()) {
+                        ui.label(format!("{priority}"));
+                        ui.text_edit_singleline(&mut self.rename_to);
+                        if ui
+                            .button("Rename")
+                            .on_hover_text("Rename everywhere it is referenced")
+                            .clicked()
+                            && !self.rename_to.is_empty()
+                            && self.rename_to.as_str() != name.as_str()
+                        {
+                            command = Some(ApplicationCommand::RenamePriority {
+                                from: name.clone(),
+                                to: self.rename_to.clone(),
+                            });
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.renaming = None;
+                        }
+                    } else {
+                        ui.label(format!("{name} - {priority}"));
+                        if ui.button("+").clicked() {
+                            command =
+                                Some(ApplicationCommand::SetPriority(name.clone(), priority + 1));
+                        }
+                        if ui.button("-").clicked() {
+                            command =
+                                Some(ApplicationCommand::SetPriority(name.clone(), priority - 1));
+                        }
+                        if ui
+                            .button("Rename")
+                            .on_hover_text("Rename this priority everywhere it is referenced")
+                            .clicked()
+                        {
+                            self.renaming = Some(name.clone());
+                            self.rename_to = name.clone();
+                        }
                     }
                 });
             }
         });
+        if command.is_some() {
+            self.renaming = None;
+        }
         command
     }
 }

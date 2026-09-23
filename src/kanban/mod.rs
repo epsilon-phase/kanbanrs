@@ -22,6 +22,75 @@ pub mod tree_outline_layout;
 pub mod undo;
 
 pub type KanbanId = i32;
+
+/// Reference to an entry in the document's category style registry.
+///
+/// Newtyped so a task's category can't silently drift into a string
+/// the registry has never heard of: loads repair the registry
+/// ([`KanbanDocument::normalize_after_load`]) and writes keep it in
+/// sync.
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct CategoryName(pub String);
+
+impl CategoryName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for CategoryName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for CategoryName {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for CategoryName {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
+
+/// Reference to an entry in the document's priority value registry.
+///
+/// Same contract as [`CategoryName`].
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct PriorityName(pub String);
+
+impl PriorityName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for PriorityName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<String> for PriorityName {
+    fn from(value: String) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&str> for PriorityName {
+    fn from(value: &str) -> Self {
+        Self(value.to_owned())
+    }
+}
 ///The three states a task might be in
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum Status {
@@ -32,10 +101,14 @@ pub enum Status {
     ///A ready task has no uncompleted child tasks
     Ready,
 }
-///A kanban document
-#[derive(Serialize, Deserialize)]
+/// A kanban document
+#[derive(Serialize)]
 pub struct KanbanDocument {
-    ///File format version for forward compatibility
+    ///The file format version documents are written with.
+    ///
+    /// Files older than the current version are upgraded in
+    /// [`KanbanDocument::normalize_after_load`]; files newer than it are
+    /// refused at open time rather than guessed at.
     #[serde(default = "default_version")]
     version: u32,
     ///An association between task ids and items
@@ -46,8 +119,6 @@ pub struct KanbanDocument {
     ///if a category is not mentioned, then you can't be sure the category
     ///doesn't exist
     categories: HashMap<String, KanbanCategoryStyle>,
-    #[serde(skip)]
-    tags: BTreeSet<String>,
     ///The id the next task will be created with.
     next_id: RwLock<KanbanId>,
 }
@@ -55,7 +126,73 @@ pub struct KanbanDocument {
 fn default_version() -> u32 {
     1
 }
+
+/// The newest file format this build understands.
+const CURRENT_VERSION: u32 = 1;
+
+impl<'de> Deserialize<'de> for KanbanDocument {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Keep this field list in sync with KanbanDocument; the
+        // round-trip and load tests fail if it drifts.
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default = "default_version")]
+            version: u32,
+            tasks: BTreeMap<KanbanId, KanbanItem>,
+            priorities: HashMap<String, i32>,
+            categories: HashMap<String, KanbanCategoryStyle>,
+            next_id: RwLock<KanbanId>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        if raw.version > CURRENT_VERSION {
+            return Err(serde::de::Error::custom(format!(
+                "document format {} is newer than this build supports ({CURRENT_VERSION})",
+                raw.version
+            )));
+        }
+        let mut document = KanbanDocument {
+            version: raw.version,
+            tasks: raw.tasks,
+            priorities: raw.priorities,
+            categories: raw.categories,
+            next_id: raw.next_id,
+        };
+        document.normalize_after_load();
+        Ok(document)
+    }
+}
+
+impl KanbanDocument {
+    /// Repair cross-references after loading: every category or priority a
+    /// task mentions gains a registry entry, so lookups never dangle.
+    pub fn normalize_after_load(&mut self) {
+        let mut used_categories: Vec<String> = Vec::new();
+        let mut used_priorities: Vec<String> = Vec::new();
+        for item in self.tasks.values() {
+            if let Some(category) = &item.category {
+                used_categories.push(category.to_string());
+            }
+            if let Some(priority) = &item.priority {
+                used_priorities.push(priority.to_string());
+            }
+        }
+        for category in used_categories {
+            self.categories.entry(category).or_default();
+        }
+        for priority in used_priorities {
+            self.priorities.entry(priority).or_insert(0);
+        }
+    }
+}
 impl PartialEq for KanbanDocument {
+    /// Semantic equality: tasks, priority values, and category styles.
+    ///
+    /// Intentionally excludes `version`, `next_id`, and derived tags —
+    /// two documents holding the same user content are equal even if
+    /// minted or loaded differently.
     fn eq(&self, other: &Self) -> bool {
         self.tasks == other.tasks
             && self.priorities == other.priorities
@@ -92,7 +229,6 @@ impl KanbanDocument {
                 ("Medium".to_owned(), 5),
                 ("Low".to_owned(), 1),
             ]),
-            tags: BTreeSet::new(),
             categories: HashMap::new(),
             next_id: RwLock::new(0),
         }
@@ -209,12 +345,11 @@ impl KanbanDocument {
             })
         };
         if let Some(category) = &item.category {
-            if !self.categories.contains_key(category) {
+            if !self.categories.contains_key(category.as_str()) {
                 self.categories
-                    .insert(category.clone(), KanbanCategoryStyle::default());
+                    .insert(category.to_string(), KanbanCategoryStyle::default());
             }
         }
-        self.collect_tags_from_item(item.id);
         result
     }
     pub fn set_priority(&mut self, name: String, value: i32) {
@@ -228,6 +363,70 @@ impl KanbanDocument {
     }
     pub fn remove_category(&mut self, name: &str) {
         self.categories.remove(name);
+    }
+    /// Rename a priority everywhere it is referenced: the value registry
+    /// and every task pointing at the old name. Renaming onto an existing
+    /// name keeps that name's value and repoints the referencing tasks.
+    ///
+    /// Returns whether anything changed.
+    pub fn rename_priority(&mut self, from: &str, to: &str) -> bool {
+        if from == to {
+            return false;
+        }
+        let old_value = self.priorities.remove(from);
+        let referenced = self.tasks.values().any(|item| {
+            item.priority
+                .as_ref()
+                .is_some_and(|priority| priority.as_str() == from)
+        });
+        if old_value.is_none() && !referenced {
+            return false;
+        }
+        self.priorities
+            .entry(to.to_owned())
+            .or_insert(old_value.unwrap_or(0));
+        for item in self.tasks.values_mut() {
+            if item
+                .priority
+                .as_ref()
+                .is_some_and(|priority| priority.as_str() == from)
+            {
+                item.priority = Some(to.into());
+            }
+        }
+        true
+    }
+    /// Rename a category everywhere it is referenced: the style registry
+    /// and every task pointing at the old name. Renaming onto an existing
+    /// category keeps that category's style.
+    ///
+    /// Returns whether anything changed.
+    pub fn rename_category(&mut self, from: &str, to: &str) -> bool {
+        if from == to {
+            return false;
+        }
+        let old_style = self.categories.remove(from);
+        let referenced = self.tasks.values().any(|item| {
+            item.category
+                .as_ref()
+                .is_some_and(|category| category.as_str() == from)
+        });
+        if old_style.is_none() && !referenced {
+            return false;
+        }
+        self.categories
+            .entry(to.to_owned())
+            .or_insert(old_style.unwrap_or_default());
+        for item in self.tasks.values_mut() {
+            if item
+                .category
+                .as_ref()
+                .is_some_and(|category| category.as_str() == from)
+            {
+                item.category = Some(to.into());
+            }
+        }
+        true
     }
     pub fn get_sorted_priorities<'a>(&'a self) -> Vec<(&'a String, &'a i32)> {
         let mut i: Vec<(&'a String, &'a i32)> = self.priorities.iter().collect();
@@ -256,10 +455,10 @@ impl KanbanDocument {
         }
         let task_a = self.get_task(target).unwrap();
         let task_b = self.get_task(other).unwrap();
-        if task_a.is_child_of(task_b, self) {
+        if task_a.is_descendant_of(task_b, self) {
             return TaskRelation::ChildOf;
         }
-        if task_b.is_child_of(task_a, self) {
+        if task_b.is_descendant_of(task_a, self) {
             return TaskRelation::ParentOf;
         }
         TaskRelation::Unrelated
@@ -271,7 +470,7 @@ impl KanbanDocument {
     */
     pub fn task_priority_value(&self, task: &i32) -> i32 {
         if let Some(priority_name) = &self.tasks[task].priority {
-            if let Some(value) = self.priorities.get(priority_name) {
+            if let Some(value) = self.priorities.get(priority_name.as_str()) {
                 return *value;
             } else {
                 return 0;
@@ -311,19 +510,15 @@ impl KanbanDocument {
     pub fn get_task_mut(&mut self, id: KanbanId) -> Option<&mut KanbanItem> {
         self.tasks.get_mut(&id)
     }
-    fn collect_tags_from_item(&mut self, item: KanbanId) {
-        for i in self.tasks[&item].tags.iter() {
-            self.tags.insert(i.clone());
-        }
-    }
-    pub fn collect_tags(&mut self) {
-        let task_ids: Vec<KanbanId> = self.tasks.keys().cloned().collect();
-        for i in task_ids.iter() {
-            self.collect_tags_from_item(*i);
-        }
-    }
-    pub fn get_tags(&self) -> &BTreeSet<String> {
-        &self.tags
+    /// All tags used by any task, computed on demand.
+    ///
+    /// Replaces a derived document-level set: one representation of
+    /// tags, no rebuild bookkeeping on every load and mutation.
+    pub fn all_tags(&self) -> BTreeSet<String> {
+        self.tasks
+            .values()
+            .flat_map(|item| item.tags.iter().cloned())
+            .collect()
     }
 }
 /// Category functions
@@ -361,10 +556,10 @@ pub struct KanbanItem {
     pub description: String,
     ///The completion time of the task
     pub completed: Option<DateTime<Utc>>,
-    ///The cateogry of the task, there is only one
-    pub category: Option<String>,
+    ///The category of the task, there is only one
+    pub category: Option<CategoryName>,
     ///The priority of the task
-    pub priority: Option<String>,
+    pub priority: Option<PriorityName>,
     ///The tags associated with the task
     pub tags: Vec<String>,
     ///The children of the tasks
@@ -398,7 +593,7 @@ impl KanbanItem {
             return;
         }
         let category = parent.category.as_ref().unwrap();
-        if let Some(style) = document.categories.get(category) {
+        if let Some(style) = document.categories.get(category.as_str()) {
             if style.children_inherit_category {
                 self.category = parent.category.clone();
             }
@@ -475,9 +670,9 @@ impl KanbanItem {
     pub fn fill_searchable_buffer(&self, output: &mut String) {
         output.push_str(&self.name);
         output.push(' ');
-        output.push_str(self.category.as_deref().unwrap_or(""));
+        output.push_str(self.category.as_ref().map(|c| c.as_str()).unwrap_or(""));
         output.push(' ');
-        output.push_str(self.priority.as_deref().unwrap_or(""));
+        output.push_str(self.priority.as_ref().map(|p| p.as_str()).unwrap_or(""));
         output.push(' ');
         output.push_str(&self.description);
         output.push(' ');
@@ -487,8 +682,9 @@ impl KanbanItem {
         }
     }
 }
-/// An app-shell command emitted by UI interactions.
-#[derive(Clone, Debug)]
+/// An app-shell command emitted by UI interactions and application
+/// command handling.
+#[derive(Clone, Debug, PartialEq)]
 pub enum AppShellCommand {
     /// Open the task in the editor by id
     OpenEditor(KanbanId),
@@ -502,12 +698,16 @@ pub enum AppShellCommand {
     ScrollTo(KanbanId),
     /// Signal that the layout must be updated
     UpdateLayout,
+    /// Remove a deleted task from any open editor copies.
+    RemoveDeletedTaskFromEditors(KanbanItem),
+    /// Tell layout state that the document item set changed.
+    InformOfNewItems,
 }
 /**
 Contains some methods to make determining relation easier.
 */
 impl KanbanItem {
-    pub fn is_child_of(&self, parent: &Self, document: &KanbanDocument) -> bool {
+    pub fn is_descendant_of(&self, parent: &Self, document: &KanbanDocument) -> bool {
         let mut stack: Vec<KanbanId> = Vec::new();
         let mut seen: Vec<KanbanId> = Vec::new();
         stack.push(parent.id);
@@ -745,19 +945,19 @@ pub mod tests {
             let a_id: KanbanId;
             {
                 let task_a = document.get_new_task_mut();
-                task_a.category = Some("test_true".to_owned());
+                task_a.category = Some("test_true".into());
                 a_id = task_a.id;
             };
             {
                 let mut task_b = document.get_new_task();
                 task_b.inherit(document.get_task(a_id).unwrap(), &document);
-                assert_eq!(task_b.category, Some("test_true".to_owned()));
+                assert_eq!(task_b.category, Some("test_true".into()));
             }
         }
         // It should of course, not apply on categories with the inheritance set to false
         {
             let mut task_a = document.get_new_task();
-            task_a.category = Some("test_false".to_owned());
+            task_a.category = Some("test_false".into());
             document.replace_task(&task_a);
             let mut task_b = document.get_new_task();
             task_b.inherit(&task_a, &document);
@@ -889,7 +1089,7 @@ pub mod tests {
     fn test_priority_value_known_priority() {
         let mut doc = make_document_easy(1, &[]);
         let mut task = doc.get_task(0).unwrap().clone();
-        task.priority = Some("High".to_owned());
+        task.priority = Some("High".into());
         doc.replace_task(&task);
         assert_eq!(doc.task_priority_value(&0), 10); // High = 10 in KanbanDocument::new()
     }
@@ -898,7 +1098,7 @@ pub mod tests {
     fn test_priority_value_unknown_name_is_zero() {
         let mut doc = make_document_easy(1, &[]);
         let mut task = doc.get_task(0).unwrap().clone();
-        task.priority = Some("Nonexistent".to_owned());
+        task.priority = Some("Nonexistent".into());
         doc.replace_task(&task);
         assert_eq!(doc.task_priority_value(&0), 0);
     }
@@ -921,6 +1121,27 @@ pub mod tests {
         let json = serde_json::to_string(&doc).unwrap();
         let decoded: KanbanDocument = serde_json::from_str(&json).unwrap();
         assert!(doc == decoded);
+    }
+
+    #[test]
+    fn newer_format_is_refused() {
+        let doc = KanbanDocument::new();
+        let mut json = serde_json::to_value(&doc).unwrap();
+        json["version"] = serde_json::json!(CURRENT_VERSION + 1);
+        assert!(serde_json::from_value::<KanbanDocument>(json).is_err());
+    }
+
+    #[test]
+    fn loading_repairs_dangling_registry_references() {
+        let mut doc = KanbanDocument::new();
+        let mut item = doc.get_new_task();
+        item.category = Some("ghost".into());
+        item.priority = Some("urgent".into());
+        doc.replace_task(&item);
+        let json = serde_json::to_string(&doc).unwrap();
+        let loaded: KanbanDocument = serde_json::from_str(&json).unwrap();
+        assert!(loaded.categories.contains_key("ghost"));
+        assert_eq!(loaded.priorities.get("urgent"), Some(&0));
     }
 }
 /// The information necessary to style a kanban task.

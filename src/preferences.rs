@@ -14,21 +14,31 @@ const MINIMUM_ITERATIONS: u32 = 10u32;
 /// The maximum iteration limit selected by the slider.
 const MAXIMUM_ITERATIONS: u32 = 5000u32;
 
+/// The seed content for new documents plus the transient editors that
+/// customize it. Grouped so app-wide preferences stay app-wide; the
+/// document is flattened so previously persisted JSON keeps its shape.
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct DocumentTemplate {
+    /// Seed content for new documents.
+    #[serde(flatten)]
+    pub document: KanbanDocument,
+    /// Editor state for the template's categories (never persisted).
+    #[serde(skip)]
+    pub category_editor: category_editor::State,
+    /// Editor state for the template's priorities (never persisted).
+    #[serde(skip)]
+    pub priority_editor: PriorityEditor,
+}
+
 ///Preferences to be stored between invocations of the program across
 ///all documents
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Preferences {
-    ///Does nothing right now, not sure it ever will.
-    pub store_undo_history_for_files: bool,
     ///If something, then the duration between automatic saves
     pub autosave: Option<Duration>,
     ///Whether or not to display the preference UI
     #[serde(skip)]
     pub showing_preference: bool,
-    #[serde(skip)]
-    category_editor_state: category_editor::State,
-    #[serde(skip)]
-    priority_editor_state: PriorityEditor,
     ///The startup layout to open a document with if not specified
     #[serde(default)]
     pub startup_layout: StartupLayout,
@@ -37,7 +47,7 @@ pub struct Preferences {
     pub node_width: usize,
     #[serde(default = "Preferences::default_force_iterations")]
     pub force_max_iteration: u32,
-    pub template: KanbanDocument,
+    pub template: DocumentTemplate,
     ///File to open automatically on startup (native only)
     #[cfg(not(target_arch = "wasm32"))]
     pub auto_open_file: Option<String>,
@@ -49,15 +59,12 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            store_undo_history_for_files: false,
             autosave: Some(Duration::from_secs(60)),
             showing_preference: false,
-            category_editor_state: category_editor::State::default(),
-            priority_editor_state: PriorityEditor::default(),
             startup_layout: StartupLayout::default(),
             node_width: Self::default_node_width(),
             force_max_iteration: Self::default_force_iterations(),
-            template: KanbanDocument::default(),
+            template: DocumentTemplate::default(),
             #[cfg(not(target_arch = "wasm32"))]
             auto_open_file: None,
             dark_mode: Self::default_dark_mode(),
@@ -85,34 +92,50 @@ impl Preferences {
         ui: &mut Ui,
         #[cfg(not(target_arch = "wasm32"))] recents: &[String],
     ) -> Response {
-        if self.category_editor_state.open {
+        if self.template.category_editor.open {
             let mut open = true;
             egui::Window::new("Template Category Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(ApplicationCommand::ReplaceCategory(name, style)) =
-                        self.category_editor_state.show(ui, &self.template)
+                    match self
+                        .template
+                        .category_editor
+                        .show(ui, &self.template.document)
                     {
-                        self.template.replace_category_style(&name, style);
+                        Some(ApplicationCommand::ReplaceCategory(name, style)) => {
+                            self.template.document.replace_category_style(&name, style);
+                        }
+                        Some(ApplicationCommand::RenameCategory { from, to }) => {
+                            self.template.document.rename_category(&from, &to);
+                        }
+                        _ => {}
                     }
                 });
             if !open {
-                self.category_editor_state.open = false;
+                self.template.category_editor.open = false;
             }
         }
-        if self.priority_editor_state.open {
+        if self.template.priority_editor.open {
             let mut open = true;
             egui::Window::new("Template Priority Editor")
                 .open(&mut open)
                 .show(ui, |ui| {
-                    if let Some(ApplicationCommand::SetPriority(name, value)) =
-                        self.priority_editor_state.show(&self.template, ui)
+                    match self
+                        .template
+                        .priority_editor
+                        .show(&self.template.document, ui)
                     {
-                        self.template.set_priority(name, value);
+                        Some(ApplicationCommand::SetPriority(name, value)) => {
+                            self.template.document.set_priority(name, value);
+                        }
+                        Some(ApplicationCommand::RenamePriority { from, to }) => {
+                            self.template.document.rename_priority(&from, &to);
+                        }
+                        _ => {}
                     }
                 });
             if !open {
-                self.priority_editor_state.open = false;
+                self.template.priority_editor.open = false;
             }
         }
         ui.vertical(|ui| {
@@ -121,19 +144,19 @@ impl Preferences {
                 .body(|ui|{
                 ui.horizontal(|ui|{
                     if ui.button("Edit template categories").clicked(){
-                        self.category_editor_state.open=true;
+                        self.template.category_editor.open=true;
                     }
                     if ui.button("Edit template priorities").clicked(){
-                        self.priority_editor_state.open=true;
+                        self.template.priority_editor.open=true;
                     }
                 });
                 ui.columns(2, |columns|{
                     columns[0].heading("Categories");
-                    for i in self.template.get_categories(){
+                    for i in self.template.document.get_categories(){
                         columns[0].label(i.0);
                     }
                     columns[1].heading("Priorities");
-                    for i in self.template.get_sorted_priorities(){
+                    for i in self.template.document.get_sorted_priorities(){
                         columns[1].label(format!("{} - {}",i.0,i.1));
                     }
                 })
@@ -162,28 +185,6 @@ impl Preferences {
             })
             .inner
             .union(
-                ui.horizontal(|ui| {
-                    let response = ui
-                        .checkbox(
-                            &mut self.store_undo_history_for_files,
-                            "Persist undo history",
-                        )
-                        .on_hover_text(
-                            "Retains undo records in your configuration directory. \
-                             Currently has no effect.",
-                        );
-                    ui.label(
-                        egui::RichText::new(
-                            "Note: this would retain data from documents you edit, including \
-                             ones stored in more secure locations.",
-                        )
-                        .weak()
-                        .small(),
-                    );
-                    response
-                })
-                .inner,
-            ).union(
                 ui.horizontal(|ui|{
                     ComboBox::new("StartupLayout", "Startup layout").selected_text(format!("{}",&self.startup_layout))
                         .show_ui(ui,|ui|{
@@ -254,5 +255,26 @@ impl Preferences {
             resp
         })
         .inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn template_keeps_persisted_json_shape() {
+        // Document fields must stay inline under "template" (flattened)
+        // so previously persisted preferences keep loading.
+        let prefs = Preferences::default();
+        let json = serde_json::to_value(&prefs).unwrap();
+        let template = json.get("template").expect("template key");
+        assert!(
+            template.get("version").is_some(),
+            "document fields should be flattened into template, found: {template:?}"
+        );
+
+        let round: Preferences = serde_json::from_value(json).unwrap();
+        assert!(round.template.document == prefs.template.document);
     }
 }

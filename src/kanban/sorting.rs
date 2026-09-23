@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 
 use super::{KanbanDocument, KanbanId, KanbanItem};
-use eframe::egui::{self, ComboBox};
 ///The way that kanban tasks should be sorted by
 #[derive(PartialEq, Copy, Clone)]
 pub enum ItemSort {
@@ -66,29 +65,6 @@ impl ItemSort {
                 ids.sort_by_cached_key(|x| document.get_task(*x).unwrap().time_records.duration())
             }
         }
-    }
-    pub fn combobox(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut needs_sorting = false;
-        ui.label("Sort by");
-        let combo = ComboBox::from_id_salt("SortingScheme")
-            .selected_text(String::from(*self))
-            .show_ui(ui, |ui| {
-                needs_sorting = [
-                    ui.selectable_value(self, Self::None, "None"),
-                    ui.selectable_value(self, Self::Id, "Creation order"),
-                    ui.selectable_value(self, Self::Newest, "Newest First"),
-                    ui.selectable_value(self, Self::Name, "Name"),
-                    ui.selectable_value(self, Self::Category, "Category"),
-                    ui.selectable_value(self, Self::Completed, "Completed"),
-                    ui.selectable_value(self, Self::TimeSpent, "Time Spent"),
-                ]
-                .iter()
-                .any(|x| x.clicked());
-            });
-        combo
-            .response
-            .on_hover_text("Order tasks within each view");
-        needs_sorting
     }
 }
 pub fn task_comparison_completed_last(a: &KanbanItem, b: &KanbanItem) -> Ordering {

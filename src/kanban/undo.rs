@@ -75,6 +75,14 @@ impl PriorityEvent {
         }
     }
 }
+///The record of a rename applied to a registry entry and its references.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenameEvent {
+    /// The name before the rename.
+    pub from: String,
+    /// The name after the rename.
+    pub to: String,
+}
 ///The various types of events
 #[derive(Debug, Serialize, Deserialize)]
 pub enum UndoItem {
@@ -83,6 +91,8 @@ pub enum UndoItem {
     Modification(ModificationEvent),
     CategoryStyle(CategoryStyleEvent),
     Priority(PriorityEvent),
+    RenamePriority(RenameEvent),
+    RenameCategory(RenameEvent),
 }
 impl UndoItem {
     pub fn undo(&self, document: &mut KanbanDocument) {
@@ -93,6 +103,12 @@ impl UndoItem {
             UndoItem::Modification(me) => me.undo(document),
             UndoItem::CategoryStyle(ce) => ce.undo(document),
             UndoItem::Priority(pe) => pe.undo(document),
+            UndoItem::RenamePriority(re) => {
+                document.rename_priority(&re.to, &re.from);
+            }
+            UndoItem::RenameCategory(re) => {
+                document.rename_category(&re.to, &re.from);
+            }
         }
     }
     pub fn merge(&self, other: &Self) -> Option<Self> {

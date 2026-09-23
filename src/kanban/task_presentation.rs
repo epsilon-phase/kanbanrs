@@ -4,8 +4,8 @@ use epaint::{Pos2, Rect};
 use log::debug;
 
 use super::{
-    application, layout_cache, AppShellCommand, KanbanDocument, KanbanId, KanbanItem, Status,
-    TaskRelation,
+    application, layout_cache, sorting::ItemSort, AppShellCommand, KanbanDocument, KanbanId,
+    KanbanItem, Status, TaskRelation,
 };
 use crate::ACCENT;
 
@@ -13,6 +13,34 @@ use crate::ACCENT;
 pub const READY: Color32 = Color32::from_rgb(80, 200, 120);
 pub const BLOCKED: Color32 = Color32::from_rgb(235, 90, 90);
 pub const COMPLETED: Color32 = Color32::from_rgb(150, 155, 165);
+
+/// The sort-scheme combobox for the toolbar.
+///
+/// Presentation lives here, alongside the other task UI helpers; the
+/// [`ItemSort`] enum itself stays a pure model type.
+pub fn sort_combobox(sort: &mut ItemSort, ui: &mut egui::Ui) -> bool {
+    let mut needs_sorting = false;
+    ui.label("Sort by");
+    let combo = eframe::egui::ComboBox::from_id_salt("SortingScheme")
+        .selected_text(String::from(*sort))
+        .show_ui(ui, |ui| {
+            needs_sorting = [
+                ui.selectable_value(sort, ItemSort::None, "None"),
+                ui.selectable_value(sort, ItemSort::Id, "Creation order"),
+                ui.selectable_value(sort, ItemSort::Newest, "Newest First"),
+                ui.selectable_value(sort, ItemSort::Name, "Name"),
+                ui.selectable_value(sort, ItemSort::Category, "Category"),
+                ui.selectable_value(sort, ItemSort::Completed, "Completed"),
+                ui.selectable_value(sort, ItemSort::TimeSpent, "Time Spent"),
+            ]
+            .iter()
+            .any(|x| x.clicked());
+        });
+    combo
+        .response
+        .on_hover_text("Order tasks within each view");
+    needs_sorting
+}
 
 /// The dot color for a task status.
 pub fn status_color(status: &Status) -> Color32 {
@@ -139,7 +167,7 @@ pub fn task_summary(
     let mut name_color = ui.visuals().text_color();
 
     if let Some(category) = &item.category {
-        if let Some(category_style) = document.categories.get(category) {
+        if let Some(category_style) = document.categories.get(category.as_str()) {
             apply_category_style(
                 category_style,
                 &mut stroke,
@@ -209,16 +237,16 @@ pub fn task_summary(
                                 .on_hover_text("This task has uncompleted children");
                         }
                         if let Some(priority) = &item.priority {
-                            chip(ui, priority, ACCENT).on_hover_text("Priority");
+                            chip(ui, priority.as_str(), ACCENT).on_hover_text("Priority");
                         }
                         if let Some(category) = &item.category {
                             let color = document
                                 .categories
-                                .get(category)
+                                .get(category.as_str())
                                 .and_then(|s| s.text_color)
                                 .map(|c| Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3]))
                                 .unwrap_or(name_color);
-                            chip(ui, category, color).on_hover_text("Category");
+                            chip(ui, category.as_str(), color).on_hover_text("Category");
                         }
                         for tag in item.tags.iter().take(2) {
                             chip(ui, tag, ui.visuals().text_color()).on_hover_text("Tag");

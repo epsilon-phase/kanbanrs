@@ -66,7 +66,11 @@ pub fn state_from(
         item_copy: item.clone(),
         selected_child: None,
         new_tag: "".into(),
-        category: item.category.as_ref().unwrap_or(&String::new()).clone(),
+        category: item
+            .category
+            .as_ref()
+            .map(|c| c.as_str().to_owned())
+            .unwrap_or_default(),
         is_on_child_view: true,
         is_on_tag_view: true,
         new_time_descr: String::new(),
@@ -158,7 +162,7 @@ impl State {
                     ui.label("Priority");
                     ComboBox::from_id_salt("Priority")
                         .selected_text(match &self.item_copy.priority {
-                            Some(x) => x,
+                            Some(x) => x.as_str(),
                             None => "None",
                         })
                         .show_ui(ui, |ui| {
@@ -166,7 +170,7 @@ impl State {
                             for (name, _) in document.get_sorted_priorities().iter() {
                                 ui.selectable_value(
                                     &mut self.item_copy.priority,
-                                    Some((*name).clone()),
+                                    Some((*name).as_str().into()),
                                     (*name).clone(),
                                 );
                             }
@@ -275,7 +279,8 @@ impl State {
                         });
                         ui.separator();
                         if self.is_on_tag_view {
-                            self.display_tags(ui, &document.tags);
+                            let tags = document.all_tags();
+                            self.display_tags(ui, &tags);
                         } else {
                             self.show_time_records(ui, document);
                         }
@@ -296,7 +301,7 @@ impl State {
                         .clicked()
                     {
                         if !self.category.is_empty() {
-                            self.item_copy.category = Some(self.category.clone());
+                            self.item_copy.category = Some(self.category.clone().into());
                         } else {
                             self.item_copy.category = None;
                         }
@@ -553,7 +558,7 @@ impl State {
                     self.item_copy
                         .time_records
                         .entries
-                        .push((TimeEntry::InstanteousDuration(self.new_time_entry), desc));
+                        .push((TimeEntry::InstantaneousDuration(self.new_time_entry), desc));
                     self.new_time_entry = TimeDelta::zero();
                 }
                 if ui
@@ -642,7 +647,7 @@ impl State {
                                             .show(ui);
                                     });
                                 }
-                                time_tracking::TimeEntry::InstanteousDuration(_) => {}
+                                time_tracking::TimeEntry::InstantaneousDuration(_) => {}
                             }
                             if x.1.is_none() {
                                 x.1 = Some(String::new());

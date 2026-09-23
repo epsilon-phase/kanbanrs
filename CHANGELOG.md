@@ -68,6 +68,28 @@
   is enabled so the UI can be driven by the `egui-mcp` tooling.
 * Migrate to the per-theme style API (`style_of`/`set_style_of`) and
   replace deprecated `CentralPanel::show_inside`.
+* `is_child_of` renamed to `is_descendant_of` — the traversal visits
+  every descendant, so the old name lied about what it answered.
+* Task category/priority references are newtyped (`CategoryName`,
+  `PriorityName`, transparent in JSON). Loading repairs the registries
+  through `KanbanDocument::normalize_after_load`, so references can no
+  longer dangle, and documents newer than the build are refused at
+  open time instead of guessed at.
+* The document-level tag cache is gone: `all_tags()` computes the set
+  on demand — one representation instead of a field to keep in sync.
+* Priorities and categories can be renamed everywhere they are
+  referenced, straight from their editors, with undo support.
+* Application side effects and shell commands merged into a single
+  `AppShellCommand` vocabulary handled by one dispatcher;
+  `ApplicationEffect` no longer exists.
+* The sort-scheme combobox moved out of the model module into
+  `task_presentation`, matching the existing presentation split.
+* Preferences split: the new-document seed and its transient editors
+  now live in `DocumentTemplate` (persisted JSON shape unchanged,
+  guarded by a test); the dead `store_undo_history_for_files` field
+  and its no-op checkbox were removed.
+* `TimeEntry::InstantaneousDuration` fixes the spelling of a serialized
+  variant name, with a serde alias so old files still load.
 
 # v0.2.8
 

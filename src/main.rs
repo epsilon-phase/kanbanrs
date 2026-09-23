@@ -3,7 +3,7 @@ mod kanban;
 use clap::*;
 use eframe::egui::{self, ComboBox, Modifiers, Rect, RichText, ViewportCommand};
 use kanban::{
-    application::{ApplicationCommand, ApplicationEffect, ApplicationState},
+    application::{ApplicationCommand, ApplicationState},
     category_editor::State,
     filter::KanbanFilter,
     priority_editor::PriorityEditor,
@@ -426,7 +426,7 @@ impl eframe::App for KanbanRS {
         });
         if self.asking_for_new_file {
             let mut confirmed = false;
-            if *self.document.read() != self.preferences.read().template {
+            if *self.document.read() != self.preferences.read().template.document {
                 egui::Modal::new("new_file_confirmation".into()).show(ui.ctx(), |ui| {
                     ui.heading("Save changes?");
                     ui.label("The current document has unsaved changes.");
@@ -738,7 +738,8 @@ impl eframe::App for KanbanRS {
                 );
                 if let KanbanDocumentLayoutType::Search(_) = self.current_layout.layout {
                 } else {
-                    self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
+                    self.layout_cache_needs_updating |=
+                        kanban::task_presentation::sort_combobox(&mut self.sorting_type, ui);
                 }
                 ui.separator();
                 if self.filter.show_ui(ui, &self.document.read()).changed() {
@@ -971,7 +972,7 @@ impl KanbanRS {
     fn initialize_preferences(&mut self, storage: &dyn eframe::Storage) {
         let str = storage.get_string("preferences");
         let str = str.unwrap_or(
-            "{'autosave':{'secs':60,'nanos':0},'store_undo_history_for_files':false}".to_string(),
+            "{'autosave':{'secs':60,'nanos':0}}".to_string(),
         );
         if let Ok(x) = serde_json::from_str(&str) {
             self.preferences.write().clone_from(&x);
@@ -1034,7 +1035,7 @@ impl KanbanRS {
     fn new_file(&mut self) {
         self.document
             .write()
-            .clone_from(&self.preferences.read().template);
+            .clone_from(&self.preferences.read().template.document);
         self.current_layout = self.preferences.read().startup_layout.into();
         self.open_editors.clear();
         self.application = ApplicationState::new();
@@ -1059,29 +1060,12 @@ impl KanbanRS {
 
         result
     }
-    fn apply_application_effects(&mut self, effects: Vec<ApplicationEffect>) {
+    /// Feed an application command's shell-side results into the single
+    /// shell dispatcher, so open/close/layout work has exactly one
+    /// vocabulary and one handler.
+    fn apply_application_effects(&mut self, effects: Vec<AppShellCommand>) {
         for effect in effects {
-            match effect {
-                ApplicationEffect::OpenEditor(item) => {
-                    self.open_editors
-                        .push(Arc::new(RwLock::new(kanban::editor::state_from(
-                            &item,
-                            self.editor_shell_tx.clone(),
-                            self.editor_application_tx.clone(),
-                        ))));
-                }
-                ApplicationEffect::RemoveDeletedTaskFromEditors(to_delete) => {
-                    for editor in self.open_editors.iter() {
-                        editor.write().item_copy.remove_child(&to_delete);
-                    }
-                }
-                ApplicationEffect::UpdateLayout => {
-                    self.layout_cache_needs_updating = true;
-                }
-                ApplicationEffect::InformOfNewItems => {
-                    self.current_layout.inform_of_new_items();
-                }
-            }
+            self.handle_shell_command(effect);
         }
     }
 
@@ -1144,6 +1128,14 @@ impl KanbanRS {
             }
             AppShellCommand::UpdateLayout => {
                 self.layout_cache_needs_updating = true;
+            }
+            AppShellCommand::RemoveDeletedTaskFromEditors(to_delete) => {
+                for editor in self.open_editors.iter() {
+                    editor.write().item_copy.remove_child(&to_delete);
+                }
+            }
+            AppShellCommand::InformOfNewItems => {
+                self.current_layout.inform_of_new_items();
             }
         }
     }
@@ -1298,7 +1290,6 @@ impl KanbanRS {
             }
         };
         *self.document.write() = doc;
-        self.document.write().collect_tags();
         self.open_editors.clear();
         self.application = ApplicationState::new();
         self.layout_cache_needs_updating = true;

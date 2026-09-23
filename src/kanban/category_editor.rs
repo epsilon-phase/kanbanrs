@@ -14,6 +14,10 @@ pub struct State {
     current_category_name: String,
     ///Whether or not the category editor is opened
     pub open: bool,
+    ///Whether the selected category is being renamed
+    renaming: bool,
+    ///The pending replacement name while `renaming`
+    rename_to: String,
     ///A test document used to display the current category's style
     dummy_document: KanbanDocument,
 }
@@ -30,6 +34,8 @@ impl State {
             selected_category_name: String::new(),
             current_category_name: String::new(),
             open: false,
+            renaming: false,
+            rename_to: String::new(),
             dummy_document: KanbanDocument::new(),
         };
         let mut task = result.dummy_document.get_new_task_mut().clone();
@@ -94,6 +100,36 @@ impl State {
                             );
                         }
                     });
+                columns[1].horizontal(|ui| {
+                    if self.renaming {
+                        ui.text_edit_singleline(&mut self.rename_to);
+                        if ui
+                            .button("Rename")
+                            .on_hover_text("Rename everywhere it is referenced")
+                            .clicked()
+                            && !self.rename_to.is_empty()
+                            && self.rename_to != self.current_category_name
+                        {
+                            action = Some(ApplicationCommand::RenameCategory {
+                                from: self.current_category_name.clone(),
+                                to: self.rename_to.clone(),
+                            });
+                            self.selected_category_name = self.rename_to.clone();
+                            self.renaming = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.renaming = false;
+                        }
+                    } else if ui
+                        .button("Rename category")
+                        .on_hover_text("Rename the selected category everywhere it is referenced")
+                        .clicked()
+                        && !self.current_category_name.is_empty()
+                    {
+                        self.renaming = true;
+                        self.rename_to = self.current_category_name.clone();
+                    }
+                });
                 columns[1].group(|ui| {
 
                     ui.checkbox(

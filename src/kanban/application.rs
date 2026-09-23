@@ -2,8 +2,8 @@ use chrono::Utc;
 use circular_buffer::CircularBuffer;
 
 use super::{
-    undo::{CategoryStyleEvent, CreationEvent, PriorityEvent, UndoItem},
-    KanbanCategoryStyle, KanbanDocument, KanbanId, KanbanItem,
+    undo::{CategoryStyleEvent, CreationEvent, PriorityEvent, RenameEvent, UndoItem},
+    AppShellCommand, KanbanCategoryStyle, KanbanDocument, KanbanId, KanbanItem,
 };
 
 const UNDO_LIMIT: usize = 35;
@@ -31,19 +31,10 @@ pub enum ApplicationCommand {
     ReplaceCategory(String, KanbanCategoryStyle),
     /// Set a priority's numeric value.
     SetPriority(String, i32),
-}
-
-/// App-shell work caused by an application command.
-#[derive(Clone, Debug, PartialEq)]
-pub enum ApplicationEffect {
-    /// Open an editor for the task.
-    OpenEditor(KanbanItem),
-    /// Remove a deleted task from any open editor copies.
-    RemoveDeletedTaskFromEditors(KanbanItem),
-    /// Rebuild the current layout cache.
-    UpdateLayout,
-    /// Tell layout state that the document item set changed.
-    InformOfNewItems,
+    /// Rename a priority and everything referencing it.
+    RenamePriority { from: String, to: String },
+    /// Rename a category and everything referencing it.
+    RenameCategory { from: String, to: String },
 }
 
 /// State owned by application command handling.
@@ -82,7 +73,7 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         command: ApplicationCommand,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         match command {
             ApplicationCommand::CreateRootTask { name } => self.create_root_task(document, name),
             ApplicationCommand::CreateChildOf(id) => self.create_child_of(document, id),
@@ -102,13 +93,19 @@ impl ApplicationState {
             ApplicationCommand::SetPriority(name, value) => {
                 self.set_priority(document, name, value)
             }
+            ApplicationCommand::RenamePriority { from, to } => {
+                self.rename_priority(document, from, to)
+            }
+            ApplicationCommand::RenameCategory { from, to } => {
+                self.rename_category(document, from, to)
+            }
         }
     }
 
-    pub fn undo(&mut self, document: &mut KanbanDocument) -> Vec<ApplicationEffect> {
+    pub fn undo(&mut self, document: &mut KanbanDocument) -> Vec<AppShellCommand> {
         if let Some(item) = self.undo_buffer.pop_back() {
             item.undo(document);
-            vec![ApplicationEffect::UpdateLayout]
+            vec![AppShellCommand::UpdateLayout]
         } else {
             Vec::new()
         }
@@ -118,7 +115,7 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         name: String,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let task = document.get_new_task_mut();
         task.name = name;
         let new_task = task.clone();
@@ -128,9 +125,9 @@ impl ApplicationState {
         }));
         self.modified_since_last_saved = true;
         vec![
-            ApplicationEffect::UpdateLayout,
-            ApplicationEffect::InformOfNewItems,
-            ApplicationEffect::OpenEditor(new_task),
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::InformOfNewItems,
+            AppShellCommand::OpenTask(new_task),
         ]
     }
 
@@ -138,7 +135,7 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         id: KanbanId,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let mut new_task = document.get_new_task();
         let mut task_copy = document.get_task(id).unwrap().clone();
         new_task.inherit(&task_copy, document);
@@ -149,9 +146,9 @@ impl ApplicationState {
         self.record_undo(child_creation);
         self.modified_since_last_saved = true;
         vec![
-            ApplicationEffect::OpenEditor(new_task),
-            ApplicationEffect::UpdateLayout,
-            ApplicationEffect::InformOfNewItems,
+            AppShellCommand::OpenTask(new_task),
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::InformOfNewItems,
         ]
     }
 
@@ -160,15 +157,15 @@ impl ApplicationState {
         document: &mut KanbanDocument,
         parent: KanbanItem,
         mut new_task: KanbanItem,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         new_task.inherit(&parent, document);
         let undo = document.replace_task(&new_task);
         self.record_undo(undo);
         self.modified_since_last_saved = true;
         vec![
-            ApplicationEffect::OpenEditor(new_task),
-            ApplicationEffect::UpdateLayout,
-            ApplicationEffect::InformOfNewItems,
+            AppShellCommand::OpenTask(new_task),
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::InformOfNewItems,
         ]
     }
 
@@ -176,7 +173,7 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         item: KanbanItem,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         self.modified_since_last_saved = if let Some(existing) = document.get_task(item.id) {
             existing != &item
         } else {
@@ -185,7 +182,7 @@ impl ApplicationState {
         let undo = document.replace_task(&item);
         self.record_undo(undo);
         if self.modified_since_last_saved {
-            vec![ApplicationEffect::UpdateLayout]
+            vec![AppShellCommand::UpdateLayout]
         } else {
             Vec::new()
         }
@@ -195,14 +192,14 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         to_delete: KanbanItem,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let undo = document.remove_task(&to_delete);
         self.record_undo(undo);
         self.modified_since_last_saved = true;
         vec![
-            ApplicationEffect::RemoveDeletedTaskFromEditors(to_delete),
-            ApplicationEffect::UpdateLayout,
-            ApplicationEffect::InformOfNewItems,
+            AppShellCommand::RemoveDeletedTaskFromEditors(to_delete),
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::InformOfNewItems,
         ]
     }
 
@@ -210,7 +207,7 @@ impl ApplicationState {
         &mut self,
         document: &mut KanbanDocument,
         id: KanbanId,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let mut task = document.get_task(id).unwrap().clone();
         task.completed = match task.completed {
             Some(_) => None,
@@ -219,7 +216,7 @@ impl ApplicationState {
         let undo = document.replace_task(&task);
         self.record_undo(undo);
         self.modified_since_last_saved = true;
-        vec![ApplicationEffect::UpdateLayout]
+        vec![AppShellCommand::UpdateLayout]
     }
 
     fn add_child_to(
@@ -227,7 +224,7 @@ impl ApplicationState {
         document: &mut KanbanDocument,
         parent: KanbanId,
         child: KanbanId,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         if document.can_add_as_child(
             document.get_task(parent).unwrap(),
             document.get_task(child).unwrap(),
@@ -238,14 +235,14 @@ impl ApplicationState {
             self.record_undo(undo);
         }
         self.modified_since_last_saved = true;
-        vec![ApplicationEffect::UpdateLayout]
+        vec![AppShellCommand::UpdateLayout]
     }
 
     fn finish_time_recording(
         &mut self,
         document: &mut KanbanDocument,
         id: KanbanId,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let task = document.get_task_mut(id).unwrap();
         task.time_records.handle_record_request(None);
         self.modified_since_last_saved = true;
@@ -257,7 +254,7 @@ impl ApplicationState {
         document: &mut KanbanDocument,
         name: String,
         style: KanbanCategoryStyle,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let former_style = document.get_category_style(&name);
         document.replace_category_style(&name, style);
         self.record_undo(UndoItem::CategoryStyle(CategoryStyleEvent {
@@ -273,7 +270,7 @@ impl ApplicationState {
         document: &mut KanbanDocument,
         name: String,
         value: i32,
-    ) -> Vec<ApplicationEffect> {
+    ) -> Vec<AppShellCommand> {
         let former_value = document
             .get_sorted_priorities()
             .into_iter()
@@ -282,7 +279,35 @@ impl ApplicationState {
         document.set_priority(name.clone(), value);
         self.record_undo(UndoItem::Priority(PriorityEvent { name, former_value }));
         self.modified_since_last_saved = true;
-        vec![ApplicationEffect::UpdateLayout]
+        vec![AppShellCommand::UpdateLayout]
+    }
+
+    fn rename_priority(
+        &mut self,
+        document: &mut KanbanDocument,
+        from: String,
+        to: String,
+    ) -> Vec<AppShellCommand> {
+        if !document.rename_priority(&from, &to) {
+            return Vec::new();
+        }
+        self.record_undo(UndoItem::RenamePriority(RenameEvent { from, to }));
+        self.modified_since_last_saved = true;
+        vec![AppShellCommand::UpdateLayout]
+    }
+
+    fn rename_category(
+        &mut self,
+        document: &mut KanbanDocument,
+        from: String,
+        to: String,
+    ) -> Vec<AppShellCommand> {
+        if !document.rename_category(&from, &to) {
+            return Vec::new();
+        }
+        self.record_undo(UndoItem::RenameCategory(RenameEvent { from, to }));
+        self.modified_since_last_saved = true;
+        vec![AppShellCommand::UpdateLayout]
     }
 
     fn record_undo(&mut self, item: UndoItem) {
@@ -321,9 +346,9 @@ mod tests {
         assert_eq!(
             effects,
             vec![
-                ApplicationEffect::UpdateLayout,
-                ApplicationEffect::InformOfNewItems,
-                ApplicationEffect::OpenEditor(created.clone()),
+                AppShellCommand::UpdateLayout,
+                AppShellCommand::InformOfNewItems,
+                AppShellCommand::OpenTask(created.clone()),
             ]
         );
 
@@ -342,5 +367,69 @@ mod tests {
 
         state.handle_command(&mut document, ApplicationCommand::MarkCompleted(id));
         assert!(document.get_task(id).unwrap().completed.is_none());
+    }
+
+    #[test]
+    fn rename_priority_cascades_and_undoes() {
+        let mut state = ApplicationState::new();
+        let mut document = KanbanDocument::new();
+        let id = document.get_new_task().id;
+        let mut task = document.get_task(id).unwrap().clone();
+        task.priority = Some("High".into());
+        document.replace_task(&task);
+
+        state.handle_command(
+            &mut document,
+            ApplicationCommand::RenamePriority {
+                from: "High".to_owned(),
+                to: "Critical".to_owned(),
+            },
+        );
+        assert_eq!(
+            document.get_task(id).unwrap().priority,
+            Some("Critical".into())
+        );
+        assert_eq!(document.task_priority_value(&id), 10);
+        assert!(document
+            .get_sorted_priorities()
+            .iter()
+            .any(|(name, _)| *name == "Critical"));
+        assert!(state.modified_since_last_saved());
+
+        state.undo(&mut document);
+        assert_eq!(document.get_task(id).unwrap().priority, Some("High".into()));
+        assert_eq!(document.task_priority_value(&id), 10);
+    }
+
+    #[test]
+    fn rename_category_cascades_and_undoes() {
+        let mut state = ApplicationState::new();
+        let mut document = KanbanDocument::new();
+        let id = document.get_new_task().id;
+        let mut task = document.get_task(id).unwrap().clone();
+        task.category = Some("Work".into());
+        document.replace_task(&task);
+
+        state.handle_command(
+            &mut document,
+            ApplicationCommand::RenameCategory {
+                from: "Work".to_owned(),
+                to: "Office".to_owned(),
+            },
+        );
+        assert_eq!(
+            document.get_task(id).unwrap().category,
+            Some("Office".into())
+        );
+        assert!(document.get_category_style("Office").is_some());
+        assert!(document.get_category_style("Work").is_none());
+
+        state.undo(&mut document);
+        assert_eq!(
+            document.get_task(id).unwrap().category,
+            Some("Work".into())
+        );
+        assert!(document.get_category_style("Work").is_some());
+        assert!(document.get_category_style("Office").is_none());
     }
 }

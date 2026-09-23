@@ -5,8 +5,9 @@ use std::collections::HashSet;
 ///The time recording type.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone, Copy, Debug)]
 pub enum TimeEntry {
-    ///A time entry without any referent to actual time.
-    InstanteousDuration(chrono::TimeDelta),
+    ///The time entry without any referent to actual time.
+    #[serde(alias = "InstanteousDuration")]
+    InstantaneousDuration(chrono::TimeDelta),
     ///A time entry with both a beginning and an ending time.
     Concluded(chrono::DateTime<chrono::Utc>, chrono::DateTime<Utc>),
     ///A time entry that hasn't been concluded.
@@ -27,7 +28,7 @@ impl TimeEntry {
     ///Calculate or retrieve the duration of the time entry.
     pub fn duration(self) -> chrono::TimeDelta {
         match self {
-            Self::InstanteousDuration(x) => x,
+            Self::InstantaneousDuration(x) => x,
             Self::Concluded(started, ended) => ended - started,
             Self::Started(start) => Utc::now() - start,
         }
@@ -36,7 +37,7 @@ impl TimeEntry {
     pub fn to_description(self) -> String {
         let dur = self.duration();
         match self {
-            Self::InstanteousDuration(_) => format!(
+            Self::InstantaneousDuration(_) => format!(
                 "{} hours, {} minutes",
                 dur.num_hours(),
                 dur.num_minutes() % 60
@@ -112,7 +113,7 @@ impl TimeRecords {
     }
     #[cfg(test)]
     pub(crate) fn add_duration_test(&mut self, d: chrono::TimeDelta) {
-        self.entries.push((TimeEntry::InstanteousDuration(d), None));
+        self.entries.push((TimeEntry::InstantaneousDuration(d), None));
     }
 }
 ///Collect the time spent of each child task.
@@ -159,7 +160,7 @@ mod test {
 
     prop_compose! {
         fn arb_instant_entry()(secs in 0i64..=3_600_000) -> TimeEntry {
-            TimeEntry::InstanteousDuration(TimeDelta::seconds(secs))
+            TimeEntry::InstantaneousDuration(TimeDelta::seconds(secs))
         }
     }
 
@@ -218,7 +219,7 @@ mod test {
         #[test]
         fn adding_instantaneous_entry_increases_duration(mut records in arb_records(), delta in arb_delta()) {
             let before = records.duration();
-            records.entries.push((TimeEntry::InstanteousDuration(delta), None));
+            records.entries.push((TimeEntry::InstantaneousDuration(delta), None));
             prop_assert_eq!(records.duration(), before + delta);
         }
     }

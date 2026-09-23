@@ -201,7 +201,16 @@ enum LayoutResult {
 struct CommandContainer {
     commands: Vec<DrawCommand>,
 }
-///The state required for the node layout
+///The state required for the node layout.
+///
+/// # Coordinate frame invariant
+///
+/// Scene content lives in `[0, max]`: `min` is pinned to zero for
+/// every layout mode and the painter's clip rect covers
+/// `[start, start + max - min]`. Content is drawn at `content + start`
+/// only — anything outside `[0, max]` in content space (including
+/// decorations that hang off node edges) is clipped away. Both layout
+/// engines must normalize before their first frame.
 pub struct NodeLayout {
     // A thought on this. This should be extracted into another container and then
     // the interface should be implemented on that instead.
@@ -456,7 +465,7 @@ impl NodeLayout {
         self.collapsed.iter().any(|parent_id| {
             document
                 .get_task(*parent_id)
-                .map(|parent| item.is_child_of(parent, document))
+                .map(|parent| item.is_descendant_of(parent, document))
                 .unwrap_or(false)
         })
     }
@@ -1286,7 +1295,7 @@ impl NodeLayout {
                         };
                         let hidden = _document
                             .get_tasks()
-                            .filter(|x| x.id != collapsed_id && x.is_child_of(parent, _document))
+                            .filter(|x| x.id != collapsed_id && x.is_descendant_of(parent, _document))
                             .count();
                         if hidden == 0 {
                             continue;
@@ -1387,7 +1396,7 @@ fn prepare_node_display(
     look.line_width = style.noninteractive().bg_stroke.width as usize;
 
     if let Some(category) = &item.category {
-        if let Some(this_style) = document.categories.get(category) {
+        if let Some(this_style) = document.categories.get(category.as_str()) {
             if let Some(color) = &this_style.panel_stroke_color {
                 look.line_color = from_color32(Color32::from_rgba_unmultiplied(
                     color[0], color[1], color[2], color[3],

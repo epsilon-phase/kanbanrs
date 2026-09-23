@@ -161,7 +161,7 @@ impl KanbanFilter {
             KanbanFilter::MatchesCategory(category) => item
                 .category
                 .as_ref()
-                .is_some_and(|x| x.eq(category.as_str())),
+                .is_some_and(|x| x.as_str() == category.as_str()),
             Self::RelatedTo(id) => document.get_relation(*id, item.id) != TaskRelation::Unrelated,
             Self::CompletionStatus(completion_status) => {
                 if *completion_status {
@@ -246,7 +246,7 @@ mod test {
         document.replace_task(&a);
         document.replace_task(&b);
         let mut c = document.get_new_task();
-        c.category = Some(TEST_CATEGORY.to_owned());
+        c.category = Some(TEST_CATEGORY.into());
         document.replace_task(&c);
         assert!(document.tasks.len() == TEST_ITEM_COUNT);
         document
@@ -288,7 +288,7 @@ mod test {
         assert!(category_matches[0]
             .category
             .as_ref()
-            .is_some_and(|x| x == TEST_CATEGORY));
+            .is_some_and(|x| x.as_str() == TEST_CATEGORY));
     }
     #[test]
     fn test_category() {
