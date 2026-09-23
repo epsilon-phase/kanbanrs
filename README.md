@@ -6,7 +6,7 @@ This is the way I tend to envision effective task management, but that is likely
 organizing tasks hierarchically, but that isn't necessary for effective task management.
 
 1. Open Kanbanrs
-2. Enter the name of the first task you want to add in the textbox labelled "New task name"
+2. Enter the name of the first task you want to add in the "New task name" text box at the top (or press Enter after typing)
 3. Click "Add Task"
 4. Enter whatever details you want in the editor that opens
 5. Click add new child, edit attributes as you please

@@ -115,7 +115,7 @@ impl Preferences {
                 self.priority_editor_state.open = false;
             }
         }
-        ui.vertical_centered(|ui| {
+        ui.vertical(|ui| {
             CollapsingState::load_with_default_open(ui.ctx(),"Template".into(),false)
                 .show_header(ui, |ui|ui.heading("Template"))
                 .body(|ui|{
@@ -152,28 +152,34 @@ impl Preferences {
                         response = response
                             .union(Slider::new(&mut minutes, 1..=30).text("minutes").ui(ui));
                     });
-                    if response.changed() {
-                        self.autosave = Some(Duration::from_secs(60 * minutes));
+                if response.changed() {
+                    self.autosave = Some(Duration::from_secs(60 * minutes));
                     }
                 } else {
                     self.autosave = None;
                 }
-                response = response.union(ui.checkbox(
-                    &mut self.store_undo_history_for_files,
-                    "Persist undo history",
-                ));
                 response
             })
             .inner
             .union(
                 ui.horizontal(|ui| {
-                    let response= ui.checkbox(
-                        &mut self.store_undo_history_for_files,
-                        "Persist Undo records",
+                    let response = ui
+                        .checkbox(
+                            &mut self.store_undo_history_for_files,
+                            "Persist undo history",
+                        )
+                        .on_hover_text(
+                            "Retains undo records in your configuration directory. \
+                             Currently has no effect.",
+                        );
+                    ui.label(
+                        egui::RichText::new(
+                            "Note: this would retain data from documents you edit, including \
+                             ones stored in more secure locations.",
+                        )
+                        .weak()
+                        .small(),
                     );
-                    ui.label(r"This retains information in your home configuration directory.
-It will leak information there, and may lead to retaining information saved into more secure locations.
-Currently this doesn't do anything");
                     response
                 })
                 .inner,
@@ -192,11 +198,7 @@ Currently this doesn't do anything");
                 ui.horizontal(|ui| {
                     let resp = ui.checkbox(&mut self.dark_mode, "Dark mode");
                     if resp.changed() {
-                        ui.ctx().set_visuals(if self.dark_mode {
-                            egui::Visuals::dark()
-                        } else {
-                            egui::Visuals::light()
-                        });
+                        crate::apply_theme(ui.ctx(), self.dark_mode);
                     }
                     resp
                 }).inner

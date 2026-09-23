@@ -59,8 +59,13 @@ impl KanbanFilter {
         ui.group(|ui| {
             ui.horizontal_wrapped(|ui| {
                 let previous = self.clone();
-                let mut box_response = ComboBox::new("Filter Select", "Select filter type")
-                    .selected_text(self.option_name())
+                let selected = if matches!(self, Self::None) {
+                    "Filter".to_owned()
+                } else {
+                    format!("Filter: {}", self.option_name())
+                };
+                let mut box_response = ComboBox::from_id_salt("Filter Select")
+                    .selected_text(selected)
                     .show_ui(ui, |ui| {
                         ui.selectable_value(self, Self::None, "None");
                         ui.selectable_value(
@@ -93,6 +98,7 @@ impl KanbanFilter {
                 if *self != previous {
                     box_response.mark_changed();
                 }
+                box_response = box_response.on_hover_text("Only show tasks matching the filter");
                 let mut text_response: Option<Response> = None;
                 let alter_match = matches!(self, Self::ExactMatch(_));
                 match self {

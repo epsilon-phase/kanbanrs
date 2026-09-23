@@ -13,7 +13,10 @@ pub struct DateTimePicker<'a> {
 }
 
 impl<'a> DateTimePicker<'a> {
-    pub fn new(id: impl std::hash::Hash, value: &'a mut chrono::DateTime<Utc>) -> Self {
+    pub fn new(
+        id: impl std::hash::Hash + std::fmt::Debug,
+        value: &'a mut chrono::DateTime<Utc>,
+    ) -> Self {
         Self {
             id: Id::new(id),
             value,

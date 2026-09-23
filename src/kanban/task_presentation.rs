@@ -1,5 +1,5 @@
 use eframe::egui::collapsing_header::CollapsingState;
-use eframe::egui::{self, Align, Color32, Direction, Margin, RichText, ScrollArea, Stroke, Vec2};
+use eframe::egui::{self, Align, Color32, Direction, Margin, RichText, Stroke, Vec2};
 use epaint::{Pos2, Rect};
 use log::debug;
 
@@ -7,6 +7,40 @@ use super::{
     application, layout_cache, AppShellCommand, KanbanDocument, KanbanId, KanbanItem, Status,
     TaskRelation,
 };
+use crate::ACCENT;
+
+/// Status colors shared by cards, column headers, and the status bar.
+pub const READY: Color32 = Color32::from_rgb(80, 200, 120);
+pub const BLOCKED: Color32 = Color32::from_rgb(235, 90, 90);
+pub const COMPLETED: Color32 = Color32::from_rgb(150, 155, 165);
+
+/// The dot color for a task status.
+pub fn status_color(status: &Status) -> Color32 {
+    match status {
+        Status::Ready => READY,
+        Status::Blocked => BLOCKED,
+        Status::Completed => COMPLETED,
+    }
+}
+
+/// Paint a small status dot as a span-sized widget.
+pub fn status_dot(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
+    ui.painter().circle_filled(rect.center(), 4.0, color);
+    response
+}
+
+/// A small rounded chip with colored text on a tinted background.
+fn chip(ui: &mut egui::Ui, text: &str, color: Color32) -> egui::Response {
+    egui::Frame::new()
+        .fill(Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 48))
+        .corner_radius(egui::CornerRadius::same(4))
+        .inner_margin(Margin::symmetric(5, 1))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).small().strong().color(color));
+        })
+        .response
+}
 
 pub struct TaskPresentationState<'a> {
     pub hovered_task: &'a mut Option<KanbanId>,
@@ -26,7 +60,7 @@ pub fn layout_id_list(
     ui: &mut egui::Ui,
     ids: &[KanbanId],
     presentation: &mut TaskPresentationState<'_>,
-    id_salt: impl std::hash::Hash,
+    id_salt: impl std::hash::Hash + std::fmt::Debug,
     scroll_to: Option<KanbanId>,
 ) {
     ui.set_width(ui.available_width());
@@ -100,11 +134,9 @@ pub fn task_summary(
     presentation: &mut TaskPresentationState<'_>,
     options: SummaryOptions,
 ) {
-    let style = ui.visuals_mut();
-    let mut status_color = style.text_color();
-    let mut panel_fill = style.panel_fill;
-    let mut stroke = style.noninteractive().bg_stroke;
-    let mut name_color = style.text_color();
+    let mut stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+    let mut panel_fill = ui.visuals().faint_bg_color;
+    let mut name_color = ui.visuals().text_color();
 
     if let Some(category) = &item.category {
         if let Some(category_style) = document.categories.get(category) {
@@ -116,40 +148,36 @@ pub fn task_summary(
             );
         }
     }
-    match document.task_status(&item.id) {
-        Status::Blocked => {
-            status_color = Color32::from_rgba_unmultiplied(200, 0, 0, 255);
-            style.window_fill = Color32::from_rgba_unmultiplied(75, 0, 0, 255);
-        }
-        Status::Ready => {
-            status_color = Color32::from_rgba_unmultiplied(0, 150, 0, 255);
-            style.window_fill = Color32::from_rgba_unmultiplied(0, 150, 0, 255);
-        }
-        _ => (),
-    }
+    let status = document.task_status(&item.id);
+    let status_color = status_color(&status);
 
     if let Some(hovered_id) = *presentation.hovered_task {
         if document.task_is_extant(hovered_id) {
             match document.get_relation(item.id, hovered_id) {
                 TaskRelation::ChildOf => {
-                    stroke.color = Color32::from_rgba_premultiplied(50, 50, 250, 255)
+                    stroke.color = Color32::from_rgb(80, 120, 250)
                 }
                 TaskRelation::ParentOf => {
-                    stroke.color = Color32::from_rgba_unmultiplied(255, 50, 50, 255)
+                    stroke.color = Color32::from_rgb(250, 80, 90)
                 }
                 _ => (),
             };
         }
     }
 
+    let dark = ui.visuals().dark_mode;
     let frame = eframe::egui::Frame::new()
         .fill(panel_fill)
-        .inner_margin(Margin::same(6))
-        .outer_margin(Vec2::new(3.0, 0.0))
-        .corner_radius(style.noninteractive().corner_radius)
-        .stroke(stroke);
+        .inner_margin(Margin::symmetric(8, 6))
+        .corner_radius(egui::CornerRadius::same(8))
+        .stroke(stroke)
+        .shadow(egui::epaint::Shadow {
+            offset: [0, 1],
+            blur: 4,
+            spread: 0,
+            color: Color32::from_black_alpha(if dark { 60 } else { 25 }),
+        });
 
-    let text = RichText::new(&item.name).heading().color(name_color);
     let mut close = false;
     frame.show(ui, |ui| {
         let mut nearest_acceptable_layout = *ui.layout();
@@ -159,38 +187,97 @@ pub fn task_summary(
             let id = ui.make_persistent_id(format!("summary {}, idx {}", item.id, options.idx));
             CollapsingState::load_with_default_open(ui.ctx(), id, options.start_open)
                 .show_header(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
-                        if ui.label(text).double_clicked() {
+                    ui.horizontal(|ui| {
+                        status_dot(ui, status_color);
+                        let title = RichText::new(&item.name).heading().color(name_color);
+                        let title = if item.completed.is_some() {
+                            title.strikethrough()
+                        } else {
+                            title
+                        };
+                        if ui
+                            .label(title)
+                            .on_hover_text("Double-click to edit this task")
+                            .double_clicked()
+                        {
                             presentation
                                 .shell_commands
                                 .push(AppShellCommand::OpenEditor(item.id));
+                        }
+                        if status == Status::Blocked {
+                            chip(ui, "Blocked", BLOCKED)
+                                .on_hover_text("This task has uncompleted children");
+                        }
+                        if let Some(priority) = &item.priority {
+                            chip(ui, priority, ACCENT).on_hover_text("Priority");
+                        }
+                        if let Some(category) = &item.category {
+                            let color = document
+                                .categories
+                                .get(category)
+                                .and_then(|s| s.text_color)
+                                .map(|c| Color32::from_rgba_premultiplied(c[0], c[1], c[2], c[3]))
+                                .unwrap_or(name_color);
+                            chip(ui, category, color).on_hover_text("Category");
+                        }
+                        for tag in item.tags.iter().take(2) {
+                            chip(ui, tag, ui.visuals().text_color()).on_hover_text("Tag");
+                        }
+                        if item.tags.len() > 2 {
+                            ui.label(
+                                RichText::new(format!("+{}", item.tags.len() - 2))
+                                    .small()
+                                    .weak(),
+                            );
+                        }
+                        if item.time_records.is_recording() {
+                            let pulse = ui.input(|i| i.time) * 4.0;
+                            let alpha = (80.0 + 175.0 * (pulse.sin() * 0.5 + 0.5)) as u8;
+                            ui.label(
+                                RichText::new("REC")
+                                    .small()
+                                    .strong()
+                                    .color(Color32::from_rgba_unmultiplied(235, 70, 70, alpha)),
+                            )
+                            .on_hover_text("Time recording in progress");
+                            ui.ctx()
+                                .request_repaint_after(std::time::Duration::from_millis(80));
                         }
                     });
                 })
                 .body(|ui| {
                     ui.vertical(|ui| {
-                        let completion_text = match item.completed {
-                            Some(_) => {
-                                format!("Completed {}", item.get_completed_time_string().unwrap())
-                            }
-                            None => "Not completed".into(),
-                        };
-                        ui.label(
-                            RichText::new(completion_text)
-                                .color(status_color)
-                                .strong()
-                                .small(),
-                        );
+                        if item.completed.is_some() {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Completed {}",
+                                    item.get_completed_time_string().unwrap()
+                                ))
+                                .small()
+                                .weak(),
+                            );
+                        }
                         ui.horizontal_wrapped(|ui| {
-                            let button = ui.button("Edit");
-                            if button.clicked() {
+                            let edit = ui.add(
+                                egui::Button::new(
+                                    RichText::new("Edit").strong().color(Color32::WHITE),
+                                )
+                                .fill(ACCENT),
+                            );
+                            if edit
+                                .on_hover_text("Open the task editor (or double-click the title)")
+                                .clicked()
+                            {
                                 presentation
                                     .shell_commands
                                     .push(AppShellCommand::OpenEditor(item.id));
                                 close = true;
                             }
-                            if ui.button("Add Child").clicked() {
+                            if ui
+                                .button("Add child")
+                                .on_hover_text("Create a new task under this one")
+                                .clicked()
+                            {
                                 presentation
                                     .application_commands
                                     .push(application::ApplicationCommand::CreateChildOf(item.id));
@@ -202,6 +289,7 @@ pub fn task_summary(
                                 } else {
                                     "Complete"
                                 })
+                                .on_hover_text("Toggle the completed state")
                                 .clicked()
                             {
                                 presentation
@@ -209,7 +297,11 @@ pub fn task_summary(
                                     .push(application::ApplicationCommand::MarkCompleted(item.id));
                                 close = true;
                             }
-                            if ui.button("focus").clicked() {
+                            if ui
+                                .button("Focus")
+                                .on_hover_text("Show this task with its parents and children")
+                                .clicked()
+                            {
                                 presentation
                                     .shell_commands
                                     .push(AppShellCommand::FocusOn(item.id));
@@ -217,10 +309,9 @@ pub fn task_summary(
                             }
                         });
 
-                        ScrollArea::vertical()
-                            .id_salt(format!("Summary for item {}", item.id))
-                            .max_height(50.0)
-                            .show(ui, |ui| ui.label(RichText::new(item.description.clone())));
+                        if !item.description.is_empty() {
+                            ui.label(RichText::new(&item.description));
+                        }
                     })
                 });
         });
@@ -272,7 +363,7 @@ mod tests {
         let mut shell_commands = Vec::new();
         let mut application_commands = Vec::new();
 
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let mut presentation = TaskPresentationState {
                 hovered_task: &mut hovered_task,
                 shell_commands: &mut shell_commands,
@@ -280,6 +371,7 @@ mod tests {
             };
             layout_id_list(&document, ui, &[1234], &mut presentation, "stale ids", None);
         });
+        output.textures_delta.clear();
 
         assert!(shell_commands.is_empty());
         assert!(application_commands.is_empty());
@@ -295,7 +387,7 @@ mod tests {
         let mut shell_commands = Vec::new();
         let mut application_commands = Vec::new();
 
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             let mut presentation = TaskPresentationState {
                 hovered_task: &mut hovered_task,
                 shell_commands: &mut shell_commands,
@@ -312,6 +404,7 @@ mod tests {
                 },
             );
         });
+        output.textures_delta.clear();
 
         assert!(shell_commands.is_empty());
         assert!(application_commands.is_empty());

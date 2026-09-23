@@ -70,7 +70,7 @@ impl ItemSort {
     pub fn combobox(&mut self, ui: &mut egui::Ui) -> bool {
         let mut needs_sorting = false;
         ui.label("Sort by");
-        ComboBox::from_id_salt("SortingScheme")
+        let combo = ComboBox::from_id_salt("SortingScheme")
             .selected_text(String::from(*self))
             .show_ui(ui, |ui| {
                 needs_sorting = [
@@ -85,6 +85,9 @@ impl ItemSort {
                 .iter()
                 .any(|x| x.clicked());
             });
+        combo
+            .response
+            .on_hover_text("Order tasks within each view");
         needs_sorting
     }
 }

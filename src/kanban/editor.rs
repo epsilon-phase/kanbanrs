@@ -127,9 +127,13 @@ impl State {
         ui.vertical(|ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::Min), |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Name");
+                    ui.label(RichText::new("Name").strong());
                     ui.text_edit_singleline(&mut self.item_copy.name);
-                    if ui.button("Scroll to").clicked() {
+                    if ui
+                        .small_button("Scroll to")
+                        .on_hover_text("Scroll the main view to this task")
+                        .clicked()
+                    {
                         self.shell_transmitter
                             .send(AppShellCommand::ScrollTo(self.item_copy.id))
                             .unwrap();
@@ -138,11 +142,16 @@ impl State {
                 if self.item_copy.completed.is_some() {
                     if ui
                         .button(self.item_copy.get_completed_time_string().unwrap())
+                        .on_hover_text("Click to mark this task as not completed")
                         .clicked()
                     {
                         self.item_copy.completed = None;
                     }
-                } else if ui.button("Mark completed").clicked() {
+                } else if ui
+                    .button("Mark completed")
+                    .on_hover_text("Mark this task as completed")
+                    .clicked()
+                {
                     self.item_copy.completed = Some(chrono::Utc::now());
                 }
                 ui.horizontal(|ui| {
@@ -272,34 +281,60 @@ impl State {
                         }
                     });
                 });
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        let accept_button = ui.button("Accept changes");
-                        let cancel_button = ui.button("Cancel changes");
-                        let delete_button =
-                            ui.add_enabled(!is_focused, Button::new("Delete and close"));
-                        if accept_button.clicked() {
-                            if !self.category.is_empty() {
-                                self.item_copy.category = Some(self.category.clone());
-                            } else {
-                                self.item_copy.category = None;
-                            }
-                            self.open = false;
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let save_close = ui.add(
+                        Button::new(
+                            RichText::new("Save and close")
+                                .strong()
+                                .color(egui::Color32::WHITE),
+                        )
+                        .fill(crate::ACCENT),
+                    );
+                    if save_close
+                        .on_hover_text("Apply every change and close this editor")
+                        .clicked()
+                    {
+                        if !self.category.is_empty() {
+                            self.item_copy.category = Some(self.category.clone());
+                        } else {
+                            self.item_copy.category = None;
                         }
-                        if cancel_button.clicked() {
-                            self.open = false;
-                            self.cancelled = true;
+                        self.open = false;
+                    }
+                    if ui
+                        .button("Save")
+                        .on_hover_text("Apply changes without closing")
+                        .clicked()
+                    {
+                        update_task = true;
+                    }
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Discard changes and close")
+                        .clicked()
+                    {
+                        self.open = false;
+                        self.cancelled = true;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let mut delete = ui.add_enabled(
+                            !is_focused,
+                            Button::new(RichText::new("Delete").color(egui::Color32::WHITE))
+                                .fill(ui.visuals().error_fg_color),
+                        );
+                        delete = delete.on_hover_text("Delete this task and close the editor");
+                        if is_focused {
+                            delete = delete.on_disabled_hover_text(
+                                "Cannot delete the task shown in the focus view",
+                            );
                         }
-                        if delete_button.clicked() {
+                        if delete.clicked() {
                             self.open = false;
                             self.cancelled = true;
                             // May be more efficient to avoid copying this in full and just populate a
                             // dummy task with only the id set
                             delete_task = Some(self.item_copy.clone());
-                        }
-
-                        if ui.button("Apply").clicked() {
-                            update_task = true;
                         }
                     });
                 });
@@ -338,18 +373,23 @@ impl State {
     }
 
     fn display_tags(self: &mut State, ui: &mut egui::Ui, tags: &BTreeSet<String>) {
-        ui.label("Tags");
+        ui.label(RichText::new("Tags").strong());
         let mut removed_tag: Option<String> = None;
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.text_edit_singleline(&mut self.new_tag);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.new_tag).hint_text("New tag name"),
+                );
                 ComboBox::new("TagSelector", "").show_ui(ui, |ui| {
                     for i in tags.iter() {
                         ui.selectable_value(&mut self.new_tag, i.clone(), i);
                     }
                 });
             });
-            if !self.item_copy.tags.contains(&self.new_tag) && ui.button("Add tag").clicked() {
+            if !self.new_tag.is_empty()
+                && !self.item_copy.tags.contains(&self.new_tag)
+                && ui.button("Add tag").clicked()
+            {
                 self.item_copy.tags.push(self.new_tag.clone());
                 self.new_tag.clear();
             }
@@ -362,7 +402,11 @@ impl State {
                 for tag in self.item_copy.tags.iter() {
                     ui.horizontal(|ui| {
                         ui.label(tag);
-                        if ui.button("X").clicked() {
+                        if ui
+                            .small_button("X")
+                            .on_hover_text("Remove this tag")
+                            .clicked()
+                        {
                             removed_tag = Some(tag.clone());
                         }
                     });
@@ -402,7 +446,11 @@ impl State {
                     if button.clicked() {
                         removed_task = Some(*child);
                     }
-                    if ui.button("scroll to").clicked() {
+                    if ui
+                        .small_button("Scroll to")
+                        .on_hover_text("Scroll the main view to this task")
+                        .clicked()
+                    {
                         self.shell_transmitter
                             .send(AppShellCommand::ScrollTo(*child))
                             .unwrap();

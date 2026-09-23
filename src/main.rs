@@ -198,6 +198,72 @@ fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+/// Accent color for primary actions, links, and highlights.
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(47, 120, 255);
+
+/// Apply the app-wide theme: accent color, rounded widgets, roomier spacing.
+fn apply_theme(ctx: &egui::Context, dark: bool) {
+    ctx.set_theme(if dark {
+        egui::Theme::Dark
+    } else {
+        egui::Theme::Light
+    });
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        let is_dark = theme == egui::Theme::Dark;
+        let mut visuals = if is_dark {
+            egui::Visuals::dark()
+        } else {
+            egui::Visuals::light()
+        };
+        visuals.hyperlink_color = ACCENT;
+        visuals.selection.bg_fill = if is_dark {
+            ACCENT.gamma_multiply(0.5)
+        } else {
+            ACCENT.gamma_multiply(0.35)
+        };
+        visuals.window_corner_radius = egui::CornerRadius::same(10);
+        visuals.popup_shadow = egui::epaint::Shadow {
+            offset: [0, 4],
+            blur: 16,
+            spread: 0,
+            color: egui::Color32::from_black_alpha(if is_dark { 90 } else { 40 }),
+        };
+        for widget in [
+            &mut visuals.widgets.inactive,
+            &mut visuals.widgets.hovered,
+            &mut visuals.widgets.active,
+            &mut visuals.widgets.noninteractive,
+        ] {
+            widget.corner_radius = egui::CornerRadius::same(6);
+        }
+        let mut style = (*ctx.style_of(theme)).clone();
+        style.visuals = visuals;
+        style.spacing.item_spacing = egui::vec2(8.0, 6.0);
+        style.spacing.button_padding = egui::vec2(10.0, 4.0);
+        ctx.set_style_of(theme, style);
+    }
+}
+
+/// A menu entry with its keyboard shortcut right-aligned.
+fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> egui::Response {
+    ui.horizontal(|ui| {
+        let response = ui.button(label);
+        if !shortcut.is_empty() {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                ui.label(RichText::new(shortcut).weak().small());
+            });
+        }
+        response
+    })
+    .inner
+}
+
+/// A colored dot plus "label count" segment for the status bar.
+fn status_count(ui: &mut egui::Ui, label: &str, count: usize, color: egui::Color32) {
+    kanban::task_presentation::status_dot(ui, color);
+    ui.label(format!("{label} {count}"));
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     // This is used to clean up the desktop file at the end.
@@ -208,7 +274,7 @@ fn main() {
     let icon = eframe::icon_data::from_png_bytes(ICON_DATA).expect("Must be a valid icon");
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([640.0, 240.0])
+            .with_inner_size([1100.0, 760.0])
             .with_icon(icon),
 
         ..Default::default()
@@ -222,12 +288,7 @@ fn main() {
             install_fonts(&cc.egui_ctx);
             let mut app = Box::new(app);
             app.initialize_preferences(cc.storage.unwrap());
-            cc.egui_ctx
-                .set_visuals(if app.preferences.read().dark_mode {
-                    egui::Visuals::dark()
-                } else {
-                    egui::Visuals::light()
-                });
+            apply_theme(&cc.egui_ctx, app.preferences.read().dark_mode);
             Ok(app)
         }),
     ) {
@@ -259,12 +320,7 @@ fn main() {
                     if let Some(storage) = cc.storage {
                         app.initialize_preferences(storage);
                     }
-                    cc.egui_ctx
-                        .set_visuals(if app.preferences.read().dark_mode {
-                            egui::Visuals::dark()
-                        } else {
-                            egui::Visuals::light()
-                        });
+                    apply_theme(&cc.egui_ctx, app.preferences.read().dark_mode);
                     Ok(Box::new(app))
                 }),
             )
@@ -372,7 +428,8 @@ impl eframe::App for KanbanRS {
             let mut confirmed = false;
             if *self.document.read() != self.preferences.read().template {
                 egui::Modal::new("new_file_confirmation".into()).show(ui.ctx(), |ui| {
-                    ui.label("You may lose information if you don't save, do you want to?");
+                    ui.heading("Save changes?");
+                    ui.label("The current document has unsaved changes.");
                     ui.horizontal(|ui| {
                         #[cfg(not(target_arch = "wasm32"))]
                         if ui.button("Save").clicked() {
@@ -397,7 +454,8 @@ impl eframe::App for KanbanRS {
             }
         }
         self.hovered_task = None;
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        self.show_status_bar(ui);
+        egui::CentralPanel::default().show(ui, |ui| {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 if ui
@@ -411,7 +469,8 @@ impl eframe::App for KanbanRS {
                     let mut confirmed = false;
                     if self.application.modified_since_last_saved() {
                         egui::Modal::new("save_before_closing".into()).show(ui.ctx(), |ui| {
-                            ui.label("You may lose information if you don't save, do you want to?");
+                            ui.heading("Save changes?");
+                            ui.label("Your changes will be lost if you don't save them.");
                             ui.horizontal(|ui| {
                                 if ui.button("Save").clicked() {
                                     self.save_file(false);
@@ -449,17 +508,17 @@ impl eframe::App for KanbanRS {
             let ctx = ui.ctx().clone();
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
+                    if menu_item(ui, "New", "Ctrl+N").clicked() {
                         self.asking_for_new_file = true;
                         ui.close();
                     }
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        if ui.button("Save").clicked() {
+                        if menu_item(ui, "Save", "Ctrl+S").clicked() {
                             self.save_file(false);
                             ui.close();
                         }
-                        if ui.button("Save As").clicked() {
+                        if menu_item(ui, "Save As", "Ctrl+Shift+S").clicked() {
                             self.save_file(true);
                             ui.close();
                         }
@@ -527,6 +586,13 @@ impl eframe::App for KanbanRS {
                     }
                 });
                 ui.menu_button("Edit", |ui| {
+                    if menu_item(ui, "Search", "Ctrl+F").clicked() {
+                        self.current_layout.layout =
+                            KanbanDocumentLayoutType::Search(SearchState::new());
+                        self.layout_cache_needs_updating = true;
+                        ui.close();
+                    }
+                    ui.separator();
                     ui.add_enabled_ui(self.application.can_undo(), |ui| {
                         if ui.button("Undo").clicked() {
                             let effects = {
@@ -600,7 +666,7 @@ impl eframe::App for KanbanRS {
             });
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Layout"));
-                ComboBox::from_id_salt("Layout")
+                let layout_combo = ComboBox::from_id_salt("Layout")
                     .selected_text(String::from(&self.current_layout))
                     .show_ui(ui, |ui| {
                         if ui
@@ -667,6 +733,9 @@ impl eframe::App for KanbanRS {
                             self.layout_cache_needs_updating = true;
                         })
                     });
+                layout_combo.response.on_hover_text(
+                    "Switch between board, queue, search, tree, and node views",
+                );
                 if let KanbanDocumentLayoutType::Search(_) = self.current_layout.layout {
                 } else {
                     self.layout_cache_needs_updating |= self.sorting_type.combobox(ui);
@@ -677,25 +746,51 @@ impl eframe::App for KanbanRS {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("New task name");
-                let response = ui.text_edit_singleline(&mut self.task_name);
-                let enter_pressed =
-                    response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                if ui.button("Add Task").clicked() || enter_pressed {
-                    let name = std::mem::take(&mut self.task_name);
-                    let effects = {
-                        let mut document = self.document.write();
-                        self.application.handle_command(
-                            &mut document,
-                            ApplicationCommand::CreateRootTask { name },
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let add = ui.add(
+                        egui::Button::new(
+                            RichText::new("Add Task").strong().color(egui::Color32::WHITE),
                         )
-                    };
-                    self.apply_application_effects(effects);
-                }
+                        .fill(ACCENT),
+                    );
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut self.task_name)
+                            .hint_text("New task name — press Enter to add")
+                            .desired_width(f32::INFINITY),
+                    );
+                    let enter_pressed =
+                        response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    if add.on_hover_text("Add a new root task (or press Enter)").clicked()
+                        || enter_pressed
+                    {
+                        let name = std::mem::take(&mut self.task_name);
+                        let effects = {
+                            let mut document = self.document.write();
+                            self.application.handle_command(
+                                &mut document,
+                                ApplicationCommand::CreateRootTask { name },
+                            )
+                        };
+                        self.apply_application_effects(effects);
+                    }
+                });
             });
 
-            ui.end_row();
-            if let KanbanDocumentLayoutType::Columnar(_) = self.current_layout.layout {
+            if self.document.read().is_empty() {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(60.0);
+                    ui.heading("No tasks yet");
+                    ui.label(
+                        RichText::new(
+                            "Type a task name above and press Enter to create your first task.",
+                        )
+                        .weak(),
+                    );
+                    ui.label(
+                        RichText::new("Double-click a task's title to open its editor.").weak(),
+                    );
+                });
+            } else if let KanbanDocumentLayoutType::Columnar(_) = self.current_layout.layout {
                 self.layout_columnar(ui);
             } else if let KanbanDocumentLayoutType::Search(_) = self.current_layout.layout {
                 self.layout_search(ui);
@@ -742,6 +837,7 @@ impl eframe::App for KanbanRS {
                 let is_focused = kanban::editor::is_task_focused(&self.current_layout.layout, id);
                 if let Some(inner) = egui::Window::new(&title)
                     .id(egui::Id::new(id))
+                    .default_width(620.0)
                     .show(ui, |ui| {
                         editor.write().editor(ui, &document.read(), is_focused)
                     })
@@ -1050,6 +1146,58 @@ impl KanbanRS {
                 self.layout_cache_needs_updating = true;
             }
         }
+    }
+
+    /// Bottom status bar: document name, unsaved marker, and task counts.
+    fn show_status_bar(&mut self, ui: &mut egui::Ui) {
+        let document = self.document.read();
+        let mut total = 0usize;
+        let mut ready = 0usize;
+        let mut blocked = 0usize;
+        let mut completed = 0usize;
+        for task in document.get_tasks() {
+            total += 1;
+            match document.task_status(&task.id) {
+                kanban::Status::Ready => ready += 1,
+                kanban::Status::Blocked => blocked += 1,
+                kanban::Status::Completed => completed += 1,
+            }
+        }
+        drop(document);
+        let modified = self.application.modified_since_last_saved();
+        #[cfg(not(target_arch = "wasm32"))]
+        let name = self
+            .save_file_name
+            .as_ref()
+            .map(|path| {
+                path.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "Untitled".to_owned());
+        #[cfg(target_arch = "wasm32")]
+        let name = self
+            .web
+            .document_name
+            .clone()
+            .unwrap_or_else(|| "Untitled".to_owned());
+        egui::Panel::bottom("status_bar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if modified {
+                    kanban::task_presentation::status_dot(ui, ui.visuals().warn_fg_color)
+                        .on_hover_text("Unsaved changes");
+                }
+                ui.label(RichText::new(name).strong());
+                ui.separator();
+                ui.label(
+                    RichText::new(format!("{total} task{}", if total == 1 { "" } else { "s" }))
+                        .weak(),
+                );
+                status_count(ui, "Ready", ready, kanban::task_presentation::READY);
+                status_count(ui, "Blocked", blocked, kanban::task_presentation::BLOCKED);
+                status_count(ui, "Completed", completed, kanban::task_presentation::COMPLETED);
+            });
+        });
     }
 }
 

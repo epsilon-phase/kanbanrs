@@ -1,3 +1,37 @@
+# v0.2.9
+
+## UI Improvements
+
+* Visual refresh: accent color, rounded widgets, roomier spacing, and
+  popup shadows across both light and dark themes.
+* Task cards show a status dot plus chips for blocked state, priority,
+  category, and tags; completed titles are struck through.
+* Removed the noisy per-card "Not completed" line and the nested
+  description scroll — descriptions render inline, and the
+  Edit/Add child/Complete/Focus buttons have consistent labels and
+  tooltips.
+* Column headers show colored status dots and task counts.
+* New bottom status bar with the document name, an unsaved-changes
+  marker, and ready/blocked/completed counts.
+* Toolbar: placeholder text in the new-task box, accent-colored Add Task
+  button, tooltips on the layout/sort/filter controls, and a friendly
+  empty state for documents without tasks.
+* Editor windows: actions reworked to "Save and close" / "Save" /
+  "Cancel" with a right-aligned error-colored Delete that explains why
+  it is disabled for the focused task.
+* File menu shows keyboard shortcuts (Ctrl+N, Ctrl+S, Ctrl+Shift+S) and
+  Edit gained a Search entry (Ctrl+F); confirmation dialogs use clearer
+  "Save changes?" wording.
+* Preferences: removed the duplicated undo-history checkbox, added hover
+  explanations, and left-aligned the sections.
+
+## Refactoring
+
+* Update eframe/epaint from 0.34.2 to 0.36.2; the `inspection` feature
+  is enabled so the UI can be driven by the `egui-mcp` tooling.
+* Migrate to the per-theme style API (`style_of`/`set_style_of`) and
+  replace deprecated `CentralPanel::show_inside`.
+
 # v0.2.8
 
 ## Bugs

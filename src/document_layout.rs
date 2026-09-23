@@ -1,7 +1,7 @@
 use crate::kanban::KanbanId;
 
 use super::*;
-use kanban::task_presentation::{SummaryOptions, TaskPresentationState};
+use kanban::task_presentation::{self, SummaryOptions, TaskPresentationState};
 ///The layout type, with somes tate
 pub enum KanbanDocumentLayoutType {
     ///The queue state
@@ -160,6 +160,15 @@ impl From<&KanbanDocumentLayout> for String {
     }
 }
 
+/// A column heading with a status dot and task count.
+fn column_header(ui: &mut egui::Ui, label: &str, count: usize, color: egui::Color32) {
+    ui.horizontal(|ui| {
+        kanban::task_presentation::status_dot(ui, color);
+        ui.label(RichText::new(label).heading());
+        ui.label(RichText::new(format!("({count})")).weak());
+    });
+}
+
 //---------------------------------------------------------
 // KanbanRS implementation
 //---------------------------------------------------------
@@ -170,8 +179,25 @@ impl KanbanRS {
         if let KanbanDocumentLayoutType::Columnar(cache) = &mut self.current_layout.layout {
             let column_width = ui.available_width() / 3.0;
             ui.columns(3, |columns| {
-                columns[0].label(RichText::new("Ready").heading());
                 columns.iter_mut().for_each(|x| x.set_width(column_width));
+                column_header(
+                    &mut columns[0],
+                    "Ready",
+                    cache[0].len(),
+                    task_presentation::READY,
+                );
+                column_header(
+                    &mut columns[1],
+                    "Blocked",
+                    cache[1].len(),
+                    task_presentation::BLOCKED,
+                );
+                column_header(
+                    &mut columns[2],
+                    "Completed",
+                    cache[2].len(),
+                    task_presentation::COMPLETED,
+                );
                 kanban::task_presentation::layout_id_list(
                     &self.document.read(),
                     &mut columns[0],
@@ -184,7 +210,6 @@ impl KanbanRS {
                     "ReadyScrollArea",
                     None,
                 );
-                columns[1].label(RichText::new("Blocked").heading());
                 kanban::task_presentation::layout_id_list(
                     &self.document.read(),
                     &mut columns[1],
@@ -197,8 +222,6 @@ impl KanbanRS {
                     "BlockedScrollArea",
                     self.current_layout.scroll_to,
                 );
-                columns[2].label(RichText::new("Completed").heading());
-
                 kanban::task_presentation::layout_id_list(
                     &self.document.read(),
                     &mut columns[2],
