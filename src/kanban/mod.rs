@@ -702,11 +702,17 @@ pub enum AppShellCommand {
     RemoveDeletedTaskFromEditors(KanbanItem),
     /// Tell layout state that the document item set changed.
     InformOfNewItems,
+    /// A priority was renamed; open editors holding it adopt the new name.
+    RenamedPriority { from: String, to: String },
+    /// A category was renamed; open editors holding it adopt the new name.
+    RenamedCategory { from: String, to: String },
 }
 /**
 Contains some methods to make determining relation easier.
 */
 impl KanbanItem {
+    /// Whether `self` sits anywhere below `parent` in the task tree,
+    /// at any depth.
     pub fn is_descendant_of(&self, parent: &Self, document: &KanbanDocument) -> bool {
         let mut stack: Vec<KanbanId> = Vec::new();
         let mut seen: Vec<KanbanId> = Vec::new();
@@ -728,14 +734,17 @@ impl KanbanItem {
 }
 
 impl KanbanItem {
-    /// Returns true if the kanbanitem is unset.
-    /// A true new land.
+    /// Whether the task holds no user content at all. Used to merge a
+    /// creation with its first modification in the undo stack.
     pub fn is_unset(&self) -> bool {
         self.name.is_empty()
             && self.description.is_empty()
             && self.tags.is_empty()
             && self.child_tasks.is_empty()
             && self.category.is_none()
+            && self.priority.is_none()
+            && self.completed.is_none()
+            && self.time_records.entries.is_empty()
     }
 }
 /*

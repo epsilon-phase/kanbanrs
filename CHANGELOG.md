@@ -43,6 +43,11 @@
   zooms toward the pointer (Scene previously panned with it).
 * An empty node view shows a hint, and slow hierarchical layouts show a
   spinner modal instead of a bare "Performing layout!" message.
+* Every node now reaches assistive tech: the scene publishes each task
+  as a Button named "Name (Status)" with real bounds, so screen
+  readers and the inspector can enumerate the graph.
+* Renaming a priority or category shows an inline warning when the new
+  name already exists (tasks move to it; its value/style stays).
 
 ## Bugs
 
@@ -90,6 +95,12 @@
   and its no-op checkbox were removed.
 * `TimeEntry::InstantaneousDuration` fixes the spelling of a serialized
   variant name, with a serde alias so old files still load.
+* Open editors refresh on priority/category rename: a rename emits
+  `RenamedPriority`/`RenamedCategory` shell commands that patch every
+  open editor's copy, and undo emits the reverse — an editor can no
+  longer write a stale name back on Save.
+* `is_descendant_of` documents its any-depth semantics; `is_unset` now
+  covers every content field (priority, completion, time records).
 
 # v0.2.8
 

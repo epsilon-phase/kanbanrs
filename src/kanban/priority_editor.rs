@@ -71,6 +71,19 @@ impl PriorityEditor {
                     if self.renaming.as_deref() == Some(name.as_str()) {
                         ui.label(format!("{priority}"));
                         ui.text_edit_singleline(&mut self.rename_to);
+                        if !self.rename_to.is_empty()
+                            && self.rename_to.as_str() != name.as_str()
+                            && items.iter().any(|(n, _)| n == &self.rename_to)
+                        {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Name in use: tasks move to it; its value stays.",
+                                )
+                                .small()
+                                .weak()
+                                .color(ui.visuals().warn_fg_color),
+                            );
+                        }
                         if ui
                             .button("Rename")
                             .on_hover_text("Rename everywhere it is referenced")

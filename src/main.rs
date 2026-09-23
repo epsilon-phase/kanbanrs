@@ -1137,6 +1137,32 @@ impl KanbanRS {
             AppShellCommand::InformOfNewItems => {
                 self.current_layout.inform_of_new_items();
             }
+            AppShellCommand::RenamedPriority { from, to } => {
+                for editor in self.open_editors.iter() {
+                    let mut w = editor.write();
+                    if w
+                        .item_copy
+                        .priority
+                        .as_ref()
+                        .is_some_and(|priority| priority.as_str() == from)
+                    {
+                        w.item_copy.priority = Some(to.clone().into());
+                    }
+                }
+            }
+            AppShellCommand::RenamedCategory { from, to } => {
+                for editor in self.open_editors.iter() {
+                    let mut w = editor.write();
+                    if w
+                        .item_copy
+                        .category
+                        .as_ref()
+                        .is_some_and(|category| category.as_str() == from)
+                    {
+                        w.item_copy.category = Some(to.clone().into());
+                    }
+                }
+            }
         }
     }
 

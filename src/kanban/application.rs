@@ -104,8 +104,26 @@ impl ApplicationState {
 
     pub fn undo(&mut self, document: &mut KanbanDocument) -> Vec<AppShellCommand> {
         if let Some(item) = self.undo_buffer.pop_back() {
+            // Rename undos change references too, so open editors must be
+            // told about the swap-back just like the forward rename.
+            let mut effects = vec![AppShellCommand::UpdateLayout];
+            match &item {
+                UndoItem::RenamePriority(re) => {
+                    effects.push(AppShellCommand::RenamedPriority {
+                        from: re.to.clone(),
+                        to: re.from.clone(),
+                    });
+                }
+                UndoItem::RenameCategory(re) => {
+                    effects.push(AppShellCommand::RenamedCategory {
+                        from: re.to.clone(),
+                        to: re.from.clone(),
+                    });
+                }
+                _ => {}
+            }
             item.undo(document);
-            vec![AppShellCommand::UpdateLayout]
+            effects
         } else {
             Vec::new()
         }
@@ -291,9 +309,15 @@ impl ApplicationState {
         if !document.rename_priority(&from, &to) {
             return Vec::new();
         }
-        self.record_undo(UndoItem::RenamePriority(RenameEvent { from, to }));
+        self.record_undo(UndoItem::RenamePriority(RenameEvent {
+            from: from.clone(),
+            to: to.clone(),
+        }));
         self.modified_since_last_saved = true;
-        vec![AppShellCommand::UpdateLayout]
+        vec![
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::RenamedPriority { from, to },
+        ]
     }
 
     fn rename_category(
@@ -305,9 +329,15 @@ impl ApplicationState {
         if !document.rename_category(&from, &to) {
             return Vec::new();
         }
-        self.record_undo(UndoItem::RenameCategory(RenameEvent { from, to }));
+        self.record_undo(UndoItem::RenameCategory(RenameEvent {
+            from: from.clone(),
+            to: to.clone(),
+        }));
         self.modified_since_last_saved = true;
-        vec![AppShellCommand::UpdateLayout]
+        vec![
+            AppShellCommand::UpdateLayout,
+            AppShellCommand::RenamedCategory { from, to },
+        ]
     }
 
     fn record_undo(&mut self, item: UndoItem) {
@@ -431,5 +461,67 @@ mod tests {
         );
         assert!(document.get_category_style("Work").is_some());
         assert!(document.get_category_style("Office").is_none());
+    }
+
+    #[test]
+    fn rename_notifications_reach_open_editors() {
+        let mut state = ApplicationState::new();
+        let mut document = KanbanDocument::new();
+
+        let effects = state.handle_command(
+            &mut document,
+            ApplicationCommand::RenamePriority {
+                from: "High".to_owned(),
+                to: "Urgent".to_owned(),
+            },
+        );
+        assert!(effects.contains(&AppShellCommand::RenamedPriority {
+            from: "High".to_owned(),
+            to: "Urgent".to_owned(),
+        }));
+        assert!(effects.contains(&AppShellCommand::UpdateLayout));
+
+        // A no-op rename (unknown source) must not notify anyone.
+        let none = state.handle_command(
+            &mut document,
+            ApplicationCommand::RenamePriority {
+                from: "Nope".to_owned(),
+                to: "Whatever".to_owned(),
+            },
+        );
+        assert!(none.is_empty());
+
+        let cat_effects = {
+            // The category must exist in the registry first (new documents
+            // ship priorities but no categories).
+            document.replace_category_style(
+                &"Chore".to_owned(),
+                KanbanCategoryStyle::default(),
+            );
+            state.handle_command(
+                &mut document,
+                ApplicationCommand::RenameCategory {
+                    from: "Chore".to_owned(),
+                    to: "Errand".to_owned(),
+                },
+            )
+        };
+        assert!(cat_effects.contains(&AppShellCommand::RenamedCategory {
+            from: "Chore".to_owned(),
+            to: "Errand".to_owned(),
+        }));
+
+        // Undo must notify too, in reverse: LIFO pops the category rename
+        // first, then the priority rename.
+        let undo_cat = state.undo(&mut document);
+        assert!(undo_cat.contains(&AppShellCommand::RenamedCategory {
+            from: "Errand".to_owned(),
+            to: "Chore".to_owned(),
+        }));
+        let undo_pri = state.undo(&mut document);
+        assert!(undo_pri.contains(&AppShellCommand::RenamedPriority {
+            from: "Urgent".to_owned(),
+            to: "High".to_owned(),
+        }));
     }
 }

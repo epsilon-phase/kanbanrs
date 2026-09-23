@@ -103,6 +103,19 @@ impl State {
                 columns[1].horizontal(|ui| {
                     if self.renaming {
                         ui.text_edit_singleline(&mut self.rename_to);
+                        if !self.rename_to.is_empty()
+                            && self.rename_to != self.current_category_name
+                            && document.categories.contains_key(&self.rename_to)
+                        {
+                            ui.label(
+                                egui::RichText::new(
+                                    "Name in use: tasks move to it; its style stays.",
+                                )
+                                .small()
+                                .weak()
+                                .color(ui.visuals().warn_fg_color),
+                            );
+                        }
                         if ui
                             .button("Rename")
                             .on_hover_text("Rename everywhere it is referenced")

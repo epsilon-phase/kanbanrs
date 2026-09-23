@@ -1152,6 +1152,22 @@ impl NodeLayout {
                             },
                         );
                     });
+                    // Give every node an accessible name and bounds: the
+                    // scene paints the visuals, but assistive tech enumerates
+                    // real widget entries, so publish one per node.
+                    senses.widget_info(|| {
+                        let task = _document.get_task(*task_id).unwrap();
+                        let name = if task.name.is_empty() {
+                            "(unnamed)"
+                        } else {
+                            task.name.as_str()
+                        };
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            true,
+                            format!("{name} ({:?})", _document.task_status(task_id)),
+                        )
+                    });
                     if senses.middle_clicked() {
                         self.focus = Some(*task_id);
                         shell_commands.push(AppShellCommand::FocusOn(*task_id));
