@@ -46,7 +46,7 @@ pub fn rect_edge_point(from_center: Pos2, to_center: Pos2, rect: Rect) -> Pos2 {
 
 enum QTContent {
     Empty,
-    Leaf(Vec2, f32), // position, half-extent radius
+    Leaf(KanbanId, Vec2, f32), // id, position, half-extent radius
     Internal(Box<[Option<QuadTree>; 4]>),
 }
 
@@ -92,7 +92,7 @@ impl QuadTree {
         )
     }
 
-    fn insert(&mut self, pos: Vec2, mass: f32, radius: f32) {
+    fn insert(&mut self, id: KanbanId, mut pos: Vec2, mass: f32, radius: f32) {
         // Update aggregate center of mass before descending
         let new_total = self.mass + mass;
         self.com = (self.com * self.mass + pos * mass) / new_total;
@@ -100,14 +100,21 @@ impl QuadTree {
 
         match std::mem::replace(&mut self.content, QTContent::Empty) {
             QTContent::Empty => {
-                self.content = QTContent::Leaf(pos, radius);
+                self.content = QTContent::Leaf(id, pos, radius);
             }
-            QTContent::Leaf(old_pos, old_radius) => {
+            QTContent::Leaf(old_id, old_pos, old_radius) => {
                 let diff = old_pos - pos;
                 if diff.length_sq() < 0.001 {
-                    // Coincident particles: keep single leaf, masses already merged above
-                    self.content = QTContent::Leaf(old_pos, old_radius);
-                    return;
+                    // Coincident particles: keep both, nudging the newcomer
+                    // a hair aside — identical points would never split out
+                    // of the same quadrant. Self is recognised by id, so the
+                    // nudge cannot confuse the force calculation.
+                    pos = old_pos
+                        + (if diff.length_sq() > 1e-12 {
+                            diff.normalized()
+                        } else {
+                            Vec2::X
+                        }) * 0.05;
                 }
                 let old_mass = new_total - mass;
                 let mut children: Box<[Option<QuadTree>; 4]> = Box::new([None, None, None, None]);
@@ -117,22 +124,22 @@ impl QuadTree {
                 children[q]
                     .as_mut()
                     .unwrap()
-                    .insert(old_pos, old_mass, old_radius);
+                    .insert(old_id, old_pos, old_mass, old_radius);
                 let q = self.quadrant_index(pos);
                 let (mn, mx) = self.child_bounds(q);
                 if children[q].is_none() {
                     children[q] = Some(QuadTree::new(mn, mx));
                 }
-                children[q].as_mut().unwrap().insert(pos, mass, radius);
+                children[q].as_mut().unwrap().insert(id, pos, mass, radius);
                 self.content = QTContent::Internal(children);
             }
             QTContent::Internal(mut children) => {
                 let q = self.quadrant_index(pos);
+                let (mn, mx) = self.child_bounds(q);
                 if children[q].is_none() {
-                    let (mn, mx) = self.child_bounds(q);
                     children[q] = Some(QuadTree::new(mn, mx));
                 }
-                children[q].as_mut().unwrap().insert(pos, mass, radius);
+                children[q].as_mut().unwrap().insert(id, pos, mass, radius);
                 self.content = QTContent::Internal(children);
             }
         }
@@ -144,20 +151,22 @@ impl QuadTree {
     /// `own_radius` is the half-extent of the querying node. For leaf
     /// interactions the force magnitude is computed on the gap between node
     /// edges rather than center-to-center distance, preventing overlap.
-    fn repulsion_force(&self, pos: Vec2, own_radius: f32, k: f32, theta: f32) -> Vec2 {
+    fn repulsion_force(
+        &self,
+        own_id: KanbanId,
+        pos: Vec2,
+        own_radius: f32,
+        k: f32,
+        theta: f32,
+    ) -> Vec2 {
         if self.mass == 0.0 {
             return Vec2::ZERO;
         }
         let d = pos - self.com;
-        let dist2 = d.length_sq();
-        // Skip self-interaction
-        if dist2 < 1.0 {
-            return Vec2::ZERO;
-        }
-        let dist = dist2.sqrt();
+        let dist = d.length();
         let use_aggregate = match &self.content {
             QTContent::Empty => return Vec2::ZERO,
-            QTContent::Leaf(_, _) => true,
+            QTContent::Leaf(_, _, _) => true,
             QTContent::Internal(_) => {
                 let cell_size = (self.bounds_max.x - self.bounds_min.x)
                     .max(self.bounds_max.y - self.bounds_min.y);
@@ -168,18 +177,32 @@ impl QuadTree {
             // For a leaf, use the gap between node edges so the force acts on
             // empty space rather than center distance. Floor at a small value
             // so overlapping nodes still get a finite (strong) push apart.
-            let effective_dist = if let QTContent::Leaf(_, leaf_radius) = &self.content {
-                (dist - leaf_radius - own_radius).max(k * 0.05)
-            } else {
-                dist
+            let (effective_dist, dir) = match &self.content {
+                QTContent::Leaf(id, _, leaf_radius) => {
+                    if *id == own_id {
+                        return Vec2::ZERO;
+                    }
+                    let gap = (dist - leaf_radius - own_radius).max(k * 0.05);
+                    let dir = if dist > 1e-3 {
+                        d / dist
+                    } else {
+                        // Exactly coincident: pick a stable axis derived from
+                        // the two ids so the pair still separates.
+                        let ang = (own_id as f32 * 1.7 + *id as f32 * 2.9).sin()
+                            * std::f32::consts::TAU;
+                        Vec2::new(ang.cos(), ang.sin())
+                    };
+                    (gap, dir)
+                }
+                _ => (dist.max(1e-3), d / dist.max(1e-3)),
             };
             let f = k * k * self.mass / (effective_dist * effective_dist);
-            d / dist * f
+            dir * f
         } else if let QTContent::Internal(children) = &self.content {
             children
                 .iter()
                 .flatten()
-                .map(|child| child.repulsion_force(pos, own_radius, k, theta))
+                .map(|child| child.repulsion_force(own_id, pos, own_radius, k, theta))
                 .fold(Vec2::ZERO, |acc, v| acc + v)
         } else {
             unreachable!()
@@ -439,7 +462,7 @@ pub fn force_atlas2(
             Vec2::new(max_x + margin, max_y + margin),
         );
         for (&id, &pos) in &positions {
-            tree.insert(pos, (degree[&id] + 1) as f32, radius_map[&id]);
+            tree.insert(id, pos, (degree[&id] + 1) as f32, radius_map[&id]);
         }
 
         // Repulsion — Barnes-Hut, degree-weighted, gap-corrected
@@ -447,7 +470,7 @@ pub fn force_atlas2(
             let pos = positions[&id];
             let own_mass = (degree[&id] + 1) as f32;
             let own_radius = radius_map[&id];
-            let f = tree.repulsion_force(pos, own_radius, k, THETA);
+            let f = tree.repulsion_force(id, pos, own_radius, k, THETA);
             *disp.get_mut(&id).unwrap() += f * own_mass;
         }
 
@@ -618,5 +641,39 @@ mod tests {
                 "point {p:?} not on rect boundary for target {target:?}"
             );
         }
+    }
+
+    #[test]
+    fn force_atlas2_separates_linked_nodes() {
+        use super::force_atlas2;
+        use eframe::egui::Vec2;
+        use layout::core::style::StyleAttr;
+        use std::collections::BTreeMap;
+
+        let size = Vec2::new(80.0, 80.0);
+        let node_data = vec![
+            (0i32, "Root A".to_owned(), StyleAttr::simple(), size),
+            (1i32, "Child B".to_owned(), StyleAttr::simple(), size),
+            (2i32, "Root C".to_owned(), StyleAttr::simple(), size),
+        ];
+        let edges = vec![(0i32, 1i32)];
+        println!(
+            "spectral: {:?}",
+            super::spectral_init(&[0, 1, 2], &edges, 150.0, eframe::egui::Vec2::ZERO)
+        );
+        let stable: BTreeMap<i32, Pos2> = BTreeMap::new();
+        let (tx, rx) = std::sync::mpsc::channel();
+        force_atlas2(&node_data, &edges, 250, &stable, &tx);
+        drop(tx);
+        let mut snapshots = Vec::new();
+        while let Ok(p) = rx.recv() {
+            snapshots.push(p);
+        }
+        println!("first snapshot: {:?}", snapshots.first());
+        let last = snapshots.last().expect("force_atlas2 produced no snapshots").clone();
+        let dist = (last[&0] - last[&1]).length();
+        println!("final positions: {last:?}");
+        println!("final A-B distance: {dist:.1}");
+        assert!(dist > 60.0, "linked nodes stacked: A-B distance {dist:.1}");
     }
 }

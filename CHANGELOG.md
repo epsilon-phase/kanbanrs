@@ -25,6 +25,37 @@
 * Preferences: removed the duplicated undo-history checkbox, added hover
   explanations, and left-aligned the sections.
 
+## Node View
+
+* Nodes match the app's design language: rounded corners, status dots
+  (ready/blocked/completed), dimmed labels for completed tasks, and no
+  more "(Completed)" text suffixes.
+* Hovering a node highlights it, its direct neighbors, and — in
+  force-directed mode — the edges between them in the accent color.
+* Right-click collapsing is now visible: collapsed subtrees show an
+  accent "+N" pill that expands the subtree again on click.
+* A discovery bar lists every graph interaction (click/middle-click/
+  right-click/drag/pan/zoom), the layout-mode toggles gained
+  tooltips, the focused task is named next to Clear focus, and a Fit
+  button frames the whole graph on demand.
+* The first view of a graph is framed at a readable scale: fit-to-view
+  clamped between 35% and 100%, centered on the graph. The wheel now
+  zooms toward the pointer (Scene previously panned with it).
+* An empty node view shows a hint, and slow hierarchical layouts show a
+  spinner modal instead of a bare "Performing layout!" message.
+
+## Bugs
+
+* Force-directed layout no longer stacks linked nodes on top of each
+  other: quadtree leaves track node ids so self-repulsion skips are
+  correct for coincident particles, coincident inserts are kept distinct
+  instead of merged, and exactly-coincident queries get a stable
+  id-derived push direction. Spectral initialisation can place nodes of
+  small or disconnected graphs at identical points; the physics now
+  recovers from that. Covered by a regression test.
+* The node view no longer shows stale nodes when a filter hides every
+  task.
+
 ## Refactoring
 
 * Update eframe/epaint from 0.34.2 to 0.36.2; the `inspection` feature

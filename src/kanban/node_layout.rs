@@ -190,6 +190,10 @@ pub struct NodeLayout {
     commands: CommandContainer,
     ///The scene rectangle which controls the Scene layout
     scene_rect: Rect,
+    ///The size of the area the scene renders into, recorded each frame
+    last_outer: Vec2,
+    ///Set until the first layout of this view has been framed on screen
+    pending_initial_view: bool,
     ///The center of the rectangle that is being scrolled to
     scroll_target: Option<(Pos2, bool)>,
     ///The minimum coordinate
@@ -208,6 +212,8 @@ pub struct NodeLayout {
     dragged_item: Option<KanbanId>,
     ///A container of every kanban task which is collapsed
     collapsed: Vec<KanbanId>,
+    ///Edge id pairs for the hierarchical layout, used for hover highlighting
+    hier_edge_list: Vec<(KanbanId, KanbanId)>,
     ///The instant during which the current drag target was selected
     drag_linger: Option<Instant>,
     ///A thread handle that returns the necessary state to build the update
@@ -260,6 +266,8 @@ impl NodeLayout {
                 min: Pos2::new(0.0, 0.0),
                 max: Pos2::new(0.0, 0.0),
             },
+            last_outer: Vec2::ZERO,
+            pending_initial_view: true,
             scroll_target: None,
             drag_linger: Option::None,
             layout_handle: Option::None,
@@ -268,6 +276,7 @@ impl NodeLayout {
             exclude_completed: false,
             dragged_item: Option::None,
             collapsed: Vec::new(),
+            hier_edge_list: Vec::new(),
             frames_in_update: 0,
             use_fr_layout: false,
             fr_stable_positions: BTreeMap::new(),
@@ -416,6 +425,13 @@ lazy_static! {
     static ref SCROLL_X_ID: egui::Id = egui::Id::new("scroll-x");
     static ref SCROLL_Y_ID: egui::Id = egui::Id::new("scroll-y");
 }
+/// The amount of time that must elapse until a dragged item can be
+/// dropped onto the hovered item.
+const DRAG_AND_DROP_HYSTERESIS_SECS: f32 = 1.0;
+/// The lowest scale the initial view of a graph will use when framing
+/// it: fit-to-view is clamped to this so huge graphs open as a readable
+/// overview instead of an unreadable speck.
+const START_VIEW_MIN_SCALE: f32 = 0.35;
 impl NodeLayout {
     fn is_collapsed(&self, document: &KanbanDocument, item: &KanbanItem) -> bool {
         self.collapsed.iter().any(|parent_id| {
@@ -478,6 +494,11 @@ impl NodeLayout {
             let edge_list = build_edge_list(&fr_task_ids, document, sort);
 
             if node_data.is_empty() {
+                self.fr_node_data.clear();
+                self.fr_edge_list.clear();
+                self.fr_rects.clear();
+                self.fr_anim.clear();
+                self.sense_regions.clear();
                 return;
             }
 
@@ -505,6 +526,7 @@ impl NodeLayout {
             force_atlas2(&node_data, &edge_list, max_iterations, &stable, &tx);
         } else {
             self.layout_rx = None; // drop any unread FR snapshots
+            self.hier_edge_list.clear();
             self.hier_node_data = tasks
                 .iter()
                 .map(|item| {
@@ -526,11 +548,14 @@ impl NodeLayout {
                 for c in tasks.iter() {
                     if handles.contains_key(c) {
                         vg.add_edge(arrow.clone(), handles[id], handles[c]);
+                        self.hier_edge_list.push((*id, *c));
                     }
                 }
             }
 
             if handles.is_empty() {
+                self.hier_rects.clear();
+                self.sense_regions.clear();
                 return;
             }
             let capacity = self.commands.commands.len();
@@ -560,6 +585,25 @@ impl NodeLayout {
             min: self.min,
             max: self.max,
         };
+        let content_valid = self.min.is_finite()
+            && self.max.is_finite()
+            && self.max.x > self.min.x
+            && self.max.y > self.min.y;
+        if self.pending_initial_view && content_valid && self.last_outer != Vec2::ZERO {
+            // First layout shown: frame the whole graph at a readable
+            // scale — fit-to-view clamped so nodes stay at least
+            // START_VIEW_MIN_SCALE — centered on the graph instead of
+            // dumping the camera at the origin of a huge canvas.
+            self.pending_initial_view = false;
+            self.scroll_to_center_on_complete = false;
+            let content = Rect::from_min_max(self.min, self.max);
+            let fit =
+                (self.last_outer.x / content.width()).min(self.last_outer.y / content.height());
+            let target = fit.clamp(START_VIEW_MIN_SCALE, 1.0);
+            let scene_size = content.size() * (fit / target);
+            self.scene_rect = Rect::from_center_size(content.center(), scene_size);
+            return;
+        }
         if !self.scene_rect.intersects(min_max_rect) || self.scroll_to_center_on_complete {
             self.scene_rect = Rect {
                 min: Pos2::new(0.0, 0.0),
@@ -628,7 +672,17 @@ impl NodeLayout {
             if !self.layout_handle.as_ref().unwrap().is_finished() {
                 if self.frames_in_update > 40 {
                     Modal::new("layout_modal".into()).show(ui.ctx(), |ui| {
-                        ui.label("Performing layout!");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::Spinner::new());
+                            ui.label(egui::RichText::new("Laying out the graph…").strong());
+                        });
+                        ui.label(
+                            egui::RichText::new(
+                                "Large documents can take a moment in hierarchical mode.",
+                            )
+                            .weak()
+                            .small(),
+                        );
                     });
                     debug!("Displaying modal due to slow update!");
                 }
@@ -636,7 +690,7 @@ impl NodeLayout {
                 ui.ctx().request_repaint();
             } else {
                 if self.frames_in_update > 0 {
-                    println!("{} frames to layout graph", self.frames_in_update);
+                    debug!(target: "node_layout", "{} frames to layout graph", self.frames_in_update);
                 }
                 self.frames_in_update = 0;
                 let handle = self.layout_handle.take().unwrap();
@@ -763,25 +817,71 @@ impl NodeLayout {
         }
 
         let mut needs_update = false;
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             needs_update |= ui
-                .checkbox(&mut self.exclude_completed, "Hide completed tasks")
+                .checkbox(&mut self.exclude_completed, "Hide completed")
+                .on_hover_text("Hide tasks that are marked completed")
                 .changed();
             let old_fr = self.use_fr_layout;
             needs_update |= ui
                 .selectable_value(&mut self.use_fr_layout, false, "Hierarchical")
+                .on_hover_text("Tree-style layout via layout-rs; slower on large documents")
                 .changed();
             needs_update |= ui
                 .selectable_value(&mut self.use_fr_layout, true, "Force-directed")
+                .on_hover_text("Physics-based layout that streams positions as it settles")
                 .changed();
             if !old_fr && self.use_fr_layout {
                 self.scroll_to_center_on_complete = true;
             }
-            if self.focus.is_some() && ui.button("Clear focus").clicked() {
-                self.focus = None;
-                needs_update = true;
+            if self.min.is_finite() && self.max.is_finite() && self.max.x > self.min.x {
+                if ui
+                    .button("Fit")
+                    .on_hover_text("Zoom and center the view on the whole graph")
+                    .clicked()
+                {
+                    self.scene_rect = Rect::from_min_max(self.min, self.max).expand(24.0);
+                }
+            }
+            if let Some(focused_id) = self.focus {
+                if let Some(task) = _document.get_task(focused_id) {
+                    ui.label(egui::RichText::new(format!("Focused: {}", task.name)).strong());
+                }
+                if ui
+                    .button("Clear focus")
+                    .on_hover_text("Show every task again")
+                    .clicked()
+                {
+                    self.focus = None;
+                    needs_update = true;
+                }
             }
         });
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(
+                    "Click: open  ·  Middle-click: focus  ·  Right-click: collapse  ·  \
+                     Drag: add link  ·  Right-drag: pan  ·  Wheel: zoom",
+                )
+                .weak()
+                .small(),
+            );
+        });
+        if self.sense_regions.is_empty() {
+            ui.vertical_centered(|ui| {
+                ui.add_space(60.0);
+                ui.label(egui::RichText::new("No tasks to show").strong());
+                ui.label(
+                    egui::RichText::new(
+                        "Adjust the filter, or uncheck \u{201c}Hide completed\u{201d}.",
+                    )
+                    .weak(),
+                );
+            });
+        }
+        // Record the viewport the scene will render into, used to frame
+        // the first layout at a readable scale.
+        self.last_outer = ui.available_rect_before_wrap().size();
         let scene_center = self.scene_rect.center();
         if let Some((target, first_frame)) = &mut self.scroll_target {
             const SCROLL_ANIMATION_TIME: f32 = 1.5;
@@ -815,6 +915,49 @@ impl NodeLayout {
         {
             self.scroll_target = None;
         }
+        // Seed a 1:1 view centered on the graph the first time it is shown,
+        // so it opens at a readable scale; the Fit button frames everything.
+        if self.scene_rect.size() == Vec2::ZERO
+            && self.min.is_finite()
+            && self.max.is_finite()
+            && self.max.x > self.min.x
+            && self.max.y > self.min.y
+        {
+            let outer = ui.available_rect_before_wrap();
+            let content_center = Pos2::new(
+                (self.min.x + self.max.x) * 0.5,
+                (self.min.y + self.max.y) * 0.5,
+            );
+            self.scene_rect = Rect::from_center_size(content_center, outer.size());
+        }
+        // Graph-tool convention: the wheel zooms toward the pointer.
+        // Consume the scroll delta first so Scene doesn't pan with it too.
+        let outer = ui.available_rect_before_wrap();
+        let (wheel, pointer) = ui.input(|i| (i.smooth_scroll_delta.y, i.pointer.latest_pos()));
+        if wheel.abs() > f32::EPSILON
+            && self.scene_rect.size().x.min(self.scene_rect.size().y) > f32::EPSILON
+            && pointer.is_some_and(|p| outer.contains(p))
+        {
+            let pointer = pointer.unwrap();
+            let size = self.scene_rect.size();
+            // Replicate Scene's fit transform to find the scene point under
+            // the pointer, then rescale the scene rect around it.
+            let scale = (outer.width() / size.x).min(outer.height() / size.y);
+            let offset = (outer.size() - size * scale) * 0.5;
+            let scene_ptr = (pointer - outer.min.to_vec2() - offset) / scale
+                + self.scene_rect.min.to_vec2();
+            // Zoom out for positive deltas (wheel down), toward the pointer:
+            // graph-tool convention.
+            let factor = (1.0 / (1.0 + wheel * 0.002)).clamp(0.5, 2.0);
+            let new_size = size * factor;
+            let fraction = Vec2::new(
+                (scene_ptr.x - self.scene_rect.min.x) / size.x,
+                (scene_ptr.y - self.scene_rect.min.y) / size.y,
+            );
+            let new_min = scene_ptr - Vec2::new(fraction.x * new_size.x, fraction.y * new_size.y);
+            self.scene_rect = Rect::from_min_size(new_min, new_size);
+            ui.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
+        }
         Scene::new()
             .drag_pan_buttons(DragPanButtons::SECONDARY | DragPanButtons::MIDDLE)
             .show(ui, &mut self.scene_rect, |ui| {
@@ -826,6 +969,40 @@ impl NodeLayout {
 
                 let start = response.rect.min;
                 let style = ui.style().clone();
+
+                // Nodes under the pointer: the hovered node and the endpoints
+                // of its edges glow in the accent color.
+                let hovered_node: Option<KanbanId> =
+                    ui.ctx().pointer_latest_pos().and_then(|global| {
+                        let local = ui
+                            .ctx()
+                            .layer_transform_from_global(ui.layer_id())
+                            .map(|t| t * global)
+                            .unwrap_or(global);
+                        self.sense_regions
+                            .iter()
+                            .find(|(_, region)| {
+                                offset_rect(*region, start.to_vec2()).contains(local)
+                            })
+                            .map(|(id, _)| *id)
+                    });
+                let mut highlighted: BTreeSet<KanbanId> = BTreeSet::new();
+                let mut hot_edges: BTreeSet<(KanbanId, KanbanId)> = BTreeSet::new();
+                if let Some(target) = hovered_node {
+                    highlighted.insert(target);
+                    let edges: &[(KanbanId, KanbanId)] = if self.use_fr_layout {
+                        &self.fr_edge_list
+                    } else {
+                        &self.hier_edge_list
+                    };
+                    for &(src, dst) in edges {
+                        if src == target || dst == target {
+                            hot_edges.insert((src, dst));
+                            highlighted.insert(src);
+                            highlighted.insert(dst);
+                        }
+                    }
+                }
 
                 if self.use_fr_layout {
                     // Pass 1: edges
@@ -839,98 +1016,67 @@ impl NodeLayout {
                             let p3 = rect_edge_point(dr.center(), sr.center(), dr);
                             let p1 = p0 + (p3 - p0) * 0.33;
                             let p2 = p0 + (p3 - p0) * 0.67;
+                            let mut edge_stroke = style.noninteractive().fg_stroke;
+                            if hot_edges.contains(&(src, dst)) {
+                                edge_stroke.color = crate::ACCENT;
+                                edge_stroke.width = (edge_stroke.width * 1.6).max(2.0);
+                            }
                             paint.add(CubicBezierShape::from_points_stroke(
                                 [p0, p1, p2, p3],
                                 false,
                                 Color32::TRANSPARENT,
-                                style.noninteractive().fg_stroke,
+                                edge_stroke,
                             ));
-                            draw_arrowhead(&paint, p3, p2, style.noninteractive().fg_stroke);
+                            draw_arrowhead(&paint, p3, p2, edge_stroke);
                         }
                     }
-                    // Pass 2: node backgrounds
-                    for (id, _, look, _) in &self.fr_node_data {
-                        if let Some(&rect) = self.fr_rects.get(id) {
-                            let rect = offset_rect(rect, start.to_vec2());
-                            let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
-                                .unwrap_or(Color32::WHITE);
-                            let fill = look
-                                .fill_color
-                                .map(|c| {
-                                    Color32::from_hex(&c.to_web_color())
-                                        .unwrap_or(Color32::TRANSPARENT)
-                                })
-                                .unwrap_or(style.noninteractive().bg_fill);
-                            paint.rect(
-                                rect,
-                                0.0,
-                                fill,
-                                egui::Stroke::new(look.line_width as f32, stroke_color),
-                                egui::StrokeKind::Middle,
-                            );
-                        }
-                    }
+                    // Pass 2: node backgrounds, with status dots
+                    paint_node_rects(
+                        &paint,
+                        &style,
+                        &self.fr_node_data,
+                        &self.fr_rects,
+                        start.to_vec2(),
+                        _document,
+                        &highlighted,
+                    );
                     // Pass 3: labels
-                    for (id, text, _, _) in &self.fr_node_data {
-                        if let Some(&rect) = self.fr_rects.get(id) {
-                            let rect = offset_rect(rect, start.to_vec2());
-                            paint.text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                text,
-                                egui::FontId {
-                                    size: 15.0,
-                                    family: egui::FontFamily::Monospace,
-                                },
-                                style.noninteractive().text_color(),
-                            );
-                        }
-                    }
+                    paint_node_labels(
+                        &paint,
+                        &style,
+                        &self.fr_node_data,
+                        &self.fr_rects,
+                        start.to_vec2(),
+                        _document,
+                    );
                 } else {
-                    // Pass 1: edges — only Arrow/Line commands from layout-rs
+                    // Pass 1: edges — only Arrow/Line commands from layout-rs.
+                    // Their geometry carries no task ids, so hovered neighbor
+                    // nodes glow but their edges cannot be recolored.
                     self.commands
                         .commands
                         .iter()
                         .filter(|c| matches!(c, DrawCommand::Arrow(_) | DrawCommand::Line(_, _)))
                         .for_each(|x| x.operate_on(&paint, &style, response.rect));
-                    // Pass 2: node backgrounds
-                    for (id, _, look, _) in &self.hier_node_data {
-                        if let Some(&rect) = self.hier_rects.get(id) {
-                            let rect = offset_rect(rect, start.to_vec2());
-                            let stroke_color = Color32::from_hex(&look.line_color.to_web_color())
-                                .unwrap_or(Color32::WHITE);
-                            let fill = look
-                                .fill_color
-                                .map(|c| {
-                                    Color32::from_hex(&c.to_web_color())
-                                        .unwrap_or(Color32::TRANSPARENT)
-                                })
-                                .unwrap_or(style.noninteractive().bg_fill);
-                            paint.rect(
-                                rect,
-                                0.0,
-                                fill,
-                                egui::Stroke::new(look.line_width as f32, stroke_color),
-                                egui::StrokeKind::Middle,
-                            );
-                        }
-                    }
+                    // Pass 2: node backgrounds, with status dots
+                    paint_node_rects(
+                        &paint,
+                        &style,
+                        &self.hier_node_data,
+                        &self.hier_rects,
+                        start.to_vec2(),
+                        _document,
+                        &highlighted,
+                    );
                     // Pass 3: labels
-                    for (id, text, _, _) in &self.hier_node_data {
-                        if let Some(&rect) = self.hier_rects.get(id) {
-                            let rect = offset_rect(rect, start.to_vec2());
-                            paint.text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                text,
-                                egui::FontId {
-                                    size: 15.0,
-                                    family: egui::FontFamily::Monospace,
-                                },
-                                style.noninteractive().text_color(),
-                            );
-                        }
-                    }
+                    paint_node_labels(
+                        &paint,
+                        &style,
+                        &self.hier_node_data,
+                        &self.hier_rects,
+                        start.to_vec2(),
+                        _document,
+                    );
                 }
                 let mut hovered = false;
                 for (task_id, region) in self.sense_regions.iter() {
@@ -978,9 +1124,6 @@ impl NodeLayout {
                     if senses.drag_stopped() {
                         self.dragged_item = None;
                     }
-                    /// The amount of time that must elapse until the dragged item can be dropped onto
-                    /// the hovered item
-                    const DRAG_AND_DROP_HYSTERISIS_SECS: f32 = 1.0;
                     let current = Instant::now();
                     if let Some(dropped) = senses.dnd_hover_payload::<KanbanId>() {
                         let paint = ui.painter();
@@ -990,23 +1133,23 @@ impl NodeLayout {
                             ui.ctx().animate_value_with_time(
                                 egui::Id::new("stroke"),
                                 0.0,
-                                DRAG_AND_DROP_HYSTERISIS_SECS,
+                                DRAG_AND_DROP_HYSTERESIS_SECS,
                             );
                             ui.ctx().animate_value_with_time(
                                 egui::Id::new("roundness"),
                                 0.0,
-                                DRAG_AND_DROP_HYSTERISIS_SECS,
+                                DRAG_AND_DROP_HYSTERESIS_SECS,
                             );
                         }
                         let drag_stroke = ui.ctx().animate_value_with_time(
                             egui::Id::new("stroke"),
                             5.,
-                            DRAG_AND_DROP_HYSTERISIS_SECS,
+                            DRAG_AND_DROP_HYSTERESIS_SECS,
                         );
                         let drag_roundness = ui.ctx().animate_value_with_time(
                             egui::Id::new("roundness"),
                             3.0,
-                            DRAG_AND_DROP_HYSTERISIS_SECS,
+                            DRAG_AND_DROP_HYSTERESIS_SECS,
                         );
                         hovered = true;
                         {
@@ -1062,7 +1205,7 @@ impl NodeLayout {
                             _document.get_task(*task_id).unwrap(),
                         ) && self
                             .drag_linger
-                            .is_some_and(|x| x.elapsed().as_secs_f32() > 1.0)
+                            .is_some_and(|x| x.elapsed().as_secs_f32() > DRAG_AND_DROP_HYSTERESIS_SECS)
                         {
                             let pointer_global = ui.ctx().pointer_latest_pos().unwrap_or_default();
                             let pointer_pos = ui
@@ -1083,6 +1226,63 @@ impl NodeLayout {
                 }
                 if !hovered {
                     self.drag_linger = None;
+                }
+
+                // Collapsed-subtree pills: make right-click collapsing visible
+                // and offer a click target to expand again.
+                let mut expand: Option<KanbanId> = None;
+                {
+                    let rects = if self.use_fr_layout {
+                        &self.fr_rects
+                    } else {
+                        &self.hier_rects
+                    };
+                    for collapsed_id in self.collapsed.clone() {
+                        let Some(&rect) = rects.get(&collapsed_id) else {
+                            continue;
+                        };
+                        let Some(parent) = _document.get_task(collapsed_id) else {
+                            continue;
+                        };
+                        let hidden = _document
+                            .get_tasks()
+                            .filter(|x| x.id != collapsed_id && x.is_child_of(parent, _document))
+                            .count();
+                        if hidden == 0 {
+                            continue;
+                        }
+                        let text = format!("+{hidden}");
+                        let pill = Rect::from_min_size(
+                            Pos2::new(rect.max.x + 4.0, rect.min.y),
+                            Vec2::new(14.0 + 6.0 * text.len() as f32, 16.0),
+                        );
+                        let screen = offset_rect(pill, start.to_vec2());
+                        paint.rect(
+                            screen,
+                            8.0,
+                            crate::ACCENT,
+                            egui::Stroke::new(1.0, crate::ACCENT.gamma_multiply(0.7)),
+                            egui::StrokeKind::Middle,
+                        );
+                        paint.text(
+                            screen.center(),
+                            egui::Align2::CENTER_CENTER,
+                            text,
+                            egui::FontId {
+                                size: 11.0,
+                                family: egui::FontFamily::Proportional,
+                            },
+                            egui::Color32::WHITE,
+                        );
+                        let pill_response = ui.allocate_rect(screen, egui::Sense::click());
+                        if pill_response.on_hover_text("Expand hidden tasks").clicked() {
+                            expand = Some(collapsed_id);
+                        }
+                    }
+                }
+                if let Some(id) = expand {
+                    self.collapsed.retain(|x| *x != id);
+                    needs_update = true;
                 }
             });
         needs_update
@@ -1124,7 +1324,7 @@ fn prepare_node_display(
     document: &KanbanDocument,
     style: &egui::Style,
 ) -> (String, StyleAttr, Vec2) {
-    let mut text = item.name.clone();
+    let text = item.name.clone();
     let mut look = StyleAttr::simple();
     look.fill_color = None;
     look.line_width = style.noninteractive().bg_stroke.width as usize;
@@ -1147,10 +1347,6 @@ fn prepare_node_display(
         }
     } else {
         look.line_color = from_color32(style.noninteractive().fg_stroke.color);
-    }
-
-    if item.completed.is_some() {
-        text += " (Completed)";
     }
 
     const CHAR_W: f32 = 9.0;
@@ -1210,6 +1406,83 @@ fn draw_arrowhead(paint: &egui::Painter, tip: Pos2, from: Pos2, stroke: egui::St
         stroke.color,
         egui::Stroke::NONE,
     ));
+}
+
+/// Paint node backgrounds: rounded, category-colored, with a status dot.
+/// Nodes in `highlighted` get an accent border instead of their own.
+fn paint_node_rects(
+    paint: &egui::Painter,
+    style: &egui::Style,
+    node_data: &[(KanbanId, String, StyleAttr, Vec2)],
+    rects: &BTreeMap<KanbanId, Rect>,
+    start: Vec2,
+    document: &KanbanDocument,
+    highlighted: &BTreeSet<KanbanId>,
+) {
+    for (id, _, look, _) in node_data {
+        let Some(&rect) = rects.get(id) else {
+            continue;
+        };
+        let rect = offset_rect(rect, start);
+        let mut stroke_color =
+            Color32::from_hex(&look.line_color.to_web_color()).unwrap_or(Color32::WHITE);
+        let fill = look
+            .fill_color
+            .map(|c| Color32::from_hex(&c.to_web_color()).unwrap_or(Color32::TRANSPARENT))
+            .unwrap_or(style.noninteractive().bg_fill);
+        let mut stroke_width = look.line_width as f32;
+        if highlighted.contains(id) {
+            stroke_color = crate::ACCENT;
+            stroke_width = stroke_width.max(2.0);
+        }
+        paint.rect(
+            rect,
+            8.0,
+            fill,
+            egui::Stroke::new(stroke_width, stroke_color),
+            egui::StrokeKind::Middle,
+        );
+        paint.circle_filled(
+            Pos2::new(rect.min.x + 9.0, rect.min.y + 9.0),
+            4.0,
+            task_presentation::status_color(&document.task_status(id)),
+        );
+    }
+}
+
+/// Paint node labels, dimmed for completed tasks.
+fn paint_node_labels(
+    paint: &egui::Painter,
+    style: &egui::Style,
+    node_data: &[(KanbanId, String, StyleAttr, Vec2)],
+    rects: &BTreeMap<KanbanId, Rect>,
+    start: Vec2,
+    document: &KanbanDocument,
+) {
+    for (id, text, _, _) in node_data {
+        let Some(&rect) = rects.get(id) else {
+            continue;
+        };
+        let rect = offset_rect(rect, start);
+        let color = if document
+            .get_task(*id)
+            .is_some_and(|task| task.completed.is_some())
+        {
+            style.visuals.weak_text_color()
+        } else {
+            style.noninteractive().text_color()
+        };
+        paint.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            text,
+            egui::FontId {
+                size: 15.0,
+                family: egui::FontFamily::Monospace,
+            },
+            color,
+        );
+    }
 }
 
 fn add_item_to_graph<G>(
