@@ -83,6 +83,25 @@ impl PartialOrd for DrawCommand {
 }
 
 impl DrawCommand {
+    /// Move the command's geometry, keeping layout-rs output in the same
+    /// origin-normalized frame as the node rectangles.
+    fn translate(&mut self, delta: Vec2) {
+        match self {
+            DrawCommand::Text(pos, _, _) => *pos += delta,
+            DrawCommand::Rect(r, _, _, _) => *r = r.translate(delta),
+            DrawCommand::Circle(center, _) => *center += delta,
+            DrawCommand::Arrow(ao) => {
+                for p in &mut ao.path {
+                    *p += delta;
+                }
+            }
+            DrawCommand::Line(a, b) => {
+                *a += delta;
+                *b += delta;
+            }
+        }
+    }
+
     pub fn operate_on(&self, paint: &egui::Painter, style: &egui::Style, painting_rectangle: Rect) {
         let offset = Vec2::new(painting_rectangle.min.x, painting_rectangle.min.y);
         match self {
@@ -651,6 +670,27 @@ impl NodeLayout {
             );
             self.sense_regions.push((*task_id, rect));
             self.hier_rects.insert(*task_id, rect);
+        }
+        // Normalize to the origin: the scene painter's clip rect covers
+        // [0, max - min] of the content frame, so raw layout coordinates
+        // beyond (max - min) get cut off — e.g. collapsed-subtree pills
+        // hanging past a node's right edge. Force-directed mode already
+        // pins min to zero for the same reason.
+        if self.min.is_finite() {
+            let shift = -self.min.to_vec2();
+            if shift != Vec2::ZERO {
+                for (_, rect) in &mut self.sense_regions {
+                    *rect = rect.translate(shift);
+                }
+                for rect in self.hier_rects.values_mut() {
+                    *rect = rect.translate(shift);
+                }
+                for command in &mut self.commands.commands {
+                    command.translate(shift);
+                }
+                self.min = Pos2::ZERO;
+                self.max += shift;
+            }
         }
     }
     pub fn scroll_to(&mut self, id: KanbanId) {
@@ -1254,27 +1294,44 @@ impl NodeLayout {
                         let text = format!("+{hidden}");
                         let pill = Rect::from_min_size(
                             Pos2::new(rect.max.x + 4.0, rect.min.y),
-                            Vec2::new(14.0 + 6.0 * text.len() as f32, 16.0),
+                            Vec2::new(18.0 + 7.0 * text.len() as f32, 19.0),
                         );
                         let screen = offset_rect(pill, start.to_vec2());
-                        paint.rect(
-                            screen,
-                            8.0,
-                            crate::ACCENT,
-                            egui::Stroke::new(1.0, crate::ACCENT.gamma_multiply(0.7)),
-                            egui::StrokeKind::Middle,
-                        );
-                        paint.text(
-                            screen.center(),
-                            egui::Align2::CENTER_CENTER,
-                            text,
-                            egui::FontId {
-                                size: 11.0,
-                                family: egui::FontFamily::Proportional,
-                            },
-                            egui::Color32::WHITE,
-                        );
-                        let pill_response = ui.allocate_rect(screen, egui::Sense::click());
+                        // A real Button rather than raw paint, so the label
+                        // and its bounds reach the accessibility tree (the
+                        // inspector can then see the pill).
+                        let pill_response = ui
+                            .scope(|ui| {
+                                {
+                                    let w = &mut ui.style_mut().visuals.widgets;
+                                    w.inactive.bg_fill = crate::ACCENT;
+                                    w.inactive.weak_bg_fill = crate::ACCENT;
+                                    w.inactive.bg_stroke = egui::Stroke::new(
+                                        1.0,
+                                        crate::ACCENT.gamma_multiply(0.7),
+                                    );
+                                    w.inactive.fg_stroke =
+                                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                                    w.inactive.corner_radius = egui::CornerRadius::same(8);
+                                    w.inactive.expansion = 0.0;
+                                    let fill = crate::ACCENT.gamma_multiply(1.2);
+                                    w.hovered.bg_fill = fill;
+                                    w.hovered.weak_bg_fill = fill;
+                                    w.hovered.bg_stroke =
+                                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                                    w.hovered.fg_stroke =
+                                        egui::Stroke::new(1.0, egui::Color32::WHITE);
+                                    w.hovered.corner_radius = egui::CornerRadius::same(8);
+                                    w.hovered.expansion = 0.0;
+                                }
+                                ui.put(
+                                    screen,
+                                    egui::Button::new(
+                                        egui::RichText::new(&text).strong().size(11.0),
+                                    ),
+                                )
+                            })
+                            .inner;
                         if pill_response.on_hover_text("Expand hidden tasks").clicked() {
                             expand = Some(collapsed_id);
                         }

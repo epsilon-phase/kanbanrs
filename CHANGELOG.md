@@ -55,6 +55,12 @@
   recovers from that. Covered by a regression test.
 * The node view no longer shows stale nodes when a filter hides every
   task.
+* The collapsed-subtree pill is no longer cut off: hierarchical scene
+  content is normalized to the origin so the painter's clip rect covers
+  everything (the pill hangs past a node's right edge and was sliced
+  when layout-rs coordinates started away from zero). The pill is now
+  a real Button, so its label ("+N") and bounds appear in the
+  accessibility tree, and its width no longer wraps the text.
 
 ## Refactoring
 
